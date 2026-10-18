@@ -42,7 +42,7 @@ public final class TerrainModel {
     private final SimplexNoise seaFloor;
     private final SimplexNoise gully;
     private final SimplexNoise weirdnessSign, wetland, windswept;
-    private final SimplexNoise crags;
+    private final SimplexNoise crags, roughness;
 
     public TerrainModel(long seed, double seaLevel, double maxHeight) {
         this.seaLevel = seaLevel;
@@ -77,6 +77,7 @@ public final class TerrainModel {
         this.alpine = new SimplexNoise(s + 28);
         this.alpineRidges = new SimplexNoise(s + 29);
         this.crags = new SimplexNoise(s + 30);
+        this.roughness = new SimplexNoise(s + 31);
     }
 
     /** Macro shape at one point. */
@@ -217,10 +218,13 @@ public final class TerrainModel {
     private double detail(double x, double z, Macro m, double slope) {
         double v = m.land * (2.5 * fbm(this.microNoise, x / 140.0, z / 140.0, 3, 0.5)
                 + (1.0 - 0.5 * m.hills) * 5.0 * fbm(this.undulationNoise, x / 380.0, z / 380.0, 3, 0.5));
+        // Uneven ground: bumps of a few blocks that grow with the slope, so long slopes do not
+        // read as even staircases.
+        v += m.land * (1.0 + 4.0 * smoothstep(0.1, 0.8, slope)) * fbm(this.roughness, x / 36.0, z / 36.0, 3, 0.5);
         // Crags and ledges on steep mountain and escarpment ground, sharper on young ranges.
-        double rocky = clamp01(1.5 * m.mountain + m.plateau) * smoothstep(0.25, 1.0, slope);
+        double rocky = clamp01(1.5 * m.mountain + m.plateau) * smoothstep(0.15, 0.8, slope);
         if (rocky > 0.0) {
-            v += rocky * (5.0 + 7.0 * m.alpine) * (ridged(this.crags, x / 70.0, z / 70.0, 3) - 0.35);
+            v += rocky * (6.0 + 8.0 * m.alpine) * (ridged(this.crags, x / 70.0, z / 70.0, 3) - 0.35);
         }
         if (m.land < 1.0) {
             v += (1.0 - m.land) * 5.0 * fbm(this.seaFloor, x / 450.0, z / 450.0, 3, 0.5);

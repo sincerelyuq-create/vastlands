@@ -47,6 +47,8 @@ OPTIONS = {
     "biomeBlendRadius": "2",
     "entityShadows": "false",
     "fullscreen": "false",
+    # The cloud layer (Y 192) cuts through mountains and hides shots taken near it.
+    "renderClouds": '"false"',
 }
 
 KEY_NAMES = {" ": "space", "/": "slash", "-": "minus", ".": "period", "@": "at", "~": "asciitilde",
