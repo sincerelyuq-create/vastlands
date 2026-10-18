@@ -102,6 +102,20 @@ class VastlandsTerrainTest {
         }
     }
 
+    /** Cave biomes at vanilla distances below the surface; the deep dark only in vanilla's band. */
+    @Test
+    void depthFollowsTheSurfaceAndConfinesTheDeepDark() {
+        assertEquals(0.0, VastlandsTerrain.depth(100.0, 100));
+        assertEquals(0.5, VastlandsTerrain.depth(100.0, 36));
+        assertEquals(-1.0, VastlandsTerrain.depth(100.0, 228));
+        // 300 blocks under a peak: held below the deep dark point outside the band...
+        assertEquals(VastlandsTerrain.DEEP_HOLD, VastlandsTerrain.depth(400.0, 100));
+        assertEquals(VastlandsTerrain.DEEP_HOLD, VastlandsTerrain.depth(100.0, -200));
+        // ...and deep (deep dark under low erosion) inside it, like vanilla's Y -64..0.
+        assertEquals((400.0 + 30) / 128.0, VastlandsTerrain.depth(400.0, -30));
+        assertTrue(VastlandsTerrain.depth(400.0, -30) > 1.1);
+    }
+
     @Test
     void lowWorldsCapTheTerrainBelowTheirTop() {
         VastlandsTerrain terrain = new VastlandsTerrain(new GenerationSetup(1L, -64, 384, 63));

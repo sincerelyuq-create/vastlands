@@ -104,6 +104,11 @@ public final class SimplexNoise {
         return (int) (mix(this.seed ^ i * 0x9E3779B97F4A7C15L ^ j * 0xC2B2AE3D27D4EB4FL) >>> 58);
     }
 
+    /** 64 well-mixed bits for an integer lattice point. */
+    public long hash(long i, long j) {
+        return mix(this.seed ^ i * 0x9E3779B97F4A7C15L ^ j * 0xC2B2AE3D27D4EB4FL ^ 0x2545F4914F6CDD1DL);
+    }
+
     /** Uniform value in [0, 1) for an integer lattice point and a channel; used for jittered cells. */
     public double hash01(long i, long j, int channel) {
         long h = mix(this.seed ^ i * 0x9E3779B97F4A7C15L ^ j * 0xC2B2AE3D27D4EB4FL ^ channel * 0x165667B19E3779F9L);

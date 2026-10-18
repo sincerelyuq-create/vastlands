@@ -4,7 +4,7 @@ import struct
 
 
 class Rcon:
-    def __init__(self, host, port, password, timeout=600):
+    def __init__(self, host, port, password, timeout=3600):
         self.sock = socket.create_connection((host, port), timeout=timeout)
         self._id = 0
         if self._send(3, password) == -1:

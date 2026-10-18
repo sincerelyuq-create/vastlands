@@ -24,6 +24,10 @@ public final class VastlandsTerrain implements TerrainSystem {
     public static final double MAX_SURFACE = 470.0;
     /** Vanilla's depth parameter changes by 1 per 128 blocks. */
     private static final double DEPTH_PER_BLOCK = 1.0 / 128.0;
+    /** Below the cave biome range (0.2..0.9), above the surface biomes' second point (1.0). */
+    public static final double DEEP_HOLD = 0.95;
+    public static final int DEEP_DARK_BOTTOM = -64;
+    public static final int DEEP_DARK_TOP = 0;
 
     private final TerrainModel model;
     private final ThreadLocal<ColumnCache> cache;
@@ -82,7 +86,7 @@ public final class VastlandsTerrain implements TerrainSystem {
             case CONTINENTALNESS -> this.column(x, z).climateContinentalness();
             case EROSION -> this.column(x, z).climateErosion();
             case WEIRDNESS -> this.column(x, z).climateWeirdness();
-            case DEPTH -> clamp((this.column(x, z).height() - blockY) * DEPTH_PER_BLOCK, parameter);
+            case DEPTH -> clamp(depth(this.column(x, z).height(), blockY), parameter);
             case INITIAL_DENSITY -> {
                 // Aquifers treat everything above the preliminary surface as open air, so it must not
                 // lie above the real surface anywhere in the cell: take the lowest of its corners.
@@ -93,6 +97,23 @@ public final class VastlandsTerrain implements TerrainSystem {
                 yield terrainDensity(lowest, blockY);
             }
         };
+    }
+
+    /**
+     * Biome depth: {@code (surface - y) / 128} like vanilla, so cave biomes (depth 0.2..0.9) appear
+     * at vanilla distances below the surface. Deeper than {@link #DEEP_HOLD}, depth is held just
+     * below the deep dark point (1.1) except in vanilla's deep dark band (Y {@value #DEEP_DARK_BOTTOM}
+     * to {@value #DEEP_DARK_TOP}): otherwise the deep dark would fill everything more than ~140
+     * blocks under the surface, a layer up to 400 blocks thick under high mountains, and its sculk
+     * features would dominate generation time. The band keeps the deep dark and ancient cities
+     * where vanilla has them. Caves (Agent 4) may redesign the deep layers.
+     */
+    public static double depth(double surface, int blockY) {
+        double depth = (surface - blockY) * DEPTH_PER_BLOCK;
+        if (depth > DEEP_HOLD && (blockY < DEEP_DARK_BOTTOM || blockY > DEEP_DARK_TOP)) {
+            return DEEP_HOLD;
+        }
+        return depth;
     }
 
     private static double terrainDensity(double surface, int blockY) {

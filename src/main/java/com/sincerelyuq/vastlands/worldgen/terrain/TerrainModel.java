@@ -6,8 +6,8 @@ package com.sincerelyuq.vastlands.worldgen.terrain;
  * <p>Built in three layers:
  * <ol>
  *     <li>Macro shape: continents and sea floor, interior swells and basins, rolling hills,
- *     mountain belts (long warped bands with a crest profile, split by longitudinal valleys in
- *     places) and plateaus.</li>
+ *     mountain belts (long warped bands with a crest profile, massifs and passes along them) and
+ *     plateaus with escarpments.</li>
  *     <li>Gully erosion: a filter that cuts drainage-aligned gullies into the slopes of the macro
  *     shape at four scales, giving mountains their spurs and side valleys.</li>
  *     <li>Small detail: plains undulation, micro relief, sea floor texture.</li>
@@ -20,6 +20,7 @@ public final class TerrainModel {
     private static final double ROTATE_SIN = Math.sin(0.9);
     /** Finite-difference step for the slope of the macro shape. */
     private static final double SLOPE_STEP = 32.0;
+    private static final double SQRT3_2 = Math.sqrt(3.0) / 2.0;
     /** Largest gully cell size in blocks; each further octave halves it. */
     private static final double GULLY_CELL = 360.0;
     private static final int GULLY_OCTAVES = 4;
@@ -34,7 +35,7 @@ public final class TerrainModel {
     private final SimplexNoise basinNoise, swellNoise;
     private final SimplexNoise hillMask, hillNoise, microNoise, undulationNoise;
     private final SimplexNoise beltWarpX, beltWarpZ, belt, beltDetail, beltActivity, uplift;
-    private final SimplexNoise crest, peaks;
+    private final SimplexNoise crest, peaks, alpine, alpineRidges;
     private final SimplexNoise plateauWarpX, plateauWarpZ, plateauMask, plateauHeight;
     private final SimplexNoise seaFloor;
     private final SimplexNoise gully;
@@ -70,6 +71,8 @@ public final class TerrainModel {
         this.weirdnessSign = new SimplexNoise(s + 25);
         this.wetland = new SimplexNoise(s + 26);
         this.windswept = new SimplexNoise(s + 27);
+        this.alpine = new SimplexNoise(s + 28);
+        this.alpineRidges = new SimplexNoise(s + 29);
     }
 
     /** Macro shape at one point. */
@@ -81,14 +84,21 @@ public final class TerrainModel {
         double hills;
         double mountain;
         double mountainHeight;
+        /** 0 for old, rounded ranges .. 1 for young, sharp alpine ranges. */
+        double alpine;
         double plateau;
     }
 
     public TerrainColumn sample(double x, double z) {
         Macro m = new Macro();
         this.macro(x, z, m);
-        double slopeX = (this.smoothHeight(x + SLOPE_STEP, z) - this.smoothHeight(x - SLOPE_STEP, z)) / (2.0 * SLOPE_STEP);
-        double slopeZ = (this.smoothHeight(x, z + SLOPE_STEP) - this.smoothHeight(x, z - SLOPE_STEP)) / (2.0 * SLOPE_STEP);
+        // Gradient of the plane through three samples on a circle around (x, z): centred like a
+        // central difference, one sample cheaper.
+        double h0 = this.smoothHeight(x + SLOPE_STEP, z);
+        double h1 = this.smoothHeight(x - 0.5 * SLOPE_STEP, z + SQRT3_2 * SLOPE_STEP);
+        double h2 = this.smoothHeight(x - 0.5 * SLOPE_STEP, z - SQRT3_2 * SLOPE_STEP);
+        double slopeX = (2.0 * h0 - h1 - h2) / (3.0 * SLOPE_STEP);
+        double slopeZ = (h1 - h2) / (2.0 * SQRT3_2 * SLOPE_STEP);
         double slope = Math.sqrt(slopeX * slopeX + slopeZ * slopeZ);
 
         double gullyDepth = -this.gullies(x, z, slopeX, slopeZ, slope, m);
@@ -118,7 +128,10 @@ public final class TerrainModel {
         // Continents: warped low-frequency fBm. 0 is the coastline.
         double wx = x + 1800.0 * fbm(this.continentWarpX, x / 5000.0, z / 5000.0, 3, 0.5);
         double wz = z + 1800.0 * fbm(this.continentWarpZ, x / 5000.0, z / 5000.0, 3, 0.5);
-        double c = fbm(this.continent, wx / 11000.0, wz / 11000.0, 7, 0.5) * 1.7 + 0.36;
+        // Only the broad octaves are warped; warping the fine ones would stretch them into parallel
+        // bands along coasts and on the sea floor.
+        double c = (fbm(this.continent, wx / 11000.0, wz / 11000.0, 4, 0.5) * 0.945
+                + fbm(this.continent, x / 690.0 + 57.1, z / 690.0 - 23.9, 3, 0.5) * 0.055) * 1.7 + 0.36;
         double land = smoothstep(-0.02, 0.07, c);
         double inland = smoothstep(0.1, 0.6, c);
 
@@ -138,12 +151,13 @@ public final class TerrainModel {
         double bx = x + 2200.0 * fbm(this.beltWarpX, x / 6000.0, z / 6000.0, 2, 0.5);
         double bz = z + 2200.0 * fbm(this.beltWarpZ, x / 6000.0, z / 6000.0, 2, 0.5);
         double bn = (this.belt.sample(bx / 10000.0, bz / 10000.0) + 0.06 * this.beltDetail.sample(bx / 3000.0, bz / 3000.0)) / 0.7;
-        // Soft absolute value: rounds the crest (and the floor of split valleys) on the axis.
+        // Soft absolute value: rounds the crest on the axis instead of a knife edge.
         double d = Math.sqrt(bn * bn + 0.01) - 0.1;
         double activity = smoothstep(-0.1, 0.35, fbm(this.beltActivity, x / 13000.0, z / 13000.0, 2, 0.5))
                 * smoothstep(-0.3, 0.05, c);
         double mountainHeight = 0.0;
         double mountain = 0.0;
+        double alpine = 0.0;
         if (d < 1.0 && activity > 0.0) {
             double t = 1.0 - d;
             double profile = t * t * (1.6 - 0.6 * t);
@@ -155,6 +169,15 @@ public final class TerrainModel {
             double envelope = 380.0 * stature * activity * crestLine;
             mountainHeight = envelope * profile * (0.6 + 0.6 * peaky);
             mountain = t * activity;
+            // Young ranges get aretes and horns near their crests; old ones stay rounded.
+            alpine = smoothstep(-0.35, 0.35, fbm(this.alpine, x / 9000.0, z / 9000.0, 2, 0.5));
+            if (sharp && alpine > 0.0) {
+                double crestZone = smoothstep(0.3, 0.85, profile);
+                if (crestZone > 0.0) {
+                    double aretes = ridged(this.alpineRidges, x / 420.0, z / 420.0, 4);
+                    mountainHeight += alpine * crestZone * 0.18 * mountainHeight * (aretes - 0.4);
+                }
+            }
             hills = Math.max(hills, smoothstep(0.0, 0.6, mountain) * 30.0 * hn);
         }
 
@@ -182,6 +205,7 @@ public final class TerrainModel {
         out.hills = hilly;
         out.mountain = mountain;
         out.mountainHeight = mountainHeight;
+        out.alpine = alpine;
         out.plateau = plateau;
     }
 
@@ -202,11 +226,13 @@ public final class TerrainModel {
      * cuts below the regional base or the sea.
      */
     private double gullies(double x, double z, double slopeX, double slopeZ, double slope, Macro m) {
-        if (slope < 0.02) {
+        if (slope <= 0.05) {
             return 0.0;
         }
         double relief = m.height - Math.max(m.base, this.seaLevel + 2.0);
-        double strength = smoothstep(0.05, 0.8, slope) * clamp01(relief / (m.plateau > 0.0 ? 70.0 : 110.0));
+        // Plateau escarpments are lower than mountains, so they reach full strength at less relief.
+        double fullRelief = 110.0 - 40.0 * smoothstep(0.0, 0.3, m.plateau);
+        double strength = smoothstep(0.05, 0.8, slope) * clamp01(relief / fullRelief) * (0.6 + 0.5 * m.alpine);
         if (strength <= 0.0) {
             return 0.0;
         }
@@ -246,12 +272,20 @@ public final class TerrainModel {
         double weights = 0.0;
         for (int i = -2; i <= 1; i++) {
             for (int j = -2; j <= 1; j++) {
-                double px = fx + i - this.gully.hash01(ix - i, iz - j, 0) * 0.5;
-                double pz = fz + j - this.gully.hash01(ix - i, iz - j, 1) * 0.5;
-                double w = Math.exp(-2.0 * (px * px + pz * pz));
-                double phase = (px * dirX + pz * dirZ) * (2.0 * Math.PI);
-                double cos = Math.cos(phase);
-                double sin = Math.sin(phase);
+                long hash = this.gully.hash(ix - i, iz - j);
+                double px = fx + i - (hash & 0xFFFFFFFFL) * 0x1.0p-33;
+                double pz = fz + j - (hash >>> 32) * 0x1.0p-33;
+                // Compact stand-in for exp(-2 d^2): (1 - d^2 / 1.5^2)^3. This 4x4 window holds every
+                // feature point within distance 1.5, so the weight of points entering or leaving it
+                // is already zero and the pattern stays continuous across cell borders.
+                double t = 1.0 - (px * px + pz * pz) * (1.0 / 2.25);
+                if (t <= 0.0) {
+                    continue;
+                }
+                double w = t * t * t;
+                double cycles = px * dirX + pz * dirZ;
+                double cos = sinTurns(cycles + 0.25);
+                double sin = sinTurns(cycles);
                 value += cos * w;
                 dx -= sin * dirX * w;
                 dz -= sin * dirZ * w;
@@ -263,6 +297,19 @@ public final class TerrainModel {
         out[2] = dz / weights;
     }
 
+    /** sin(2 pi u) to within 4e-6, faster than {@link Math#sin}. */
+    static double sinTurns(double u) {
+        u -= Math.rint(u);
+        if (u > 0.25) {
+            u = 0.5 - u;
+        } else if (u < -0.25) {
+            u = -0.5 - u;
+        }
+        double x = u * (2.0 * Math.PI);
+        double x2 = x * x;
+        return x * (1.0 - x2 / 6.0 * (1.0 - x2 / 20.0 * (1.0 - x2 / 42.0 * (1.0 - x2 / 72.0))));
+    }
+
     /** Compresses heights approaching the top of the world into an asymptote at {@link #maxHeight}. */
     private double softCap(double h) {
         double knee = this.maxHeight - 110.0;
@@ -272,6 +319,20 @@ public final class TerrainModel {
         double over = h - knee;
         return knee + over / (1.0 + over / 110.0);
     }
+
+    /*
+     * Climate parameters. Biomes are chosen by vanilla's overworld table (OverworldBiomeBuilder)
+     * from these values, so they are derived from the terrain instead of independent noises:
+     * - continentalness: ocean (< -0.19, deep below -0.455) exactly where the ground is under sea
+     *   level, the coast band (-0.19..-0.11: beaches, stony shores) at the shoreline, then rising
+     *   inland (near -0.11..0.03, mid 0.03..0.3, far 0.3..1).
+     * - erosion: low where rugged. E0 (< -0.78) and E1 (< -0.375) select peak and slope biomes on
+     *   mountains, E2 plateau biomes (meadow, savanna plateau, badlands) on plateaus, E3/E4 the
+     *   ordinary biomes of hills and plains; E5 marks windswept hills, E6 flat wet lowland (swamps).
+     * - weirdness: its folded value "peaks and valleys" places peaks on crests, slopes below them
+     *   and low/mid slices on plains. |w| < 0.05 (the river biomes) is never produced: rivers are
+     *   Hydrology's. The sign picks vanilla's variant biomes and comes from its own noise.
+     */
 
     private double climateContinentalness(double c, double height) {
         double depth = this.seaLevel - height;

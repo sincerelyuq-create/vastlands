@@ -8,6 +8,7 @@ import com.sincerelyuq.vastlands.Vastlands;
 import com.sincerelyuq.vastlands.worldgen.context.GenerationContext;
 import com.sincerelyuq.vastlands.worldgen.system.TerrainSystem;
 import com.sincerelyuq.vastlands.worldgen.terrain.TerrainColumn;
+import com.sincerelyuq.vastlands.worldgen.terrain.VastlandsTerrain;
 import java.util.List;
 import java.util.function.Function;
 import net.minecraft.core.Holder;
@@ -97,7 +98,7 @@ class PresetDataTest {
                 assertEquals(column.climateContinentalness(), router.continents().compute(pos));
                 assertEquals(column.climateErosion(), router.erosion().compute(pos));
                 assertEquals(column.climateWeirdness(), router.ridges().compute(pos));
-                assertEquals((column.height() - 70) / 128.0, router.depth().compute(pos), 1e-9);
+                assertEquals(VastlandsTerrain.depth(column.height(), 70), router.depth().compute(pos));
                 // The preliminary surface (initial density threshold 0.390625) never lies above the surface.
                 int above = (int) Math.ceil(column.height());
                 assertTrue(router.initialDensityWithoutJaggedness().compute(new DensityFunction.SinglePointContext(x & ~3, above, z & ~3)) <= 0.390625);
