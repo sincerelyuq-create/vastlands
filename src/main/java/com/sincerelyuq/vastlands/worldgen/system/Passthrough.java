@@ -2,9 +2,10 @@ package com.sincerelyuq.vastlands.worldgen.system;
 
 /**
  * Placeholder for systems that are not implemented yet: density stages return their input
- * unchanged, so the Vastlands preset generates vanilla-shaped terrain; forests add nothing.
+ * unchanged; forests add nothing. Terrain is implemented ({@code VastlandsTerrain}) and has no
+ * passthrough: later systems rely on its height queries.
  */
-public enum Passthrough implements TerrainSystem, HydrologySystem, CaveSystem, ForestSystem {
+public enum Passthrough implements HydrologySystem, CaveSystem, ForestSystem {
     INSTANCE;
 
     @Override

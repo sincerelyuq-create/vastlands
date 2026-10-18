@@ -3,12 +3,11 @@ package com.sincerelyuq.vastlands.worldgen;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.sincerelyuq.vastlands.Vastlands;
 import com.sincerelyuq.vastlands.worldgen.context.GenerationContext;
-import com.sincerelyuq.vastlands.worldgen.system.GenerationSystems;
-import com.sincerelyuq.vastlands.worldgen.system.Passthrough;
+import com.sincerelyuq.vastlands.worldgen.system.TerrainSystem;
+import com.sincerelyuq.vastlands.worldgen.terrain.TerrainColumn;
 import java.util.List;
 import java.util.function.Function;
 import net.minecraft.core.Holder;
@@ -55,11 +54,12 @@ class PresetDataTest {
     }
 
     /**
-     * While every density stage is a passthrough, the Vastlands router must reproduce vanilla's
-     * overworld router exactly. Skipped automatically once a system is implemented.
+     * The Vastlands router differs from vanilla only where the terrain owns it (landscape, slides,
+     * continents, erosion, ridges, depth, initial density). Temperature, vegetation, aquifer and ore
+     * vein outputs must stay vanilla bit for bit.
      */
     @Test
-    void passthroughRouterReproducesVanillaDensity(MinecraftServer server) {
+    void routerKeepsVanillaOutputsTheTerrainDoesNotOwn(MinecraftServer server) {
         RegistryAccess registries = server.registryAccess();
         var noises = registries.lookupOrThrow(Registries.NOISE);
         var settings = registries.lookupOrThrow(Registries.NOISE_SETTINGS);
@@ -67,15 +67,11 @@ class PresetDataTest {
         RandomState vastlands = RandomState.create(settings.getOrThrow(NOISE).value(), noises, SEED);
 
         assertTrue(GenerationContext.of(vanilla).isEmpty());
-        GenerationSystems systems = GenerationContext.of(vastlands).orElseThrow().systems();
-        assumeTrue(systems.terrain() == Passthrough.INSTANCE
-                && systems.hydrology() == Passthrough.INSTANCE
-                && systems.caves() == Passthrough.INSTANCE, "a density stage is implemented");
-
+        assertTrue(GenerationContext.of(vastlands).isPresent());
         List<Function<NoiseRouter, DensityFunction>> outputs = List.of(
-                NoiseRouter::finalDensity, NoiseRouter::initialDensityWithoutJaggedness, NoiseRouter::depth,
-                NoiseRouter::continents, NoiseRouter::erosion, NoiseRouter::ridges,
-                NoiseRouter::temperature, NoiseRouter::vegetation);
+                NoiseRouter::temperature, NoiseRouter::vegetation, NoiseRouter::barrierNoise,
+                NoiseRouter::fluidLevelFloodednessNoise, NoiseRouter::fluidLevelSpreadNoise, NoiseRouter::lavaNoise,
+                NoiseRouter::veinToggle, NoiseRouter::veinRidged, NoiseRouter::veinGap);
         for (int x = -20000; x <= 20000; x += 1733) {
             for (int z = -20000; z <= 20000; z += 1911) {
                 for (int y = WorldHeight.MIN_Y; y <= WorldHeight.MAX_Y; y += 29) {
@@ -86,5 +82,59 @@ class PresetDataTest {
                 }
             }
         }
+    }
+
+    /** The terrain-owned router outputs read the terrain system of the world. */
+    @Test
+    void terrainOwnedOutputsFollowTheTerrain(MinecraftServer server) {
+        RandomState state = vastlandsState(server);
+        TerrainSystem terrain = GenerationContext.of(state).orElseThrow().systems().terrain();
+        NoiseRouter router = state.router();
+        for (int x = -6000; x <= 6000; x += 999) {
+            for (int z = -6000; z <= 6000; z += 1013) {
+                TerrainColumn column = terrain.column(x & ~3, z & ~3);
+                DensityFunction.SinglePointContext pos = new DensityFunction.SinglePointContext(x, 70, z);
+                assertEquals(column.climateContinentalness(), router.continents().compute(pos));
+                assertEquals(column.climateErosion(), router.erosion().compute(pos));
+                assertEquals(column.climateWeirdness(), router.ridges().compute(pos));
+                assertEquals((column.height() - 70) / 128.0, router.depth().compute(pos), 1e-9);
+                // The preliminary surface (initial density threshold 0.390625) never lies above the surface.
+                int above = (int) Math.ceil(column.height());
+                assertTrue(router.initialDensityWithoutJaggedness().compute(new DensityFunction.SinglePointContext(x & ~3, above, z & ~3)) <= 0.390625);
+            }
+        }
+    }
+
+    /**
+     * Final density: solid at the bottom of the world, air at the top, and the landscape surface
+     * where the terrain says it is (away from caves: checked at the surface and just above it).
+     */
+    @Test
+    void finalDensityMatchesTheTerrainSurface(MinecraftServer server) {
+        RandomState state = vastlandsState(server);
+        TerrainSystem terrain = GenerationContext.of(state).orElseThrow().systems().terrain();
+        DensityFunction finalDensity = state.router().finalDensity();
+        int checked = 0;
+        for (int x = -12000; x <= 12000; x += 1204) {
+            for (int z = -12000; z <= 12000; z += 1416) {
+                int bx = x & ~3;
+                int bz = z & ~3;
+                double surface = terrain.column(bx, bz).height();
+                assertTrue(finalDensity.compute(new DensityFunction.SinglePointContext(bx, WorldHeight.MIN_Y, bz)) > 0.0, "bottom must be solid");
+                assertTrue(finalDensity.compute(new DensityFunction.SinglePointContext(bx, WorldHeight.MAX_Y, bz)) < 0.0, "top must be air");
+                assertTrue(finalDensity.compute(new DensityFunction.SinglePointContext(bx, (int) Math.ceil(surface) + 4, bz)) < 0.0,
+                        "air above the surface at " + bx + "," + bz);
+                checked++;
+            }
+        }
+        assertTrue(checked > 300);
+    }
+
+    private static RandomState vastlandsState(MinecraftServer server) {
+        RegistryAccess registries = server.registryAccess();
+        return RandomState.create(
+                registries.lookupOrThrow(Registries.NOISE_SETTINGS).getOrThrow(NOISE).value(),
+                registries.lookupOrThrow(Registries.NOISE),
+                SEED);
     }
 }

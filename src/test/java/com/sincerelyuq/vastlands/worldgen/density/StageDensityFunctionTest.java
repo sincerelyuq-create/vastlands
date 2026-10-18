@@ -90,9 +90,11 @@ class StageDensityFunctionTest {
             created.incrementAndGet();
             return new GenerationContext(new GenerationSetup(7L, -256, 768, 63));
         });
-        DensityFunction router = DensityFunctions.min(
-                unbound(StageDensityFunction.Stage.TERRAIN, 1.0),
-                unbound(StageDensityFunction.Stage.CAVES, 2.0));
+        DensityFunction router = DensityFunctions.add(
+                unbound(StageDensityFunction.Stage.TERRAIN, 0.0),
+                DensityFunctions.min(
+                        unbound(StageDensityFunction.Stage.HYDROLOGY, 1.0),
+                        unbound(StageDensityFunction.Stage.CAVES, 2.0)));
 
         DensityFunction wired = router.mapAll(binder);
 
@@ -100,8 +102,10 @@ class StageDensityFunctionTest {
         GenerationContext context = binder.createdContext();
         assertNotNull(context);
         assertEquals(7L, context.setup().worldSeed());
-        assertEquals(1.0, wired.compute(POS));
-        assertSame(Passthrough.INSTANCE, findStage(wired, StageDensityFunction.Stage.TERRAIN).implementation());
+        DensityStage terrain = context.systems().terrain();
+        assertEquals(1.0 + terrain.apply(POS.blockX(), POS.blockY(), POS.blockZ(), 0.0), wired.compute(POS));
+        assertSame(terrain, findStage(wired, StageDensityFunction.Stage.TERRAIN).implementation());
+        assertSame(Passthrough.INSTANCE, findStage(wired, StageDensityFunction.Stage.HYDROLOGY).implementation());
         assertSame(Passthrough.INSTANCE, findStage(wired, StageDensityFunction.Stage.CAVES).implementation());
     }
 

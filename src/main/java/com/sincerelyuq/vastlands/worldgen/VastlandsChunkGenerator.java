@@ -3,7 +3,9 @@ package com.sincerelyuq.vastlands.worldgen;
 import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.sincerelyuq.vastlands.worldgen.context.GenerationContext;
+import com.sincerelyuq.vastlands.worldgen.terrain.TerrainColumn;
 import java.util.List;
+import java.util.Locale;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.world.level.biome.BiomeSource;
@@ -46,8 +48,12 @@ public class VastlandsChunkGenerator extends NoiseBasedChunkGenerator {
     @Override
     public void addDebugScreenInfo(List<String> info, RandomState random, BlockPos pos) {
         super.addDebugScreenInfo(info, random, pos);
-        info.add(GenerationContext.of(random)
-                .map(context -> "Vastlands: " + context.systems().describe())
-                .orElse("Vastlands: no generation context (noise settings contain no Vastlands stage)"));
+        GenerationContext.of(random).ifPresentOrElse(context -> {
+            info.add("Vastlands: " + context.systems().describe());
+            TerrainColumn column = context.systems().terrain().column(pos.getX(), pos.getZ());
+            info.add(String.format(Locale.ROOT, "Vastlands terrain: surface %.1f base %.1f mountain %.2f plateau %.2f slope %.2f gully %.1f",
+                    context.systems().surfaceHeight(pos.getX(), pos.getZ()), column.baseHeight(), column.mountain(),
+                    column.plateau(), column.slope(), column.gullyDepth()));
+        }, () -> info.add("Vastlands: no generation context (noise settings contain no Vastlands stage)"));
     }
 }
