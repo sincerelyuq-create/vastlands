@@ -31,6 +31,10 @@ neoForge {
         client {
             client()
             systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+            // Extra game arguments, e.g. -PclientArgs="--quickPlaySingleplayer world" (tools/worldcheck/screenshot.py).
+            if (project.hasProperty('clientArgs')) {
+                programArguments.addAll(project.property('clientArgs').toString().split(' ').toList())
+            }
         }
 
         server {

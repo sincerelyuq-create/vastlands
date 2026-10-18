@@ -27,6 +27,8 @@ public final class TerrainModel {
     /** Gully depth of an octave relative to its cell size, at full strength. */
     private static final double GULLY_DEPTH = 0.22;
     private static final double GULLY_BRANCHING = 1.5;
+    /** Heights above maxHeight - SOFT_CAP_RANGE are compressed towards maxHeight. */
+    private static final double SOFT_CAP_RANGE = 60.0;
 
     private final double seaLevel;
     private final double maxHeight;
@@ -40,6 +42,7 @@ public final class TerrainModel {
     private final SimplexNoise seaFloor;
     private final SimplexNoise gully;
     private final SimplexNoise weirdnessSign, wetland, windswept;
+    private final SimplexNoise crags;
 
     public TerrainModel(long seed, double seaLevel, double maxHeight) {
         this.seaLevel = seaLevel;
@@ -73,6 +76,7 @@ public final class TerrainModel {
         this.windswept = new SimplexNoise(s + 27);
         this.alpine = new SimplexNoise(s + 28);
         this.alpineRidges = new SimplexNoise(s + 29);
+        this.crags = new SimplexNoise(s + 30);
     }
 
     /** Macro shape at one point. */
@@ -102,7 +106,7 @@ public final class TerrainModel {
         double slope = Math.sqrt(slopeX * slopeX + slopeZ * slopeZ);
 
         double gullyDepth = -this.gullies(x, z, slopeX, slopeZ, slope, m);
-        double height = this.softCap(m.height - gullyDepth + this.detail(x, z, m));
+        double height = this.softCap(m.height - gullyDepth + this.detail(x, z, m, slope));
 
         double relief = Math.max(0.0, height - m.base);
         double ruggedness = clamp01(Math.max(Math.max(m.mountainHeight / 200.0, m.hills * 0.5), smoothstep(0.3, 1.2, slope) * 0.7));
@@ -157,7 +161,8 @@ public final class TerrainModel {
                 * smoothstep(-0.3, 0.05, c);
         double mountainHeight = 0.0;
         double mountain = 0.0;
-        double alpine = 0.0;
+        // Young, sharp ("alpine") regions vs old, rounded ones; everywhere, so it stays continuous.
+        double alpine = smoothstep(-0.35, 0.35, fbm(this.alpine, x / 9000.0, z / 9000.0, 2, 0.5));
         if (d < 1.0 && activity > 0.0) {
             double t = 1.0 - d;
             double profile = t * t * (1.6 - 0.6 * t);
@@ -170,7 +175,6 @@ public final class TerrainModel {
             mountainHeight = envelope * profile * (0.6 + 0.6 * peaky);
             mountain = t * activity;
             // Young ranges get aretes and horns near their crests; old ones stay rounded.
-            alpine = smoothstep(-0.35, 0.35, fbm(this.alpine, x / 9000.0, z / 9000.0, 2, 0.5));
             if (sharp && alpine > 0.0) {
                 double crestZone = smoothstep(0.3, 0.85, profile);
                 if (crestZone > 0.0) {
@@ -210,9 +214,14 @@ public final class TerrainModel {
     }
 
     /** Small-scale relief that does not steer the gullies. */
-    private double detail(double x, double z, Macro m) {
+    private double detail(double x, double z, Macro m, double slope) {
         double v = m.land * (2.5 * fbm(this.microNoise, x / 140.0, z / 140.0, 3, 0.5)
                 + (1.0 - 0.5 * m.hills) * 5.0 * fbm(this.undulationNoise, x / 380.0, z / 380.0, 3, 0.5));
+        // Crags and ledges on steep mountain and escarpment ground, sharper on young ranges.
+        double rocky = clamp01(1.5 * m.mountain + m.plateau) * smoothstep(0.25, 1.0, slope);
+        if (rocky > 0.0) {
+            v += rocky * (5.0 + 7.0 * m.alpine) * (ridged(this.crags, x / 70.0, z / 70.0, 3) - 0.35);
+        }
         if (m.land < 1.0) {
             v += (1.0 - m.land) * 5.0 * fbm(this.seaFloor, x / 450.0, z / 450.0, 3, 0.5);
         }
@@ -310,14 +319,17 @@ public final class TerrainModel {
         return x * (1.0 - x2 / 6.0 * (1.0 - x2 / 20.0 * (1.0 - x2 / 42.0 * (1.0 - x2 / 72.0))));
     }
 
-    /** Compresses heights approaching the top of the world into an asymptote at {@link #maxHeight}. */
+    /**
+     * Compresses heights approaching the top of the world into an asymptote at {@link #maxHeight}.
+     * The knee is high, so only the very highest summits are flattened a little.
+     */
     private double softCap(double h) {
-        double knee = this.maxHeight - 110.0;
+        double knee = this.maxHeight - SOFT_CAP_RANGE;
         if (h <= knee) {
             return h;
         }
         double over = h - knee;
-        return knee + over / (1.0 + over / 110.0);
+        return knee + over / (1.0 + over / SOFT_CAP_RANGE);
     }
 
     /*

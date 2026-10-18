@@ -24,7 +24,10 @@ public final class VastlandsTerrain implements TerrainSystem {
     public static final double MAX_SURFACE = 470.0;
     /** Vanilla's depth parameter changes by 1 per 128 blocks. */
     private static final double DEPTH_PER_BLOCK = 1.0 / 128.0;
-    /** Below the cave biome range (0.2..0.9), above the surface biomes' second point (1.0). */
+    /**
+     * Held depth of deep rock: above the cave biomes (0.2..0.9), nearest to the surface biomes'
+     * second depth point (1.0), below the deep dark point (1.1).
+     */
     public static final double DEEP_HOLD = 0.95;
     public static final int DEEP_DARK_BOTTOM = -64;
     public static final int DEEP_DARK_TOP = 0;

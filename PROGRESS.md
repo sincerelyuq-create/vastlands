@@ -2,24 +2,147 @@ Vastlands — Development Progress
 
 Current Status
 
-Phase: World Core complete, ready for Agent 2 (Terrain)
+Phase: Terrain complete, ready for Agent 3 (Hydrology)
 Project: Vastlands
 Minecraft: 1.21.8
 Loader: NeoForge 21.8.57
 
-The project builds, all tests pass, and the "Vastlands" world type generates a working world from
-Y=-256 to Y=511 on a dedicated server and in the client. All four generation systems are
-passthrough placeholders, so the terrain is still vanilla-shaped.
+The project builds and all 38 tests pass. The "Vastlands" world type generates large-scale,
+Vastlands-shaped terrain from the sea floor (Y ~ -20) to mountain peaks (up to Y ~430) in a world
+of Y -256..511, with biomes chosen to fit the terrain. Hydrology, caves and forests are still
+passthrough placeholders: there are no rivers yet.
 
 Development Roadmap
 
 - [x] Agent 1 — World Core: Create the NeoForge project foundation, configure shared generation infrastructure, and investigate expanded world height.
-- [ ] Agent 2 — Terrain: Implement realistic mountains, valleys, plains, and terrain continuity.
+- [x] Agent 2 — Terrain: Implement realistic mountains, valleys, plains, and terrain continuity.
 - [ ] Agent 3 — Hydrology: Implement large rivers, tributaries, downhill drainage, and waterfalls.
 - [ ] Agent 4 — Caves: Implement diverse cave systems and underground formations.
 - [ ] Agent 5 — Forests: Implement large forests, giant trees, and tree variations.
 
-Latest Completed Work (Agent 1 — World Core)
+Latest Completed Work (Agent 2 — Terrain)
+
+- `TerrainModel`: a deterministic 2D height field (pure Java, own seeded simplex noise with analytic
+  gradient, no permutation tables). Continents with warped coastlines, shelves and deep sea floor;
+  interior swells and basins; rolling hills; long, connected, curving mountain belts with foothills,
+  a main crest, massifs and passes along it, individual peaks, alpine aretes on young ranges and
+  rounded old ranges; plateaus with dissected escarpments; a multi-scale gully erosion filter that
+  cuts dendritic spurs and side valleys into slopes; plains undulation and small detail; heights
+  softly capped towards Y 470. Algorithm, scales and ranges: ARCHITECTURE.md, "Terrain".
+- `VastlandsTerrain` implements `TerrainSystem`: density `(surface - y) * 0.125` (one surface per
+  column, no floating terrain), a per-thread column cache, and the extended interface for later
+  systems: `column(x, z)` (height, base height, masks, gully depth, slope, climate),
+  `surfaceHeight(x, z)` (exactly as generated) and `parameter(...)` (router outputs).
+- Router: `vastlands:terrain` now gets a constant 0 input (vanilla's sloped_cheese is no longer
+  computed); new node type `vastlands:terrain_parameter` feeds `continents`, `erosion`, `ridges`,
+  `depth` and `initial_density_without_jaggedness` from the terrain. Top slide moved to 488..504.
+- Biomes follow the terrain through vanilla's own biome table: oceans exactly under water, beaches
+  and stony shores on coasts, peaks/slopes/meadows/groves on mountains, plateau biomes on plateaus,
+  swamps on flat wet lowland, no river biomes (left to Hydrology). Biome depth is relative to the
+  Vastlands surface, with the deep dark confined to vanilla's Y -64..0 band.
+- `SurfaceRulesContextMixin`: surface rules (grass, sand, snow) use the exact surface height in
+  Vastlands worlds, so narrow gully floors are not left as bare stone. Vanilla worlds unchanged.
+- F3 screen: a "Vastlands terrain" line (surface, base, mountain, plateau, slope, gully depth).
+- Tests: 20 new (TerrainModelTest, VastlandsTerrainTest, TerrainParameterFunctionTest,
+  TerrainBiomeTest, new PresetDataTest cases); the passthrough-only router test was replaced.
+- Tools: `./gradlew terrainPreview` (maps and perspective views of a seed without the game, expected
+  heights export); worldcheck: parallel spawn-ticket generation of large squares with timing,
+  `heightmap.py` (relief PNG, chunk-border seams, model comparison), `screenshot.py` (in-game
+  screenshots under Xvfb), `nbt.py`.
+
+Files and Modules Affected (Agent 2)
+
+- Code: `worldgen/terrain/*` (new: TerrainModel, TerrainColumn, VastlandsTerrain, ColumnCache,
+  SimplexNoise), `worldgen/density/TerrainParameterFunction.java` (new),
+  `worldgen/system/{TerrainSystem,TerrainParameter,GenerationSystems,Passthrough}.java`,
+  `mixin/SurfaceRulesContextMixin.java` (new), `registry/VastlandsRegistries.java`,
+  `worldgen/VastlandsChunkGenerator.java` (F3 line).
+- Data: `noise_settings/overworld.json` (router outputs, top slide),
+  `density_function/overworld/{terrain,continents,erosion,ridges,depth,initial_density}.json`,
+  `vastlands.mixins.json`.
+- Tests: `src/test/java/.../worldgen/{PresetDataTest,TerrainBiomeTest}.java`,
+  `terrain/{TerrainModelTest,VastlandsTerrainTest}.java`, `density/{StageDensityFunctionTest,
+  TerrainParameterFunctionTest}.java`, `system/GenerationSetupTest.java`, `tools/TerrainPreview.java`.
+- Build: `build.gradle` (`terrainPreview` task).
+- Tools: `tools/worldcheck/{generate,analyze,heightmap,screenshot,nbt,rcon}.py`, README.
+- Docs: `ARCHITECTURE.md`, `PROGRESS.md`, `README.md`.
+
+@@VERIFICATION@@
+
+Known Issues
+
+- No rivers, streams or inland lakes above sea level yet; long valleys exist (between ranges, gully
+  valleys inside ranges, passes) but carry no water. Inland ground below sea level fills with water
+  at Y 63 (aquifers), which makes a few sea-level lakes in basins near coasts. Owner: Hydrology.
+- Lava below Y -54 (vanilla fluid picker) and the shifted bottom-anchored features (diamonds at
+  -256..-176 etc.) are unchanged; the bottom slide stays at -64..-40, so the rock below -64 is solid
+  except for carvers. Owner: Caves.
+- Chunk generation is slow on this machine, dominated by vanilla code on the single consecutive
+  "worldgen" executor of 1.21.8: surface rules tested for every stone block down to Y -256 and
+  vanilla features. See Performance.
+- The highest massifs are broad and snowy rather than needle-like; aretes only appear on "young"
+  ranges. Cliffs exist at escarpments and canyon heads but there are no overhangs (by design: a
+  height field, no floating terrain).
+- Vanilla's "experimental settings" warning still appears when creating a Vastlands world.
+- Badlands peaks above Y 256 get vanilla's orange terracotta floor (absolute anchor in vanilla's
+  surface rule).
+- Cloud height is vanilla (192): 4.3% of the land lies above it.
+- License is "All Rights Reserved" (MDK default). Change `mod_license` in `gradle.properties` if needed.
+
+Architectural Decisions (Agent 2)
+
+- A 2D height field instead of 3D noise: geographically controllable, one surface per column (no
+  floating islands), and a cheap exact height query for later systems. Overhangs are left out.
+- Biomes are not independent noise any more: the terrain computes vanilla's climate parameters
+  (continentalness, erosion, weirdness, depth) from the landscape, and vanilla's biome table picks
+  the biomes. Temperature and humidity stay vanilla. This keeps vanilla biomes and their features
+  while making them agree with the terrain.
+- Terrain runs as Java behind the existing `vastlands:terrain` node, plus a small node type for
+  router outputs; the vanilla `final_density` body (caves, slides) is kept.
+- The terrain model is pure Java with its own noise, so it can be rendered and tested without the
+  game (`terrainPreview`, fast unit tests) and is independent of vanilla noise changes.
+- Gully erosion as a local filter (no simulation, no neighbourhood state): deterministic, seam-free
+  and order-independent, at the cost of approximate drainage (gullies follow local slopes; they do
+  not form a global river network).
+- One small mixin (`SurfaceRulesContextMixin`) because vanilla's surface rule condition cannot be
+  replaced from data (its classes are package-private); it only acts when the RandomState has a
+  Vastlands context.
+- The deep dark is confined to vanilla's band (depth held outside it): performance and gameplay.
+- Bottom slide left at -64..-40 (see Known Issues), so this stage does not create lava-flooded caves.
+
+Instructions for Agent 3 (Hydrology)
+
+1. Read ARCHITECTURE.md: "Terrain", "System Contracts" (TerrainSystem contract) and
+   "Technical Limitations".
+2. Inputs available from `TerrainSystem` (constructor argument of your system):
+   - `column(x, z).height()` and `surfaceHeight(x, z)`: the terrain surface. `baseHeight()`: the
+     regional ground level without relief, which falls towards the coasts (continent spline) except
+     in interior basins; a good drainage reference. `slopeX/slopeZ`: smoothed gradient of the
+     uneroded terrain (downhill = minus the slope). `gullyDepth()`: the gully filter's cut; its
+     maxima are the natural drainage lines of slopes. `mountain()`, `plateau()`, `continentalness()`
+     (0 = coastline, < 0 sea).
+   - The landscape density you receive in `HydrologySystem.apply` is `(surface - y) * 0.125`
+     (clamped ±128); carve channels by lowering it, and keep `outputRange` conservative.
+3. Rivers need a global structure that a local height field does not give: build drainage per
+   large region (for example a coarse grid flow accumulation per 4 096-block region, deterministic
+   from the seed and the region coordinates, with overlap/blending at region borders), or a
+   noise-based river network constrained to run downhill on `baseHeight`. Check every channel
+   against the terrain height so rivers never climb.
+4. River biomes: the terrain never produces |weirdness| < 0.05. Point the router's `ridges` output
+   (`density_function/overworld/ridges.json`) at a Hydrology node that reads the terrain value and
+   pulls it into -0.05..0.05 along rivers (and `continentalness`/`erosion` if needed).
+5. Keep surface rules and aquifers consistent with carved channels: make
+   `GenerationSystems.surfaceHeight` include channel depth (it drives `SurfaceRulesContextMixin`),
+   and lower `initial_density` (preliminary surface) along channels, or aquifers may treat channel
+   air as underground.
+6. Water above sea level is not placed by aquifers: add it in `VastlandsChunkGenerator` (e.g. after
+   noise filling) or with a feature; see the class comment.
+7. Verify with `./gradlew build`, `terrainPreview` and `tools/worldcheck` (`generate.py --center
+   --radius`, `heightmap.py --png --expected`, `screenshot.py`).
+
+Agent 1 — World Core (completed earlier)
+
+Completed Work
 
 - NeoForge 21.8.57 project on ModDevGradle 2.0.148, Gradle 9.2.1 wrapper (distribution checksum
   pinned, wrapper jar matches Gradle's published checksum), Java 21, Parchment mappings, mod id
@@ -88,7 +211,7 @@ Not verified:
 - Real GPU rendering, multiplayer with a separate client, generation performance (no measurements).
 - Anything about terrain quality: there is no Vastlands terrain yet.
 
-Known Issues
+Known Issues at the end of Agent 1 (current list: see above)
 
 - Caves cut by carvers between Y -248 and -55 are filled with lava (vanilla's fluid picker hardcodes
   lava below -54; private static in `NoiseBasedChunkGenerator`). Measured: per 16-block slice
@@ -116,24 +239,6 @@ Architectural Decisions
   terrain → hydrology → caves, forests.
 - Minimal interfaces: each agent extends its own interface instead of Agent 1 guessing APIs.
 
-Instructions for Agent 2 (Terrain)
-
-1. Read ARCHITECTURE.md ("Generation Pipeline", "System Contracts", "Technical Limitations").
-2. Implement `TerrainSystem` in a new package (e.g. `worldgen/terrain`) and construct it in
-   `GenerationSystems.create`. Use `setup.random("terrain")` or vanilla noises; keep it thread-safe
-   and order-independent.
-3. Make terrain use the full height: replace or move the vanilla slides in
-   `data/vastlands/worldgen/noise_settings/overworld.json` (bottom -64..-40, top 240..256) and the
-   depth gradient (-64..320), or replace the graph under `vastlands:overworld/terrain` entirely.
-   Keep a solid floor near -256 and nothing floating near 511.
-4. Keep `initial_density_without_jaggedness` (aquifers) and `depth` (biomes) consistent with the new heights.
-5. Add a cheap, deterministic 2D height query to `TerrainSystem` for Hydrology, and document it.
-6. Return a conservative `outputRange`.
-7. Verify with `./gradlew build`, then `python3 tools/worldcheck/generate.py --level-name t1 --fresh --accept-eula`
-   and `python3 tools/worldcheck/analyze.py run/t1`; check surface heights, highest block,
-   floating blocks, and determinism against a second run with the same seed.
-8. Do not fix the deep lava or ore distribution issues; they belong to Caves.
-
 Handoff Instructions
 
 Before starting work, each new agent must:
@@ -157,5 +262,6 @@ Do not mark a feature complete unless it has actually been implemented and verif
 
 Next Task
 
-Agent 2: Implement the Terrain system: realistic mountain ranges, valleys, plains, plateaus and cliffs
-across the full Y=-256..511 range, through `TerrainSystem` and the `vastlands:overworld` noise settings.
+Agent 3: Implement the Hydrology system: rivers with tributaries that drain downhill to the sea or
+to lakes, lakes in basins, waterfalls, through `HydrologySystem` and the router, using the terrain
+queries described above.

@@ -82,6 +82,26 @@ class TerrainModelTest {
     }
 
     /**
+     * No discontinuities anywhere: over 1/20 of a block the height changes no more than the
+     * steepest slope allows. A jump in any layer (masks switching on, cell windows, gully strength)
+     * shows up here as a step of several blocks.
+     */
+    @Test
+    void noDiscontinuities() {
+        for (long seed : SEEDS) {
+            TerrainModel model = new TerrainModel(seed, SEA, MAX);
+            Random random = new Random(seed ^ 0xD15C);
+            for (int i = 0; i < 15000; i++) {
+                double x = random.nextDouble() * 400_000 - 200_000;
+                double z = random.nextDouble() * 400_000 - 200_000;
+                double h = model.sample(x, z).height();
+                double step = Math.max(Math.abs(model.sample(x + 0.05, z).height() - h), Math.abs(model.sample(x, z + 0.05).height() - h));
+                assertTrue(step < 1.0, "seed " + seed + ": height jumps by " + step + " within 0.05 blocks at " + x + ", " + z);
+            }
+        }
+    }
+
+    /**
      * Geography in numbers, over a 400 000-block square per seed: mostly land, mostly low; mountains
      * common, high mountains exceptional; never close to the top of the world.
      */
