@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.sincerelyuq.vastlands.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "RandomStateMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

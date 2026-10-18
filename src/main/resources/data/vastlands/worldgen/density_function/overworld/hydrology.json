@@ -1,0 +1,4 @@
+{
+  "type": "vastlands:hydrology",
+  "input": "vastlands:overworld/terrain"
+}

@@ -1,0 +1,30 @@
+# Mod metadata. Values in ${} are expanded from gradle.properties by the generateModMetadata task.
+license="${mod_license}"
+issueTrackerURL="https://github.com/sincerelyuq-create/vastlands/issues"
+
+[[mods]]
+modId="${mod_id}"
+version="${mod_version}"
+displayName="${mod_name}"
+authors="${mod_authors}"
+description='''
+Realistic world generation: massive mountain ranges, rivers, vast caves and expansive forests in a world from Y=-256 to Y=511.
+Adds the "Vastlands" world type; the default world types are unchanged.
+'''
+
+[[mixins]]
+config="${mod_id}.mixins.json"
+
+[[dependencies.${mod_id}]]
+    modId="neoforge"
+    type="required"
+    versionRange="[${neo_version},)"
+    ordering="NONE"
+    side="BOTH"
+
+[[dependencies.${mod_id}]]
+    modId="minecraft"
+    type="required"
+    versionRange="${minecraft_version_range}"
+    ordering="NONE"
+    side="BOTH"
