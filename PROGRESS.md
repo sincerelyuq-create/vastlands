@@ -7,8 +7,8 @@ Project: Vastlands
 Minecraft: 1.21.8
 Loader: NeoForge 21.8.57
 
-The project builds and all 38 tests pass. The "Vastlands" world type generates large-scale,
-Vastlands-shaped terrain from the sea floor (Y ~ -20) to mountain peaks (up to Y ~430) in a world
+The project builds and all 39 tests pass. The "Vastlands" world type generates large-scale,
+Vastlands-shaped terrain from the sea floor (Y ~ -20) to mountain peaks (up to Y ~450) in a world
 of Y -256..511, with biomes chosen to fit the terrain. Hydrology, caves and forests are still
 passthrough placeholders: there are no rivers yet.
 
@@ -43,8 +43,8 @@ Latest Completed Work (Agent 2 — Terrain)
 - `SurfaceRulesContextMixin`: surface rules (grass, sand, snow) use the exact surface height in
   Vastlands worlds, so narrow gully floors are not left as bare stone. Vanilla worlds unchanged.
 - F3 screen: a "Vastlands terrain" line (surface, base, mountain, plateau, slope, gully depth).
-- Tests: 20 new (TerrainModelTest, VastlandsTerrainTest, TerrainParameterFunctionTest,
-  TerrainBiomeTest, new PresetDataTest cases); the passthrough-only router test was replaced.
+- Tests: 18 → 39 (new: TerrainModelTest 8, VastlandsTerrainTest 7, TerrainParameterFunctionTest 3,
+  TerrainBiomeTest 1, PresetDataTest 3; the passthrough-only router test was replaced).
 - Tools: `./gradlew terrainPreview` (maps and perspective views of a seed without the game, expected
   heights export); worldcheck: parallel spawn-ticket generation of large squares with timing,
   `heightmap.py` (relief PNG, chunk-border seams, model comparison), `screenshot.py` (in-game
@@ -65,9 +65,67 @@ Files and Modules Affected (Agent 2)
   TerrainParameterFunctionTest}.java`, `system/GenerationSetupTest.java`, `tools/TerrainPreview.java`.
 - Build: `build.gradle` (`terrainPreview` task).
 - Tools: `tools/worldcheck/{generate,analyze,heightmap,screenshot,nbt,rcon}.py`, README.
-- Docs: `ARCHITECTURE.md`, `PROGRESS.md`, `README.md`.
+- Docs: `ARCHITECTURE.md`, `PROGRESS.md`, `README.md`, `docs/terrain/` (previews, heightmap,
+  in-game screenshots).
 
-@@VERIFICATION@@
+Build and Test Results (Agent 2)
+
+- `./gradlew build`: BUILD SUCCESSFUL (JDK 21.0.12, Gradle 9.2.1).
+- JUnit: 39 tests, 0 failures, 0 skipped: WorldHeightDataTest 3, GenerationSetupTest 3,
+  StageDensityFunctionTest 6, TerrainParameterFunctionTest 3, RandomStateBindingTest 3,
+  TerrainModelTest 8, VastlandsTerrainTest 7, PresetDataTest 5, TerrainBiomeTest 1.
+- TerrainBiomeTest on the test server, 90 000 surface columns: all 21 007 underwater columns have
+  ocean biomes, none of 65 962 dry columns has one, all 364 columns above Y 300 have mountain or
+  highland biomes, 0 river biomes.
+- Continuity (4 seeds): the largest step between neighbouring columns is 10.3 blocks (canyon
+  walls), the mean 0.16, and no height jumps within 0.05 blocks. These tests caught three real
+  discontinuities during development (gully kernel wider than its cell window, plateau-dependent
+  gully strength, the alpine factor switching off at belt edges); all fixed.
+
+Verification in Game (Agent 2)
+
+Dedicated server (`tools/worldcheck/generate.py`, spawn-ticket generation, seed 20261018 unless noted):
+- s1 — seed 1, 16×16 chunks at 0,0, final code: bedrock floor at Y -256 in every column with
+  vanilla's 5-layer gradient (-256..-252); `setblock` works at 511, 320, 319, -64, -65, -256 and
+  fails at 512 and -257. Composition: -256..-65 deepslate 94.1%, lava 1.3% (Agent 1: 1.0%; the
+  bottom slide is unchanged), 63..255 air 69.7%, 256..511 air 100%. Ground 83..166 (rolling
+  hills); neighbour steps 0.198 inside chunks vs 0.201 across chunk borders.
+- c1, c1b, c1r — 32×32 chunks around 6750,-1250, a coastal massif with foothills:
+  - Determinism: c1 and c1b (same code, separate server runs) have identical ground in 100.000% of
+    262 144 columns.
+  - c1r (final code): ground 85..379, mean 261. The generated ground equals the model's surface in
+    84.0% of the columns and is within 1 block in 90.6%, within 3 in 95.3%; the rest is lower
+    (cave entrances and ravines cut into the surface). No seams: mean neighbour step 0.564 inside
+    chunks vs 0.530 across chunk borders.
+  - Surface (c1): grass on 88..97% of the ground below Y 200 (with a village in the foothills), a
+    snow line at 200..250, snow and packed ice above 250 (frozen/jagged peaks, snowy slopes); on
+    steep ground grass 63%, stone 13% — narrow gully floors get grass (surface rule mixin).
+- m1 — 32×32 chunks around 300,5000 (an earlier version of the model, without crags/roughness): a
+  high massif in a cold zone, ground 98..432; within 1 block of the model in 91.8% of the columns;
+  neighbour steps 0.761 inside vs 0.747 across chunk borders; snow 84%, packed ice 10%, stone 1.1%
+  of gentle ground.
+
+Client (`tools/worldcheck/screenshot.py`: dev client under Xvfb with Mesa llvmpipe, quick play
+into the server-generated worlds, spectator, render distance 16): screenshots of m1 and c1r. The
+c1r set (final code) is in `docs/terrain/` together with relief maps (terrain preview and region
+heightmaps). The F3 "Vastlands terrain" line was not checked visually (HUD hidden in the shots).
+
+Performance (details: ARCHITECTURE.md, Terrain, Performance):
+- Model: 10..30 µs per column per thread; under 1 ms per chunk with the column cache.
+- JFR, chunk generation in a mountain area: Vastlands code 2.4% of CPU samples; vanilla surface
+  rules 36%, features, noise filling 13%, aquifers 4.5%.
+- End to end, 32×32 chunks: 2.65..2.82 chunks/s (Vastlands, mountain massif, mean Y 261; one rerun
+  with interference 2.16) vs 3.13 chunks/s for the passthrough baseline on `main` at the same seed
+  and square (vanilla-shaped ground, mean Y 70). 16×16 chunks at 0,0, seed 1: 2.18 vs 1.81. Runs
+  of identical code differ by up to 25%; generation is bound by 1.21.8's single consecutive
+  "worldgen" executor in both cases.
+
+Not verified:
+- Real GPU rendering and frame rate, multiplayer with a separate client, Windows/macOS.
+- Terrain far from the origin in real worlds: generated squares were at 0,0, 300,5000 and
+  6750,-1250; the model tests sample ±200 000 blocks.
+- Seeds other than 20261018 and 1 in generated worlds (the model tests sample 4 seeds).
+- Interaction with other worldgen mods.
 
 Known Issues
 
@@ -80,9 +138,16 @@ Known Issues
 - Chunk generation is slow on this machine, dominated by vanilla code on the single consecutive
   "worldgen" executor of 1.21.8: surface rules tested for every stone block down to Y -256 and
   vanilla features. See Performance.
-- The highest massifs are broad and snowy rather than needle-like; aretes only appear on "young"
-  ranges. Cliffs exist at escarpments and canyon heads but there are no overhangs (by design: a
-  height field, no floating terrain).
+- In game, the biggest massifs read as broad, dome-like mountains from a distance rather than
+  needle peaks, and long uniform slopes still show even block terraces in places (ground roughness
+  and crags break them up only partly). Aretes appear only on "young" ranges. Cliffs exist at
+  escarpments and canyon heads but there are no overhangs (by design: a height field, no floating
+  terrain). Tuning the peak shapes further is possible in `TerrainModel` (envelope profile, peaks,
+  aretes, gully depth).
+- Gully erosion is a local filter: its valleys follow local slopes and look drainage-like, but they
+  do not form one connected river network; Hydrology needs its own routing.
+- `screenshot.py` types commands into a laggy software-rendered client; occasionally a command is
+  lost and a shot repeats the previous view.
 - Vanilla's "experimental settings" warning still appears when creating a Vastlands world.
 - Badlands peaks above Y 256 get vanilla's orange terracotta floor (absolute anchor in vanilla's
   surface rule).
@@ -171,7 +236,8 @@ Files and Modules Affected
   `src/main/resources/assets/vastlands/lang/en_us.json`.
 - Tests: `src/test/java/com/sincerelyuq/vastlands/**`.
 - Tools: `tools/worldcheck/{generate,analyze,anvil,rcon}.py`.
-- Docs: `ARCHITECTURE.md`, `PROGRESS.md`, `README.md`.
+- Docs: `ARCHITECTURE.md`, `PROGRESS.md`, `README.md`, `docs/terrain/` (previews, heightmap,
+  in-game screenshots).
 
 Build and Test Results
 

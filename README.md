@@ -12,7 +12,7 @@ Planned Features
 - Natural terrain without floating islands
 
 Status: Early development. The "Vastlands" world type, the Y=-256..511 world height and the terrain
-work: continents and seas, plains and rolling hills, long mountain ranges (up to Y ~430) with
+work: continents and seas, plains and rolling hills, long mountain ranges (up to Y ~450) with
 foothills, passes and eroded valleys, plateaus with escarpments, and biomes that follow the terrain.
 Rivers, caves and forests are not implemented yet. See PROGRESS.md.
 

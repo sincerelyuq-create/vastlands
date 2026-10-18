@@ -94,6 +94,7 @@ src/main/resources/
 src/test/java/...                                          JUnit tests (see Testing)
 src/test/java/.../tools/TerrainPreview.java                ./gradlew terrainPreview: terrain maps without the game
 tools/worldcheck/                                          world generation, region analysis, heightmaps, screenshots
+docs/terrain/                                              terrain previews, region heightmap and in-game screenshots
 ```
 
 World Preset and Height
@@ -270,8 +271,8 @@ Algorithm (`TerrainModel.sample(x, z)`), three layers:
 Elevation ranges and their frequency (4 seeds × 20 000 random columns over ±200 000 blocks, see
 `TerrainModelTest`): sea floor -20..62 on 26% of the world (1.5% below Y 0), lowlands 63..130 on
 59%, hills, plateaus and foothills 130..200 on 12%, mountains above 200 on 2.7%, above 300 on 0.5%,
-above 400 on 0.06%; highest peaks ~430. Neighbouring columns differ by at most ~10 blocks (canyon walls, crest cliffs),
-0.14 on average.
+above 400 on 0.1%; highest peaks ~450. Neighbouring columns differ by at most ~10 blocks (canyon
+walls, crest cliffs), 0.16 on average, and the height field has no discontinuities.
 
 Climate parameters (biomes come from vanilla's overworld table, `OverworldBiomeBuilder`):
 - continentalness: ocean values (< -0.19, deep ocean below -0.455 ≈ 20 blocks deep) exactly where
@@ -311,6 +312,25 @@ cache per thread (~0.5 MB); a hit returns exactly what the model computes. Clima
 read on the 4-block grid, so biome sampling, density interpolation, aquifers and surface rules share
 cached columns.
 
+Performance (measured in this repository's cloud container: 4 vCPU Intel Xeon, 15 GB RAM, Java 21,
+dev dedicated server):
+- The model costs 10..30 µs per column per thread (benchmarks and `terrainPreview`; it varies with
+  the terrain: mountains and plateaus evaluate more layers). A chunk needs about 16..25 grid
+  columns, all cached per thread: well under 1 ms per chunk.
+- JFR profile of chunk generation in a mountain area (60 s): Vastlands code is 2.4% of the CPU
+  samples. The rest is vanilla: surface rules over the deep columns (`SurfaceSystem.buildSurface`,
+  36%), features, noise filling (13%), aquifers (4.5%). Before the deep dark band, sculk features
+  alone took ~40%.
+- End to end (`generate.py`, spawn-ticket generation of 32×32 chunks including features and light):
+  2.8 chunks/s for the Vastlands terrain in a mountain area (seed 20261018 around 6750,-1250, mean
+  ground Y 261) against 3.1 chunks/s for the passthrough baseline (`main`, same seed and square,
+  vanilla-shaped ground at mean Y 70, partly sea). At 0,0 with seed 1 (16×16 chunks): 2.2 chunks/s
+  (hills, mean Y 125) against 1.8 (baseline: sea). Identical repeated runs differed by up to 25%
+  (363 s and 473 s), so the terrain does not measurably change generation speed. Both are limited
+  by 1.21.8's single consecutive "worldgen" executor, which runs surface rules, carvers and features
+  one chunk at a time; only noise filling and biome filling use the worker pool.
+- Memory: a 4 096-entry column cache (~0.5 MB) per worldgen thread; the model holds only seeds.
+
 Tuning: all constants are in `TerrainModel` (scales in blocks, heights in blocks). Render a seed
 with `./gradlew terrainPreview --args="--seed S --center X Z --size 16384 --scale 16 --out build/p"`
 (relief map + perspective view + height distribution) before generating worlds. `TerrainModelTest`
@@ -329,7 +349,7 @@ Vanilla Isolation
 
 Testing and Verification
 
-JUnit (`./gradlew test`, 38 tests):
+JUnit (`./gradlew test`, 39 tests):
 - `WorldHeightDataTest` — data files agree with `WorldHeight` and pass vanilla's codecs.
 - `GenerationSetupTest` — seeded randomness is deterministic and separated per system and seed;
   terrain is implemented, the other systems are passthrough.
@@ -339,7 +359,8 @@ JUnit (`./gradlew test`, 38 tests):
 - `RandomStateBindingTest` — the mixin binds stages in a real `RandomState`; vanilla settings get no
   context; a passthrough stage keeps vanilla density exactly.
 - `TerrainModelTest` — same seed same terrain, seeds differ, thread-safe and order-independent,
-  continuity (max neighbour step < 12 blocks, mean < 0.4 over 4 seeds), height distribution
+  continuity (max neighbour step < 12 blocks, mean < 0.4 over 4 seeds), no discontinuities (no
+  jump within 0.05 blocks), height distribution
   (sea 15..40%, lowland > 45%, above 200 0.5..8%, above 300 < 1.5% and rarer than above 200,
   max < 470), climate parameters in range, underwater ⇔ ocean continentalness, no river weirdness.
 - `VastlandsTerrainTest` — one surface per column, cache equals the model from any thread,
