@@ -100,11 +100,20 @@ Build and Test Results (Agent 2.5)
 Verification in Game (Agent 2.5)
 
 Dedicated server (`tools/worldcheck/generate.py`, seed 20261018, all chunks fully generated):
-- ice2 — 16×16 chunks at 30208,-19712 (frozen ocean, ice strength ~1): the sea surface (y 62) agrees
-  with the ice model in 100% of the 12 995 open-sea columns more than 16 blocks from an iceberg,
-  93.6% overall (vanilla's frozen-ocean icebergs cover ~17% of the square and are left standing);
-  no lava or air in the water; ice/water changes between neighbours: 0.073 across chunk borders vs
-  0.064 inside chunks (model alone: 0.048 vs 0.044 for this square).
+- ice5 — 16×16 chunks at 30208,-19712 (frozen ocean, ice strength ~1; final ice model): the sea
+  surface (y 62) agrees with the ice model in 100% of the 9 876 open-sea columns more than 16 blocks
+  from an iceberg, 93.4% overall (vanilla's frozen-ocean icebergs cover ~18% of the square and are
+  left standing); no lava or air in the water. Seams: where no iceberg interferes the world equals
+  the model block for block, and the model has no notion of chunks (`FrozenSeaTest`: neighbour
+  changes across chunk borders equal those inside chunks over 1 024² blocks). The raw neighbour
+  statistic of this small square (0.061 across chunk borders vs 0.052 inside) is dominated by
+  icebergs and their skirts; away from icebergs only 511 border pairs remain (0.045 vs 0.028),
+  too few to compare. Earlier worlds ice1–ice4 found the problems fixed since: diagonal cracks
+  drawn as dashes of single blocks touching at their corners (seen in screenshots), hairline
+  break-up cracks.
+- Weather and cracks (weak evidence, world ice2 with an earlier pattern): after ~3 minutes of a
+  client next to the ice field (random tick speed 3), 1 of ~20 600 surface water blocks had frozen; vanilla's edge freezing would have
+  closed crack edges in that time.
 - trench5 — 16×16 chunks at -82240,-191808 (trench in a warm ocean): floor down to Y -162; the floor
   equals the model within 1 block in 96.6% of the columns, within 3 in 98.3%; mean neighbour step
   0.756 inside chunks vs 0.765 across borders; the water column from the model floor to the
@@ -126,11 +135,32 @@ Dedicated server (`tools/worldcheck/generate.py`, seed 20261018, all chunks full
   16.7 (coast, 32×32), 12.5 (hills, 32×32), 11.3 (mountain summit, 24×24). Agent 2 measured
   2–3 chunks/s in an earlier session; the machine differs, see Performance below for a
   same-machine comparison of the terrain code.
-@@SHOTS@@
+- Screenshots (`tools/worldcheck/screenshot.py`, dev client under Xvfb with Mesa llvmpipe, HUD
+  hidden): ice field with cracks, a lead and icebergs, and floes close up (ice5); a warm desert
+  shore with the light shelf and dark deep water (coast1); badlands with terracotta bands on the
+  flank of a dry range (dry2, 16×16 chunks at -12900,-10400) and its frozen summit (dry1); old
+  growth birch forest in the hills (pm1). In `docs/geography/`, with model previews.
+- Not verified: the F3 "Vastlands geography" line (HUD hidden in all shots); real GPU rendering;
+  multiplayer with a separate client; seeds other than 20261018 in generated worlds (the model
+  tests sample 4 seeds); an ocean monument in a deep basin; long play in an ice field.
 
 Performance (Agent 2.5)
 
-@@PERF@@
+Same machine (this container, 4 vCPU), pure-Java harness, 64 squares of 512×512 blocks on the
+4-block grid as chunk generation samples them, after warm-up:
+- Agent 2's `TerrainModel` (origin/main): 5.4 µs per column per thread; with the geography:
+  7.3 µs (+35%: the climate with three upwind rain-shadow samples, provinces, ocean floor features).
+  Agent 2's JFR profile put all Vastlands code at 2.4% of chunk generation CPU, so this is about
+  1% of generation time. Not re-profiled with JFR.
+- Geography queries for Hydrology: `smoothElevation` 1.5 µs, `sample` 3.2 µs,
+  `seaLevelTemperature` 0.13 µs per call per thread.
+- Block steps: the trench step loops only over columns whose floor is below Y -30 (none on
+  land); the ice step returns after four temperature samples unless the chunk is near the freezing
+  band, then evaluates the fracture pattern for 256 columns (two 5×5 Voronoi searches each).
+- End to end (`generate.py`, spawn-ticket generation including features and light): 8.4–16.7
+  chunks/s for the test squares above. No same-machine run of `main` for comparison.
+- Memory: each cached `TerrainColumn` now holds a `GeographySample` (estimated from object sizes:
+  ~1.2 MB per worldgen thread for the 4 096-entry cache instead of ~0.5 MB).
 
 Known Issues
 

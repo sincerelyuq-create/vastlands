@@ -360,7 +360,8 @@ dev dedicated server):
   (363 s and 473 s), so the terrain does not measurably change generation speed. Both are limited
   by 1.21.8's single consecutive "worldgen" executor, which runs surface rules, carvers and features
   one chunk at a time; only noise filling and biome filling use the worker pool.
-- Memory: a 4 096-entry column cache (~0.5 MB) per worldgen thread; the model holds only seeds.
+- Memory: a 4 096-entry column cache per worldgen thread (~0.5 MB; ~1.2 MB estimated with the
+  geography samples); the model holds only seeds.
 
 Tuning: all constants are in `TerrainModel` (scales in blocks, heights in blocks). Render a seed
 with `./gradlew terrainPreview --args="--seed S --center X Z --size 16384 --scale 16 --out build/p"`
@@ -461,8 +462,9 @@ possible later with a Vastlands biome source).
 Landform classes (`Landform`, from the macro shape): SHELF, CONTINENTAL_SLOPE, ABYSSAL_PLAIN,
 SUBMARINE_RIDGE, SEAMOUNT, TRENCH (under water); COAST, PLAINS, HILLS, BASIN, PLATEAU, FOOTHILLS,
 MOUNTAINS (mountain relief > 60), HIGH_MOUNTAINS (> 180). Share of all columns over a 131 072-block
-square (seed 20261018): sea ~36% (abyssal plain 12.6%, slope 18%, shelf 4%, ridges 1.3%),
-plains 30%, hills 10%, foothills 12%, mountains 3.8%, high mountains 0.4%, plateaus 2%, basins 3%.
+square (seed 20261018, 128 blocks per pixel): sea 36% (abyssal plain 11.6%, slope 17.6%, shelf
+4.1%, ridges 2.9%, seamounts 0.1%, trenches < 0.05%), coast 1.7%, plains 28.4%, hills 9.9%,
+foothills 13.6%, mountains 4.3%, high mountains 0.5%, plateaus 2.1%, basins 3.1%.
 
 Trenches in the world:
 - The bottom slide (`TerrainParameter.BOTTOM_SLIDE`, `VastlandsTerrain.bottomSlide`) is vanilla's
@@ -499,18 +501,18 @@ Frozen seas (`FrozenSea`, `OceanSurface.placeIceFields`, `ServerLevelMixin`):
   water in a crack of a Vastlands ice field (vanilla freezes water at ice edges in cold biomes,
   which would close the cracks within minutes); other worlds and other water are unchanged.
 - Model: ice 82–88% of a firm field, the largest connected crack network holds 85–95% of the open
-  water, isolated holes under 10 blocks under 0.1% (`FrozenSeaTest`). Test world `ice2` (16 × 16 chunks,
-  seed 20261018 around 30208,-19712): the sea surface agrees with the model in 100% of the 12 995
-  open-sea columns more than 16 blocks from an iceberg (93.6% overall: icebergs of vanilla's
-  frozen-ocean surface rules cover ~17% of that square); no lava or air in the water.
+  water, isolated holes under 10 blocks under 0.1% (`FrozenSeaTest`). Test world `ice5` (16 × 16
+  chunks, seed 20261018 around 30208,-19712): the sea surface agrees with the model in 100% of the
+  9 876 open-sea columns more than 16 blocks from an iceberg (93.4% overall: icebergs of vanilla's
+  frozen-ocean surface rules cover ~18% of that square); no lava or air in the water.
 
 Interfaces for Hydrology (Agent 3). Everything is deterministic, thread-safe, pure in (x, z) and
 independent of chunks:
 - Coarse planning: `terrain.geography()` returns the `GeographyModel`.
   - `smoothElevation(x, z)`: regional elevation without the sharp parts (individual peaks, aretes,
-    ridge texture) — the smooth potential surface rivers should descend; ~3 µs per call.
+    ridge texture) — the smooth potential surface rivers should descend; ~1.5 µs per call.
   - `sample(x, z)`: everything in `GeographySample` (elevation, base height, continentalness,
-    provinces, mountain fields, climate, landform); ~10 µs per call.
+    provinces, mountain fields, climate, landform); ~3 µs per call.
   - `seaLevelTemperature(x, z)`: cheap; with `FrozenSea.strength` it says where seas (and rivers)
     freeze.
   Sample these on a coarse grid (e.g. 32–64 blocks over a 4 096-block region with a margin) to route
@@ -535,7 +537,13 @@ systems, plateau masks, climate zones), `oceanBias` 0.1, `plainsBias` -0.08, `la
 renders other scales. They are code constants, not a config file: a world's terrain must not depend
 on a mutable config. Changing any value changes generation (seams against existing chunks).
 
-Performance: see Terrain, Performance (measured with the geography).
+Performance (same machine, pure-Java harness, the 4-block grid of 64 squares of 512 × 512
+blocks): a terrain column costs 7.3 µs per thread with the geography against 5.4 µs for Agent 2's
+model (+35%; Agent 2 measured all Vastlands code at 2.4% of chunk generation CPU, so about 1% of
+generation time). Geography queries: `smoothElevation` 1.5 µs, `sample` 3.2 µs,
+`seaLevelTemperature` 0.13 µs. Ice step: skipped after four temperature samples unless a chunk is
+near the freezing band. Memory: a cached column now carries its `GeographySample` (estimated from
+object sizes: ~1.2 MB per worldgen thread for the 4 096-entry cache).
 
 Vanilla Isolation
 
