@@ -31,6 +31,10 @@ neoForge {
         client {
             client()
             systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+            // Extra game arguments, e.g. -PclientArgs="--quickPlaySingleplayer world" (tools/worldcheck/screenshot.py).
+            if (project.hasProperty('clientArgs')) {
+                programArguments.addAll(project.property('clientArgs').toString().split(' ').toList())
+            }
         }
 
         server {
@@ -116,4 +120,15 @@ idea {
         downloadSources = true
         downloadJavadoc = true
     }
+}
+
+// Renders the Vastlands terrain of a seed without starting the game and exports expected surface
+// heights for tools/worldcheck. Arguments: see com.sincerelyuq.vastlands.tools.TerrainPreview.
+tasks.register('terrainPreview', JavaExec) {
+    group = 'vastlands'
+    description = 'Renders Vastlands terrain previews (PNG) and exports expected surface heights'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.sincerelyuq.vastlands.tools.TerrainPreview'
+    workingDir = layout.projectDirectory.asFile
+    jvmArgs '-Djava.awt.headless=true'
 }

@@ -33,11 +33,11 @@ class World:
         with open(os.path.join(path, "worldcheck.json")) as f:
             self.meta = json.load(f)
         r = self.meta["radius"]
-        self.chunk_range = range(-r, r)
+        lo_x, lo_z, hi_x, hi_z = self.meta.get("chunk_range", [-r, -r, r - 1, r - 1])
         self.probe = tuple(self.meta["probe_column"])
         self.chunks = {}
-        for cx in self.chunk_range:
-            for cz in self.chunk_range:
+        for cx in range(lo_x, hi_x + 1):
+            for cz in range(lo_z, hi_z + 1):
                 nbt = read_chunk(os.path.join(path, "region"), cx, cz)
                 if nbt is None or nbt.get("Status") != "minecraft:full":
                     raise SystemExit("chunk %d,%d of %s is missing or not fully generated" % (cx, cz, path))

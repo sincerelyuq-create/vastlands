@@ -4,6 +4,7 @@ import com.mojang.serialization.MapCodec;
 import com.sincerelyuq.vastlands.Vastlands;
 import com.sincerelyuq.vastlands.worldgen.VastlandsChunkGenerator;
 import com.sincerelyuq.vastlands.worldgen.density.StageDensityFunction;
+import com.sincerelyuq.vastlands.worldgen.density.TerrainParameterFunction;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.world.level.chunk.ChunkGenerator;
 import net.minecraft.world.level.levelgen.DensityFunction;
@@ -30,6 +31,7 @@ public final class VastlandsRegistries {
         for (StageDensityFunction.Stage stage : StageDensityFunction.Stage.values()) {
             DENSITY_FUNCTION_TYPES.register(stage.getSerializedName(), () -> stage.codec().codec());
         }
+        DENSITY_FUNCTION_TYPES.register("terrain_parameter", () -> TerrainParameterFunction.CODEC.codec());
     }
 
     private VastlandsRegistries() {
