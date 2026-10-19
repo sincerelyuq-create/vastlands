@@ -17,8 +17,16 @@ import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.biome.BiomeSource;
 import net.minecraft.world.level.biome.Biomes;
 import net.minecraft.world.level.biome.Climate;
+import net.minecraft.world.level.LevelHeightAccessor;
+import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.level.levelgen.NoiseBasedChunkGenerator;
+import net.minecraft.world.level.levelgen.NoiseGeneratorSettings;
 import net.minecraft.world.level.levelgen.RandomState;
 import net.minecraft.world.level.levelgen.presets.WorldPreset;
+import net.minecraft.world.level.levelgen.presets.WorldPresets;
+import com.sincerelyuq.vastlands.worldgen.geography.GeographySample;
+import com.sincerelyuq.vastlands.worldgen.terrain.TerrainColumn;
+import java.util.Locale;
 import net.neoforged.testframework.junit.EphemeralTestServerProvider;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -26,7 +34,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 /**
  * Biomes are chosen by vanilla's overworld biome table from climate parameters the terrain
  * computes, so they must agree with the terrain: oceans under water, land biomes on land, mountain
- * biomes on high mountains, and no river biomes until Hydrology makes rivers.
+ * biomes on high mountains, and no river biomes until Hydrology makes rivers. They must also agree
+ * with the geography's climate, and form much larger regions than vanilla's.
  */
 @ExtendWith(EphemeralTestServerProvider.class)
 class TerrainBiomeTest {
@@ -74,5 +83,71 @@ class TerrainBiomeTest {
         assertTrue(oceanOnLand < 0.005 * dry, "ocean biomes on land: " + oceanOnLand + " of " + dry);
         assertTrue(high > 50, "too few high columns to judge: " + high);
         assertTrue(highland > 0.85 * high, "mountain biomes above Y 300: " + highland + " of " + high);
+    }
+
+    /**
+     * Climate-aware biomes: frozen oceans only in polar seas, deserts only in warm climates, jungles
+     * only in humid ones; and biome regions along long transects are at least twice as long as
+     * vanilla's for the same seed.
+     */
+    @Test
+    void biomesFollowTheClimateAndFormLargeRegions(MinecraftServer server) {
+        RegistryAccess registries = server.registryAccess();
+        VastlandsChunkGenerator generator = (VastlandsChunkGenerator) registries.lookupOrThrow(Registries.WORLD_PRESET)
+                .getOrThrow(PRESET).value().overworld().orElseThrow().generator();
+        RandomState state = RandomState.create(generator.generatorSettings().value(), registries.lookupOrThrow(Registries.NOISE), 20261018L);
+        TerrainSystem terrain = GenerationContext.of(state).orElseThrow().systems().terrain();
+        BiomeSource biomes = generator.getBiomeSource();
+
+        NoiseBasedChunkGenerator vanilla = (NoiseBasedChunkGenerator) registries.lookupOrThrow(Registries.WORLD_PRESET)
+                .getOrThrow(WorldPresets.NORMAL).value().overworld().orElseThrow().generator();
+        RandomState vanillaState = RandomState.create(registries.lookupOrThrow(Registries.NOISE_SETTINGS).getOrThrow(NoiseGeneratorSettings.OVERWORLD).value(),
+                registries.lookupOrThrow(Registries.NOISE), 20261018L);
+        LevelHeightAccessor vanillaHeight = LevelHeightAccessor.create(-64, 384);
+
+        int frozen = 0;
+        int deserts = 0;
+        int jungles = 0;
+        long runs = 0;
+        long samples = 0;
+        long vanillaRuns = 0;
+        long vanillaSamples = 0;
+        for (int line = 0; line < 8; line++) {
+            int z = -70000 + line * 20011;
+            Holder<Biome> previous = null;
+            Holder<Biome> vanillaPrevious = null;
+            for (int x = -20000; x < 20000; x += 64) {
+                TerrainColumn column = terrain.column(x, z);
+                GeographySample g = column.geography();
+                int y = (int) Math.floor(column.height());
+                Holder<Biome> biome = biomes.getNoiseBiome(QuartPos.fromBlock(x), QuartPos.fromBlock(y), QuartPos.fromBlock(z), state.sampler());
+                if (biome.is(Biomes.FROZEN_OCEAN) || biome.is(Biomes.DEEP_FROZEN_OCEAN)) {
+                    frozen++;
+                    assertTrue(g.seaLevelTemperature() < -0.44, "frozen ocean outside the polar climate: " + g);
+                }
+                if (biome.is(Biomes.DESERT)) {
+                    deserts++;
+                    assertTrue(g.temperature() > 0.05, "desert in a cool climate: " + g);
+                }
+                if (biome.is(Biomes.JUNGLE) || biome.is(Biomes.BAMBOO_JUNGLE) || biome.is(Biomes.SPARSE_JUNGLE)) {
+                    jungles++;
+                    assertTrue(g.moisture() > 0.09, "jungle in a dry climate: " + g);
+                }
+                runs += previous == null || !previous.equals(biome) ? 1 : 0;
+                samples++;
+                previous = biome;
+
+                int vanillaY = vanilla.getBaseHeight(x, z, Heightmap.Types.OCEAN_FLOOR_WG, vanillaHeight, vanillaState) - 1;
+                Holder<Biome> vanillaBiome = vanilla.getBiomeSource().getNoiseBiome(QuartPos.fromBlock(x), QuartPos.fromBlock(vanillaY), QuartPos.fromBlock(z), vanillaState.sampler());
+                vanillaRuns += vanillaPrevious == null || !vanillaPrevious.equals(vanillaBiome) ? 1 : 0;
+                vanillaSamples++;
+                vanillaPrevious = vanillaBiome;
+            }
+        }
+        double run = 64.0 * samples / runs;
+        double vanillaRun = 64.0 * vanillaSamples / vanillaRuns;
+        Vastlands.LOGGER.info(String.format(Locale.ROOT, "TerrainBiomeTest: mean biome run %.0f blocks (vanilla %.0f); frozen ocean %d, desert %d, jungle %d samples",
+                run, vanillaRun, frozen, deserts, jungles));
+        assertTrue(run > 2.0 * vanillaRun, "biome regions should be much larger than vanilla's: " + run + " vs " + vanillaRun);
     }
 }

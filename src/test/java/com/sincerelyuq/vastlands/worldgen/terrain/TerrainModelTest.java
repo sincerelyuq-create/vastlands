@@ -102,8 +102,9 @@ class TerrainModelTest {
     }
 
     /**
-     * Geography in numbers, over a 400 000-block square per seed: mostly land, mostly low; mountains
-     * common, high mountains exceptional; never close to the top of the world.
+     * Geography in numbers, over a 400 000-block square per seed: mostly land, mostly low, with
+     * expansive oceans; mountains common, high mountains exceptional; never close to the top of the
+     * world; trenches as the only ground far below the abyssal plains.
      */
     @Test
     void heightDistributionIsPlausible() {
@@ -128,13 +129,13 @@ class TerrainModelTest {
                 above300 += h > 300 ? 1 : 0;
             }
             String where = "seed " + seed + ": ";
-            assertTrue(ocean > 0.15 * n && ocean < 0.40 * n, where + "ocean " + ocean);
-            assertTrue(lowland > 0.45 * n, where + "lowland " + lowland);
+            assertTrue(ocean > 0.25 * n && ocean < 0.50 * n, where + "ocean " + ocean);
+            assertTrue(lowland > 0.38 * n, where + "lowland " + lowland);
             assertTrue(above200 > 0.005 * n && above200 < 0.08 * n, where + "above 200: " + above200);
             assertTrue(above300 < 0.015 * n, where + "above 300: " + above300);
             assertTrue(above300 < above200 / 2, where + "high mountains must be rarer");
             assertTrue(max < MAX, where + "max " + max);
-            assertTrue(min > -60.0, where + "min " + min);
+            assertTrue(min > -200.0, where + "min " + min);
         }
     }
 

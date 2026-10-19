@@ -2,25 +2,257 @@ Vastlands — Development Progress
 
 Current Status
 
-Phase: Terrain complete, ready for Agent 3 (Hydrology)
+Phase: Terrain and geography complete, ready for Agent 3 (Hydrology)
 Project: Vastlands
 Minecraft: 1.21.8
 Loader: NeoForge 21.8.57
 
-The project builds and all 39 tests pass. The "Vastlands" world type generates large-scale,
-Vastlands-shaped terrain from the sea floor (Y ~ -20) to mountain peaks (up to Y ~450) in a world
-of Y -256..511, with biomes chosen to fit the terrain. Hydrology, caves and forests are still
-passthrough placeholders: there are no rivers yet.
+The project builds and all 54 tests pass. The "Vastlands" world type generates a
+continent-scale geography in a world of Y -256..511: open oceans with shelves, continental slopes,
+abyssal plains (Y -22..-30), mid-ocean ridges, seamounts and rare trenches (to Y ~-160); continents
+with vast plains provinces, hill country, mountain systems with branch ranges (peaks up to Y ~450),
+tablelands and basins; climate zones of thousands of blocks with temperature falling with height and
+rain shadows behind ranges; vanilla biomes chosen from landform and climate; and polar seas covered by
+fractured ice fields. Hydrology, caves and forests are still passthrough placeholders: there are no
+rivers yet.
 
 Development Roadmap
 
 - [x] Agent 1 — World Core: Create the NeoForge project foundation, configure shared generation infrastructure, and investigate expanded world height.
 - [x] Agent 2 — Terrain: Implement realistic mountains, valleys, plains, and terrain continuity.
+- [x] Agent 2.5 — Geography: Continent-scale regions, climate, climate-aware biomes, oceans, trenches and frozen seas.
 - [ ] Agent 3 — Hydrology: Implement large rivers, tributaries, downhill drainage, and waterfalls.
 - [ ] Agent 4 — Caves: Implement diverse cave systems and underground formations.
 - [ ] Agent 5 — Forests: Implement large forests, giant trees, and tree variations.
 
-Latest Completed Work (Agent 2 — Terrain)
+Latest Completed Work (Agent 2.5 — Geography)
+
+- `GeographyModel` (new package `worldgen/geography`, pure Java): the macro layer of the terrain,
+  extracted from `TerrainModel` with Agent 2's noises and seeds, and extended:
+  - Ocean regions (42 000 blocks) on top of the continents: open oceans 15 000–25 000 blocks across
+    as well as inland seas; ~36% of the surface is sea (Agent 2: 26%).
+  - Sea floor: shelf (~500 blocks, under 15 deep), continental slope and rise, abyssal plains at
+    Y -22..-30; mid-ocean ridges with a central rift, seamounts and guyots (always submerged); rare
+    trenches along long arcs, down to Y ~-160 (0.19% of the sea floor below Y -45).
+  - Provinces (16 000 blocks): vast plains provinces (few hills, low undulation, mountain systems
+    weakened) and hill country; dry provinces with more tablelands, rockier, less gullied ranges.
+  - Mountain systems: Agent 2's belts plus branch ranges springing from them.
+  - Climate: temperature zones (26 000 blocks) with a lapse rate of one band per ~150 blocks;
+    moisture zones (17 000 blocks), wetter coasts, drier interiors, rain shadows from the mountain
+    crests upwind of a slowly turning prevailing wind.
+  - `GeographySample` (one documented record per column) and `Landform` (14 classes).
+- `BiomeClimate`: all five surface biome parameters from landform and climate (temperature and
+  vegetation are new terrain-owned router outputs). Deserts need warmth and dryness, hot humid land
+  gets savanna, forest and jungle, temperate drylands are steppe (plains), polar seas are frozen
+  oceans. Vanilla biomes only; biome regions are 3.6× longer than vanilla's along transects.
+- Trenches in the world: the bottom slide is a terrain node that follows trench floors
+  (`bottom_slide`), and `OceanSurface.fillDeepWater` replaces the lava, aquifer lid and carver lava
+  that vanilla puts into water below Y -54 (after noise filling and after carving).
+- Frozen seas: `FrozenSea` (two warped Voronoi networks: floes, cracks, leads, pressure ridges,
+  thick multi-year floes, a breaking-up margin) laid over polar sea columns after decoration
+  (`OceanSurface.placeIceFields`); `ServerLevelMixin` keeps weather from freezing the cracks shut.
+- `TerrainSystem.geography()` and `TerrainColumn.geography()`: the API for Hydrology (see
+  ARCHITECTURE.md, Geography, Interfaces for Hydrology).
+- F3: a "Vastlands geography" line (landform, temperature, sea temperature, moisture, rain shadow,
+  dryness, plains, ice).
+- `GeographySettings`: region scale, ocean bias, plains bias, lapse rate, rain shadow, trench gate.
+- Tools: `terrainPreview` renders `landform`, `biome` (vanilla's table on the terrain's climate),
+  `temperature`, `moisture` and `ice` maps, prints landform/climate/biome shares, the mean biome run
+  and the highest peaks, finds places (`--find desert`), exports the expected ice cover (`--cover`);
+  `tools/worldcheck/oceancheck.py` checks sea surface vs the ice model, ice seams, lava and air in
+  the water column and the model floor.
+
+Files and Modules Affected (Agent 2.5)
+
+- New: `worldgen/geography/{GeographyModel,GeographySample,GeographySettings,Landform,FrozenSea}`,
+  `worldgen/noise/{SimplexNoise (moved from terrain),NoiseMath}`, `worldgen/terrain/BiomeClimate`,
+  `worldgen/ocean/OceanSurface`, `mixin/ServerLevelMixin`.
+- Changed: `worldgen/terrain/{TerrainModel,TerrainColumn,VastlandsTerrain}`,
+  `worldgen/system/{TerrainSystem,TerrainParameter}`, `worldgen/VastlandsChunkGenerator`,
+  `vastlands.mixins.json`.
+- Data: `noise_settings/overworld.json` (temperature, vegetation, bottom slide),
+  `density_function/overworld/{temperature,vegetation,bottom_slide}.json` (new).
+- Tests: `geography/{GeographyModelTest,FrozenSeaTest}` (new), `TerrainModelTest` (sea share,
+  lowland share and minimum height ranges for the geography), `PresetDataTest` (temperature and
+  vegetation are terrain-owned; trench test), `TerrainBiomeTest` (climate consistency, region size
+  against vanilla), `tools/TerrainPreview`.
+- Tools and docs: `tools/worldcheck/oceancheck.py` (new), `ARCHITECTURE.md` (Geography section and
+  updates), `PROGRESS.md`, `README.md`, `docs/geography/` (previews and in-game images).
+
+Build and Test Results (Agent 2.5)
+
+- `./gradlew build`: BUILD SUCCESSFUL (JDK 21.0.12, Gradle 9.2.1).
+- JUnit: 54 tests, 0 failures, 0 skipped: WorldHeightDataTest 3, GenerationSetupTest 3, StageDensityFunctionTest 6,
+  TerrainParameterFunctionTest 3, RandomStateBindingTest 3, TerrainModelTest 8, VastlandsTerrainTest 7,
+  PresetDataTest 6, TerrainBiomeTest 2, GeographyModelTest 7, FrozenSeaTest 6.
+- Geography (4 seeds, ±200 000 blocks): sea 30–44%; longest open sea on 60 000-block transects
+  15 600–24 800 blocks; plains provinces run 2 200–3 000 blocks on average; climate zones ~3 000;
+  shelf depth under 15, abyssal depth 65–110 (mean); no submarine feature above sea level − 6; trench
+  floor 0.19% of the sea floor, deepest Y -155; no field jumps within 1/20 block.
+- Ice fields (model): ice 82–88% of a firm field, largest crack network 85–95% of the open water,
+  isolated holes under 10 blocks under 0.1%; ice falls monotonically towards the warm edge; neighbour
+  changes across chunk borders equal those inside chunks.
+- Test server: router temperature/vegetation equal the terrain's values; trench water open from the
+  floor (Y -157 at -82240,-191808) to Y -30 in the final density, rock below; surface biomes: every
+  underwater column ocean, no dry one, all above Y 300 highland, no rivers; every frozen ocean
+  polar, every desert warm, every jungle humid; mean biome run 593 blocks vs 166 for vanilla.
+
+Verification in Game (Agent 2.5)
+
+Dedicated server (`tools/worldcheck/generate.py`, seed 20261018, all chunks fully generated):
+- ice5 — 16×16 chunks at 30208,-19712 (frozen ocean, ice strength ~1; final ice model): the sea
+  surface (y 62) agrees with the ice model in 100% of the 9 876 open-sea columns more than 16 blocks
+  from an iceberg, 93.4% overall (vanilla's frozen-ocean icebergs cover ~18% of the square and are
+  left standing); no lava or air in the water. Seams: where no iceberg interferes the world equals
+  the model block for block, and the model has no notion of chunks (`FrozenSeaTest`: neighbour
+  changes across chunk borders equal those inside chunks over 1 024² blocks). The raw neighbour
+  statistic of this small square (0.061 across chunk borders vs 0.052 inside) is dominated by
+  icebergs and their skirts; away from icebergs only 511 border pairs remain (0.045 vs 0.028),
+  too few to compare. Earlier worlds ice1–ice4 found the problems fixed since: diagonal cracks
+  drawn as dashes of single blocks touching at their corners (seen in screenshots), hairline
+  break-up cracks.
+- Weather and cracks (weak evidence, world ice2 with an earlier pattern): after ~3 minutes of a
+  client next to the ice field (random tick speed 3), 1 of ~20 600 surface water blocks had frozen; vanilla's edge freezing would have
+  closed crack edges in that time.
+- trench5 — 16×16 chunks at -82240,-191808 (trench in a warm ocean): floor down to Y -162; the floor
+  equals the model within 1 block in 96.6% of the columns, within 3 in 98.3%; mean neighbour step
+  0.756 inside chunks vs 0.765 across borders; the water column from the model floor to the
+  surface holds only water, corals and sea plants, plus a sunken geode and a shipwreck; lava touches
+  the sea only in cave mouths in the floor (0.4% of the columns). The first test worlds showed the
+  problems this fixed: lava in the open water below Y -54, an aquifer lid of rock and air at
+  Y -46..-54 over the trench, lava tunnels from carvers through the water.
+- coast1 — 32×32 chunks at 4560,3200 (island shore, continental slope, abyssal plain): floor to
+  Y -43; ground equals the model within 1 block in 89.2%, within 3 in 94.6% (the rest: carver
+  pits, ravines, structures); no lava in the water; 40 of 188 675 open-sea columns (0.02%) are dry
+  shoreline dips; neighbour steps 0.408 inside vs 0.396 across chunk borders.
+- pm1 — 32×32 chunks at 2992,16400 (hills and foothills of a range, Y 39..188): ground equals the
+  model within 1 block in 90.3%, within 3 in 93.5%; steps 0.559 inside vs 0.556 across borders;
+  old growth birch, birch and ordinary forest (temperate, humid).
+- dry1 — 24×24 chunks at -12512,-10704 (summit of a range in a hot, arid region, Y 215..403):
+  within 1 block in 96.9%; steps 0.483 vs 0.488; stony peaks at Y 200–250, frozen peaks above
+  (temperature lapse), surrounded by desert and badlands in the previews.
+- Generation speed (spawn-ticket generation, this container): 12.6 chunks/s (ice, trench, 16×16),
+  16.7 (coast, 32×32), 12.5 (hills, 32×32), 11.3 (mountain summit, 24×24). Agent 2 measured
+  2–3 chunks/s in an earlier session; the machine differs, see Performance below for a
+  same-machine comparison of the terrain code.
+- Screenshots (`tools/worldcheck/screenshot.py`, dev client under Xvfb with Mesa llvmpipe, HUD
+  hidden): ice field with cracks, a lead and icebergs, and floes close up (ice5); a warm desert
+  shore with the light shelf and dark deep water (coast1); badlands with terracotta bands on the
+  flank of a dry range (dry2, 16×16 chunks at -12900,-10400) and its frozen summit (dry1); old
+  growth birch forest in the hills (pm1). In `docs/geography/`, with model previews.
+- Not verified: the F3 "Vastlands geography" line (HUD hidden in all shots); real GPU rendering;
+  multiplayer with a separate client; seeds other than 20261018 in generated worlds (the model
+  tests sample 4 seeds); an ocean monument in a deep basin; long play in an ice field.
+
+Performance (Agent 2.5)
+
+Same machine (this container, 4 vCPU), pure-Java harness, 64 squares of 512×512 blocks on the
+4-block grid as chunk generation samples them, after warm-up:
+- Agent 2's `TerrainModel` (origin/main): 5.4 µs per column per thread; with the geography:
+  7.3 µs (+35%: the climate with three upwind rain-shadow samples, provinces, ocean floor features).
+  Agent 2's JFR profile put all Vastlands code at 2.4% of chunk generation CPU, so this is about
+  1% of generation time. Not re-profiled with JFR.
+- Geography queries for Hydrology: `smoothElevation` 1.5 µs, `sample` 3.2 µs,
+  `seaLevelTemperature` 0.13 µs per call per thread.
+- Block steps: the trench step loops only over columns whose floor is below Y -30 (none on
+  land); the ice step returns after four temperature samples unless the chunk is near the freezing
+  band, then evaluates the fracture pattern for 256 columns (two 5×5 Voronoi searches each).
+- End to end (`generate.py`, spawn-ticket generation including features and light): 8.4–16.7
+  chunks/s for the test squares above. No same-machine run of `main` for comparison.
+- Memory: each cached `TerrainColumn` now holds a `GeographySample` (estimated from object sizes:
+  ~1.2 MB per worldgen thread for the 4 096-entry cache instead of ~0.5 MB).
+
+Known Issues
+
+- No rivers, streams or inland lakes above sea level yet (Hydrology). Interior basins below sea level
+  hold sea-level lakes (aquifers), as before.
+- Below Y -54 vanilla's fluid picker still fills caves with lava; only open trench water is fixed.
+  Where a cave opens into a trench floor, lava meets the sea (obsidian, magma). Owner: Caves.
+- The bottom slide is still vanilla's -64..-40 except under trenches. Owner: Caves.
+- Vanilla's frozen-ocean icebergs (surface rules) cover ~17% of polar seas; vanilla's iceberg
+  feature can carve melt pools into the ice field of a neighbouring chunk that was decorated
+  earlier, which makes the ice next to some icebergs depend on generation order (like vanilla trees
+  and ore blobs on chunk borders).
+- Deep frozen oceans (ice strength below 0.3) have rain instead of snow (vanilla biome temperature);
+  firm polar seas are frozen oceans.
+- Warm-ocean corals grow on any sea floor, including trench floors at Y -150 (vanilla features).
+- Ocean monuments in deep basins should stand on tall prismarine pillars (vanilla's monument fills
+  its base down to the floor); read from the code, not seen in a test world.
+- Desert mountains are badlands on their slopes, with the badlands' absolute terracotta bands
+  (Agent 2's note about badlands above Y 256 still applies, less often because high ground cools).
+- A few shoreline dips below sea level stay dry (0.02% of the open-sea columns in the coast test).
+- Climate zones are noise-shaped (no latitude): the coldest and hottest regions are roundish blobs
+  of 5 000–15 000 blocks; frozen seas follow them.
+- High ground is rarer than with Agent 2's terrain: 1.6% of the world above Y 200 (Agent 2: 2.7%)
+  and 0.25% above Y 300 (0.5%), because more of the world is sea and plains provinces weaken
+  mountain systems. The highest peaks still reach Y ~450. Tunable: `plainsBias`, `oceanBias`, the
+  activity factor in `GeographyModel.macro`.
+- Agent 2's documented massif at 6750,-1250 (docs/terrain) is now under the sea: the ocean regions
+  moved coastlines. Worlds created before this change get seams at the border to new chunks.
+- Unchanged from Agent 2: experimental-settings warning, cloud height 192, `screenshot.py` lost
+  input, license "All Rights Reserved".
+
+Architectural Decisions (Agent 2.5)
+
+- Geography as its own pure-Java layer under the terrain (not a fourth unrelated noise): the
+  terrain's macro shape is the geography's `elevation`, the climate reads that elevation, and the
+  biome parameters read both. Agent 2's noises and seeds are kept, so its mountains are unchanged
+  where the ocean regions did not move the coast.
+- Vanilla's biome table instead of a custom biome source: biome features, structures, spawns and
+  `/locate` stay vanilla; the geography supplies all five surface parameters. Two small couplings
+  (dryness → desert, humidity → jungle) and the temperate-steppe rule fix the vanilla table's
+  temperature-only deserts and temperate-arid flower forests. No custom biomes yet.
+- Ocean features and trenches as part of the height field (no 3D structures), so they are
+  continuous, testable without the game, and Hydrology sees them.
+- The bottom slide as a terrain parameter: vanilla's band stays everywhere except under trenches, so
+  the deep rock (and Agent 4's future lava fix) is unaffected elsewhere.
+- Block steps in `VastlandsChunkGenerator` (after noise, after carvers, after decoration) for what
+  density cannot express: water in trenches, ice fields. All are pure functions of the column.
+- Ice fields after the chunk's own decoration, and a narrow mixin on weather freezing: vanilla's
+  freezing would otherwise close every crack.
+- Configuration in code (`GeographySettings`), not a config file, so a world's terrain never
+  depends on a mutable file; scales are one multiplier for previews and tuning.
+- Rejected: parallel ranges along mountain flanks (crest lines at fixed offsets from the belt axis).
+  Both variants tried (phase from the belt field, and from its distance) made thin, fingerprint-like
+  ridges where the domain warp squeezes a belt; branch ranges give connected systems without it.
+
+Instructions for Agent 3 (Hydrology)
+
+1. Read ARCHITECTURE.md: "Geography" (especially "Interfaces for Hydrology"), "Terrain",
+   "System Contracts" and "Technical Limitations".
+2. Inputs (the `TerrainSystem` passed to your system):
+   - Coarse planning: `terrain.geography()` — `smoothElevation(x, z)` (smooth regional elevation,
+     the potential rivers must descend), `sample(x, z)` (`GeographySample`: elevation, baseHeight,
+     continentalness, landform, plains/hilliness/dryness/basin/plateau, mountain fields, temperature,
+     moisture, rain shadow, wind), `seaLevelTemperature(x, z)`. Pure functions, no chunk access:
+     sample them on a coarse grid (32–64 blocks) per region with a margin.
+   - Exact surface: `column(x, z)` (with `.geography()`), `surfaceHeight(x, z)`, `slopeX/slopeZ`,
+     `gullyDepth()` (natural drainage lines on slopes), as described by Agent 2.
+   - Rivers end on the shelf or at the coast (landform SHELF/COAST, continentalness ~0); lakes belong
+     in BASIN landforms (which already dip below sea level); waterfalls fit plateau escarpments
+     (`plateau` falls from 1 to 0) and steep mountain ground; river size can follow `moisture`
+     (runoff) times drainage area; dry provinces (`dryness`) suit ephemeral or fewer rivers; rivers
+     freeze where `FrozenSea.strength(temperature)` > 0 (frozen-river biomes need the polar band).
+   - The landscape density you receive in `HydrologySystem.apply` is `(surface - y) * 0.125`
+     (clamped ±128); carve channels by lowering it, keep `outputRange` conservative.
+3. Rivers need a global structure: build drainage per large region (coarse flow accumulation on
+   `smoothElevation`, deterministic from the seed and region coordinates, blended at region
+   borders), or a network constrained to run downhill. Check every channel against the terrain
+   height so rivers never climb.
+4. River biomes: the terrain never produces |weirdness| < 0.05. Point the router's `ridges` output
+   at a Hydrology node that reads the terrain value and pulls it into -0.05..0.05 along rivers; the
+   other four parameters (temperature, vegetation, continentalness, erosion) are terrain-owned too.
+5. Keep surface rules and aquifers consistent with carved channels: include channel depth in
+   `GenerationSystems.surfaceHeight` (drives `SurfaceRulesContextMixin`) and lower `initial_density`
+   along channels.
+6. Water above sea level is not placed by aquifers: add it in `VastlandsChunkGenerator` (it already
+   has the noise, carver and decoration hooks used by `OceanSurface`) or with a feature.
+7. Verify with `./gradlew build`, `terrainPreview` (`--maps relief,landform,biome`) and
+   `tools/worldcheck` (`generate.py`, `heightmap.py --expected`, `oceancheck.py`, `screenshot.py`).
+
+Agent 2 — Terrain (completed earlier)
+
+Completed Work (Agent 2)
 
 - `TerrainModel`: a deterministic 2D height field (pure Java, own seeded simplex noise with analytic
   gradient, no permutation tables). Continents with warped coastlines, shelves and deep sea floor;
@@ -127,7 +359,7 @@ Not verified:
 - Seeds other than 20261018 and 1 in generated worlds (the model tests sample 4 seeds).
 - Interaction with other worldgen mods.
 
-Known Issues
+Known Issues at the end of Agent 2 (current list: see above)
 
 - No rivers, streams or inland lakes above sea level yet; long valleys exist (between ranges, gully
   valleys inside ranges, passes) but carry no water. Inland ground below sea level fills with water
@@ -174,36 +406,6 @@ Architectural Decisions (Agent 2)
   Vastlands context.
 - The deep dark is confined to vanilla's band (depth held outside it): performance and gameplay.
 - Bottom slide left at -64..-40 (see Known Issues), so this stage does not create lava-flooded caves.
-
-Instructions for Agent 3 (Hydrology)
-
-1. Read ARCHITECTURE.md: "Terrain", "System Contracts" (TerrainSystem contract) and
-   "Technical Limitations".
-2. Inputs available from `TerrainSystem` (constructor argument of your system):
-   - `column(x, z).height()` and `surfaceHeight(x, z)`: the terrain surface. `baseHeight()`: the
-     regional ground level without relief, which falls towards the coasts (continent spline) except
-     in interior basins; a good drainage reference. `slopeX/slopeZ`: smoothed gradient of the
-     uneroded terrain (downhill = minus the slope). `gullyDepth()`: the gully filter's cut; its
-     maxima are the natural drainage lines of slopes. `mountain()`, `plateau()`, `continentalness()`
-     (0 = coastline, < 0 sea).
-   - The landscape density you receive in `HydrologySystem.apply` is `(surface - y) * 0.125`
-     (clamped ±128); carve channels by lowering it, and keep `outputRange` conservative.
-3. Rivers need a global structure that a local height field does not give: build drainage per
-   large region (for example a coarse grid flow accumulation per 4 096-block region, deterministic
-   from the seed and the region coordinates, with overlap/blending at region borders), or a
-   noise-based river network constrained to run downhill on `baseHeight`. Check every channel
-   against the terrain height so rivers never climb.
-4. River biomes: the terrain never produces |weirdness| < 0.05. Point the router's `ridges` output
-   (`density_function/overworld/ridges.json`) at a Hydrology node that reads the terrain value and
-   pulls it into -0.05..0.05 along rivers (and `continentalness`/`erosion` if needed).
-5. Keep surface rules and aquifers consistent with carved channels: make
-   `GenerationSystems.surfaceHeight` include channel depth (it drives `SurfaceRulesContextMixin`),
-   and lower `initial_density` (preliminary surface) along channels, or aquifers may treat channel
-   air as underground.
-6. Water above sea level is not placed by aquifers: add it in `VastlandsChunkGenerator` (e.g. after
-   noise filling) or with a feature; see the class comment.
-7. Verify with `./gradlew build`, `terrainPreview` and `tools/worldcheck` (`generate.py --center
-   --radius`, `heightmap.py --png --expected`, `screenshot.py`).
 
 Agent 1 — World Core (completed earlier)
 
@@ -329,5 +531,5 @@ Do not mark a feature complete unless it has actually been implemented and verif
 Next Task
 
 Agent 3: Implement the Hydrology system: rivers with tributaries that drain downhill to the sea or
-to lakes, lakes in basins, waterfalls, through `HydrologySystem` and the router, using the terrain
-queries described above.
+to lakes, lakes in basins, waterfalls, through `HydrologySystem` and the router, using the
+geography and terrain queries described above (Instructions for Agent 3).

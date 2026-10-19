@@ -1,4 +1,4 @@
-package com.sincerelyuq.vastlands.worldgen.terrain;
+package com.sincerelyuq.vastlands.worldgen.noise;
 
 /**
  * Seeded 2D simplex noise with analytic gradient, in [-1, 1].
@@ -116,7 +116,7 @@ public final class SimplexNoise {
     }
 
     /** MurmurHash3 64-bit finalizer. */
-    static long mix(long h) {
+    public static long mix(long h) {
         h ^= h >>> 33;
         h *= 0xFF51AFD7ED558CCDL;
         h ^= h >>> 33;

@@ -21,7 +21,17 @@ public enum TerrainParameter implements StringRepresentable {
     /** Router {@code depth}: (surface - y) / 128, 0 at the surface, positive underground. */
     DEPTH("depth", -8.0, 8.0),
     /** Router {@code initial_density_without_jaggedness}: positive below a conservative surface estimate. */
-    INITIAL_DENSITY("initial_density", -128.0, 128.0);
+    INITIAL_DENSITY("initial_density", -128.0, 128.0),
+    /** Router {@code temperature}: vanilla climate temperature, from the geography's climate. */
+    TEMPERATURE("temperature", -1.0, 1.0),
+    /** Router {@code vegetation}: vanilla climate humidity, from the geography's climate. */
+    VEGETATION("vegetation", -1.0, 1.0),
+    /**
+     * Bottom slide factor inside the final density (vanilla: {@code y_clamped_gradient} -64..-40):
+     * 0 forces the rock below the landscape solid, 1 leaves the landscape. Vanilla's band except
+     * under abyssal trenches, where it moves down with the trench floor.
+     */
+    BOTTOM_SLIDE("bottom_slide", 0.0, 1.0);
 
     public static final Codec<TerrainParameter> CODEC = StringRepresentable.fromEnum(TerrainParameter::values);
 

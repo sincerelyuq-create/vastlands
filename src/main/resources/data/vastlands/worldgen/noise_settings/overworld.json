@@ -45,13 +45,7 @@
                   "argument1": 0.1171875,
                   "argument2": {
                     "type": "minecraft:mul",
-                    "argument1": {
-                      "type": "minecraft:y_clamped_gradient",
-                      "from_value": 0.0,
-                      "from_y": -64,
-                      "to_value": 1.0,
-                      "to_y": -40
-                    },
+                    "argument1": "vastlands:overworld/bottom_slide",
                     "argument2": {
                       "type": "minecraft:add",
                       "argument1": -0.1171875,
@@ -189,24 +183,8 @@
       "y_scale": 1.0
     },
     "ridges": "vastlands:overworld/ridges",
-    "temperature": {
-      "type": "minecraft:shifted_noise",
-      "noise": "minecraft:temperature",
-      "shift_x": "minecraft:shift_x",
-      "shift_y": 0.0,
-      "shift_z": "minecraft:shift_z",
-      "xz_scale": 0.25,
-      "y_scale": 0.0
-    },
-    "vegetation": {
-      "type": "minecraft:shifted_noise",
-      "noise": "minecraft:vegetation",
-      "shift_x": "minecraft:shift_x",
-      "shift_y": 0.0,
-      "shift_z": "minecraft:shift_z",
-      "xz_scale": 0.25,
-      "y_scale": 0.0
-    },
+    "temperature": "vastlands:overworld/temperature",
+    "vegetation": "vastlands:overworld/vegetation",
     "vein_gap": {
       "type": "minecraft:noise",
       "noise": "minecraft:ore_gap",
