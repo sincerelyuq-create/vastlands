@@ -41,3 +41,6 @@ repo/
 
 ### Python ###
 __pycache__/
+
+# Rotated logs written by test and dev runs
+logs/*.log.gz
