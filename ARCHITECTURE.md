@@ -543,7 +543,7 @@ Vanilla Isolation
 
 Testing and Verification
 
-JUnit (`./gradlew test`, @@TESTS@@ tests):
+JUnit (`./gradlew test`, 54 tests):
 - `WorldHeightDataTest` — data files agree with `WorldHeight` and pass vanilla's codecs.
 - `GenerationSetupTest` — seeded randomness is deterministic and separated per system and seed;
   terrain is implemented, the other systems are passthrough.

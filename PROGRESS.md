@@ -7,7 +7,7 @@ Project: Vastlands
 Minecraft: 1.21.8
 Loader: NeoForge 21.8.57
 
-The project builds and all @@TESTS@@ tests pass. The "Vastlands" world type generates a
+The project builds and all 54 tests pass. The "Vastlands" world type generates a
 continent-scale geography in a world of Y -256..511: open oceans with shelves, continental slopes,
 abyssal plains (Y -22..-30), mid-ocean ridges, seamounts and rare trenches (to Y ~-160); continents
 with vast plains provinces, hill country, mountain systems with branch ranges (peaks up to Y ~450),
@@ -82,7 +82,9 @@ Files and Modules Affected (Agent 2.5)
 Build and Test Results (Agent 2.5)
 
 - `./gradlew build`: BUILD SUCCESSFUL (JDK 21.0.12, Gradle 9.2.1).
-- JUnit: @@TESTS@@ tests, 0 failures, 0 skipped: @@TESTLIST@@.
+- JUnit: 54 tests, 0 failures, 0 skipped: WorldHeightDataTest 3, GenerationSetupTest 3, StageDensityFunctionTest 6,
+  TerrainParameterFunctionTest 3, RandomStateBindingTest 3, TerrainModelTest 8, VastlandsTerrainTest 7,
+  PresetDataTest 6, TerrainBiomeTest 2, GeographyModelTest 7, FrozenSeaTest 6.
 - Geography (4 seeds, ±200 000 blocks): sea 30–44%; longest open sea on 60 000-block transects
   15 600–24 800 blocks; plains provinces run 2 200–3 000 blocks on average; climate zones ~3 000;
   shelf depth under 15, abyssal depth 65–110 (mean); no submarine feature above sea level − 6; trench
