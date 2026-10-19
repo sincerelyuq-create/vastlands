@@ -56,8 +56,8 @@ class PresetDataTest {
 
     /**
      * The Vastlands router differs from vanilla only where the terrain owns it (landscape, slides,
-     * continents, erosion, ridges, depth, initial density). Temperature, vegetation, aquifer and ore
-     * vein outputs must stay vanilla bit for bit.
+     * continents, erosion, ridges, depth, initial density, temperature, vegetation). Aquifer and
+     * ore vein outputs must stay vanilla bit for bit.
      */
     @Test
     void routerKeepsVanillaOutputsTheTerrainDoesNotOwn(MinecraftServer server) {
@@ -70,7 +70,7 @@ class PresetDataTest {
         assertTrue(GenerationContext.of(vanilla).isEmpty());
         assertTrue(GenerationContext.of(vastlands).isPresent());
         List<Function<NoiseRouter, DensityFunction>> outputs = List.of(
-                NoiseRouter::temperature, NoiseRouter::vegetation, NoiseRouter::barrierNoise,
+                NoiseRouter::barrierNoise,
                 NoiseRouter::fluidLevelFloodednessNoise, NoiseRouter::fluidLevelSpreadNoise, NoiseRouter::lavaNoise,
                 NoiseRouter::veinToggle, NoiseRouter::veinRidged, NoiseRouter::veinGap);
         for (int x = -20000; x <= 20000; x += 1733) {
@@ -98,6 +98,8 @@ class PresetDataTest {
                 assertEquals(column.climateContinentalness(), router.continents().compute(pos));
                 assertEquals(column.climateErosion(), router.erosion().compute(pos));
                 assertEquals(column.climateWeirdness(), router.ridges().compute(pos));
+                assertEquals(column.climateTemperature(), router.temperature().compute(pos));
+                assertEquals(column.climateHumidity(), router.vegetation().compute(pos));
                 assertEquals(VastlandsTerrain.depth(column.height(), 70), router.depth().compute(pos));
                 // The preliminary surface (initial density threshold 0.390625) never lies above the surface.
                 int above = (int) Math.ceil(column.height());
@@ -129,6 +131,40 @@ class PresetDataTest {
             }
         }
         assertTrue(checked > 300);
+    }
+
+    /**
+     * The bottom slide is vanilla's (-64..-40) under ordinary ground and moves down under abyssal
+     * trenches, so their water reaches the floor: open above the floor, solid below it.
+     */
+    @Test
+    void trenchesStayOpenBelowTheVanillaSlide(MinecraftServer server) {
+        RandomState state = vastlandsState(server);
+        TerrainSystem terrain = GenerationContext.of(state).orElseThrow().systems().terrain();
+        DensityFunction finalDensity = state.router().finalDensity();
+        for (int y = -80; y <= 0; y++) {
+            assertEquals(Math.clamp((y + 64) / 24.0, 0.0, 1.0), VastlandsTerrain.bottomSlide(70.0, y), 1e-12);
+        }
+        int bestX = 0;
+        int bestZ = 0;
+        double lowest = Double.POSITIVE_INFINITY;
+        for (int x = -200_000; x < 200_000; x += 512) {
+            for (int z = -200_000; z < 200_000; z += 2048) {
+                double h = terrain.geography().smoothElevation(x, z);
+                if (h < lowest) {
+                    lowest = h;
+                    bestX = x & ~3;
+                    bestZ = z & ~3;
+                }
+            }
+        }
+        double floor = terrain.column(bestX, bestZ).height();
+        Vastlands.LOGGER.info("PresetDataTest: deepest trench sample Y {} at {}, {}", floor, bestX, bestZ);
+        assertTrue(floor < -80.0, "no trench found below Y -80: " + floor);
+        for (int y = (int) Math.ceil(floor) + 1; y < -30; y += 4) {
+            assertTrue(finalDensity.compute(new DensityFunction.SinglePointContext(bestX, y, bestZ)) < 0.0, "trench water at Y " + y);
+        }
+        assertTrue(finalDensity.compute(new DensityFunction.SinglePointContext(bestX, (int) floor - 40, bestZ)) > 0.0, "rock below the trench floor");
     }
 
     private static RandomState vastlandsState(MinecraftServer server) {

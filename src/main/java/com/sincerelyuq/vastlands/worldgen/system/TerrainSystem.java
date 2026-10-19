@@ -1,5 +1,6 @@
 package com.sincerelyuq.vastlands.worldgen.system;
 
+import com.sincerelyuq.vastlands.worldgen.geography.GeographyModel;
 import com.sincerelyuq.vastlands.worldgen.terrain.TerrainColumn;
 
 /**
@@ -18,6 +19,9 @@ import com.sincerelyuq.vastlands.worldgen.terrain.TerrainColumn;
  *
  * <p>Height queries are 2D, deterministic, thread-safe and cached per thread, so later systems can
  * call them freely during generation. Depends on nothing.
+ *
+ * <p>Geography (macro landforms, oceans, climate) is part of the terrain: {@link #geography()} for
+ * any position, {@code column(x, z).geography()} for cached grid columns.
  */
 public interface TerrainSystem extends DensityStage {
     /**
@@ -35,4 +39,11 @@ public interface TerrainSystem extends DensityStage {
 
     /** Value of a router output owned by the terrain, within the parameter's range. */
     double parameter(TerrainParameter parameter, int blockX, int blockY, int blockZ);
+
+    /**
+     * The macro geography the terrain is built on: regional elevation, landforms, ocean floor,
+     * climate. Uncached, so it suits coarse sampling (drainage planning on a grid) without evicting
+     * the column cache; {@code column(x, z).geography()} returns the same values for grid columns.
+     */
+    GeographyModel geography();
 }

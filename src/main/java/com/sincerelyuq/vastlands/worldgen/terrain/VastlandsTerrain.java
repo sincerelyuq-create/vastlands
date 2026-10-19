@@ -1,5 +1,7 @@
 package com.sincerelyuq.vastlands.worldgen.terrain;
 
+import com.sincerelyuq.vastlands.worldgen.geography.GeographyModel;
+import com.sincerelyuq.vastlands.worldgen.geography.GeographySettings;
 import com.sincerelyuq.vastlands.worldgen.system.DensityRange;
 import com.sincerelyuq.vastlands.worldgen.system.GenerationSetup;
 import com.sincerelyuq.vastlands.worldgen.system.TerrainParameter;
@@ -31,20 +33,34 @@ public final class VastlandsTerrain implements TerrainSystem {
     public static final double DEEP_HOLD = 0.95;
     public static final int DEEP_DARK_BOTTOM = -64;
     public static final int DEEP_DARK_TOP = 0;
+    /** Vanilla's bottom slide: the landscape fades into solid rock from Y -40 down to -64. */
+    public static final int BOTTOM_SLIDE_TOP = -40;
+    public static final int BOTTOM_SLIDE_DEPTH = 24;
+    /** Under trenches the slide starts this far below the floor. */
+    public static final int BOTTOM_SLIDE_FLOOR_MARGIN = 12;
 
     private final TerrainModel model;
     private final ThreadLocal<ColumnCache> cache;
 
     public VastlandsTerrain(GenerationSetup setup) {
+        this(setup, GeographySettings.DEFAULT);
+    }
+
+    public VastlandsTerrain(GenerationSetup setup, GeographySettings settings) {
         int top = setup.minY() + setup.height() - 1;
         long seed = setup.random("terrain").fromHashOf("height_field").nextLong();
-        this.model = new TerrainModel(seed, setup.seaLevel(), Math.min(MAX_SURFACE, top - 41));
+        this.model = new TerrainModel(seed, setup.seaLevel(), Math.min(MAX_SURFACE, top - 41), settings);
         this.cache = ThreadLocal.withInitial(() -> new ColumnCache(this.model));
     }
 
     @Override
     public String id() {
         return "vastlands";
+    }
+
+    @Override
+    public GeographyModel geography() {
+        return this.model.geography();
     }
 
     @Override
@@ -89,6 +105,9 @@ public final class VastlandsTerrain implements TerrainSystem {
             case CONTINENTALNESS -> this.column(x, z).climateContinentalness();
             case EROSION -> this.column(x, z).climateErosion();
             case WEIRDNESS -> this.column(x, z).climateWeirdness();
+            case TEMPERATURE -> this.column(x, z).climateTemperature();
+            case VEGETATION -> this.column(x, z).climateHumidity();
+            case BOTTOM_SLIDE -> bottomSlide(this.column(x, z).height(), blockY);
             case DEPTH -> clamp(depth(this.column(x, z).height(), blockY), parameter);
             case INITIAL_DENSITY -> {
                 // Aquifers treat everything above the preliminary surface as open air, so it must not
@@ -117,6 +136,17 @@ public final class VastlandsTerrain implements TerrainSystem {
             return DEEP_HOLD;
         }
         return depth;
+    }
+
+    /**
+     * Bottom slide factor: vanilla's gradient from 0 at Y -64 to 1 at -40, except under ground lower
+     * than that (abyssal trenches), where the band moves down to end
+     * {@value #BOTTOM_SLIDE_FLOOR_MARGIN} blocks below the floor. Continuous in the surface height.
+     */
+    public static double bottomSlide(double surface, int blockY) {
+        double top = Math.min(BOTTOM_SLIDE_TOP, surface - BOTTOM_SLIDE_FLOOR_MARGIN);
+        double t = (blockY - (top - BOTTOM_SLIDE_DEPTH)) / BOTTOM_SLIDE_DEPTH;
+        return t < 0.0 ? 0.0 : (t > 1.0 ? 1.0 : t);
     }
 
     private static double terrainDensity(double surface, int blockY) {
