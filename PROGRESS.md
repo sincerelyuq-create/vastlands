@@ -87,8 +87,8 @@ Build and Test Results (Agent 2.5)
   15 600–24 800 blocks; plains provinces run 2 200–3 000 blocks on average; climate zones ~3 000;
   shelf depth under 15, abyssal depth 65–110 (mean); no submarine feature above sea level − 6; trench
   floor 0.19% of the sea floor, deepest Y -155; no field jumps within 1/20 block.
-- Ice fields (model): ice 84–90% of a firm field, largest crack network 63–84% of the open water,
-  isolated holes under 10 blocks < 3%; ice falls monotonically towards the warm edge; neighbour
+- Ice fields (model): ice 82–88% of a firm field, largest crack network 84–94% of the open water,
+  isolated holes under 10 blocks about 1%; ice falls monotonically towards the warm edge; neighbour
   changes across chunk borders equal those inside chunks.
 - Test server: router temperature/vegetation equal the terrain's values; trench water open from the
   floor (Y -157 at -82240,-191808) to Y -30 in the final density, rock below; surface biomes: every

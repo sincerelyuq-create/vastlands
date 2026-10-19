@@ -94,8 +94,9 @@ public final class FrozenSea {
         double lead = fbm(this.leads, x / 650.0, z / 650.0, 2, 0.5);
         double leadOpen = smoothstep(0.05, 0.45, lead);
         double compress = smoothstep(-0.1, -0.4, lead);
-        // At least ~1 block to either side: diagonal cracks stay connected lines of water, not dashes.
-        double width = (1.0 + 0.6 * (0.5 + 0.5 * this.crackWidth.sample(x / 90.0, z / 90.0))
+        // Widths are measured in warped coordinates, which the warp compresses by up to ~1.5: at
+        // least ~1.2 there keeps diagonal cracks connected lines of water blocks, not dashes.
+        double width = (1.25 + 0.6 * (0.5 + 0.5 * this.crackWidth.sample(x / 90.0, z / 90.0))
                 + 13.0 * leadOpen * Math.sqrt(leadOpen)) * (1.0 - compress)
                 + 110.0 * Math.pow(open, 2.2);
         if (edge < width) {
@@ -107,7 +108,7 @@ public final class FrozenSea {
         voronoi(this.cracks, wx / CRACK_CELL, wz / CRACK_CELL, cell);
         double crackEdge = cell[0] * CRACK_CELL;
         double gate = fbm(this.crackGate, x / 220.0, z / 220.0, 2, 0.5) - (thick ? 0.2 : 0.0);
-        double crackWidth = (gate > 0.05 ? 0.95 + 0.35 * smoothstep(0.05, 0.4, gate) : 0.0) + 30.0 * Math.pow(open, 2.5);
+        double crackWidth = (gate > 0.05 ? 1.15 + 0.35 * smoothstep(0.05, 0.4, gate) : 0.0) + 30.0 * Math.pow(open, 2.5);
         if (crackEdge < crackWidth) {
             return Cover.OPEN_WATER;
         }

@@ -479,7 +479,7 @@ Frozen seas (`FrozenSea`, `OceanSurface.placeIceFields`, `ServerLevelMixin`):
   1 at -0.65; a 2 200-block noise roughens the ice edge into tongues and bays.
 - Pattern: two domain-warped Voronoi networks (warp 40 blocks at 300 plus 5 at 40, so edges curve
   and jag). Large floes (~170 blocks): their edges are, depending on a 650-block noise that varies
-  along them, narrow cracks (1–3 blocks), wide open leads (up to ~30 blocks) or closed pressure
+  along them, narrow cracks (2–4 blocks), wide open leads (up to ~30 blocks) or closed pressure
   ridges (packed ice one or two blocks above the sheet). Small cracks (~60-block cells) run partly
   across the floes and end where their 220-block gate closes, so the network branches. Towards the
   warm edge leads widen and floes shrink until only drifting pieces remain. 10–30% of the floes are
@@ -491,8 +491,8 @@ Frozen seas (`FrozenSea`, `OceanSurface.placeIceFields`, `ServerLevelMixin`):
   vanilla's icebergs stand frozen into the field. `ServerLevelMixin` stops weather from freezing
   water in a crack of a Vastlands ice field (vanilla freezes water at ice edges in cold biomes,
   which would close the cracks within minutes); other worlds and other water are unchanged.
-- Model: ice 84–90% of a firm field, the largest connected crack network holds 63–84% of the open
-  water, isolated holes under 10 blocks < 3% (`FrozenSeaTest`). Test world `ice2` (16 × 16 chunks,
+- Model: ice 82–88% of a firm field, the largest connected crack network holds 84–94% of the open
+  water, isolated holes under 10 blocks about 1% (`FrozenSeaTest`). Test world `ice2` (16 × 16 chunks,
   seed 20261018 around 30208,-19712): the sea surface agrees with the model in 100% of the 12 995
   open-sea columns more than 16 blocks from an iceberg (93.6% overall: icebergs of vanilla's
   frozen-ocean surface rules cover ~17% of that square); no lava or air in the water.
