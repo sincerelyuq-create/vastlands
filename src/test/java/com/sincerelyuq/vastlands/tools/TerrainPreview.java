@@ -51,6 +51,7 @@ import net.minecraft.world.level.biome.MultiNoiseBiomeSourceParameterList;
  * {@code --region-scale F} renders with all macro wavelengths multiplied by F.
  * {@code --heights} writes the terrain surface heights (float32 little-endian, row-major, z then x)
  * of the square at 1 block/pixel, {@code --cover} the expected sea ice cover (see {@link #writeCover}).
+ * {@code --describe-ice X Z} prints the ice field's intermediate values at five columns from X - 2.
  */
 public final class TerrainPreview {
     private static final double SEA = 63.0;
@@ -86,6 +87,16 @@ public final class TerrainPreview {
                 case "--cover" -> cover = args[++i];
                 case "--maps" -> maps = List.of(args[++i].split(","));
                 case "--find" -> find = args[++i];
+                case "--describe-ice" -> {
+                    VastlandsTerrain t = new VastlandsTerrain(new GenerationSetup(seed, WorldHeight.MIN_Y, WorldHeight.HEIGHT, (int) SEA), settings);
+                    double dx = Double.parseDouble(args[++i]);
+                    double dz = Double.parseDouble(args[++i]);
+                    for (int k = -2; k <= 2; k++) {
+                        double strength = FrozenSea.strength(t.geography().seaLevelTemperature(dx + k, dz));
+                        System.out.println("ICE " + (dx + k) + "," + dz + " strength " + strength + " " + t.geography().frozenSea().describe(dx + k, dz, strength));
+                    }
+                    return;
+                }
                 case "--ice-center" -> iceCenter = new double[] {Double.parseDouble(args[++i]), Double.parseDouble(args[++i])};
                 case "--region-scale" -> settings = settings.withRegionScale(Double.parseDouble(args[++i]));
                 case "--camera" -> camera = new double[] {

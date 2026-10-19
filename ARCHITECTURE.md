@@ -294,7 +294,10 @@ Algorithm (`TerrainModel.sample(x, z)`), three layers:
 
 Elevation ranges and their frequency: Agent 2 measured (4 seeds × 20 000 random columns over
 ±200 000 blocks) sea floor on 26% of the world, lowlands 63..130 on 59%, mountains above 200 on
-2.7%. With the geography (TERRAIN_STATS) the guards of `TerrainModelTest` are: sea 25..50%, lowland
+2.7%. With the geography (131 072 × 131 072 blocks around 0,0 at 128 blocks per pixel, seed
+20261018): sea 36.6% (18.7% of the world below Y 0, 0.04% below Y -50: trenches), lowland 63..100
+on 34%, 100..150 on 23%, 150..200 on 4.6%, above 200 on 1.6%, above 300 on 0.25%, above 400 on
+0.04%; highest peaks ~452. The guards of `TerrainModelTest` are: sea 25..50%, lowland
 63..130 over 38%, above 200 0.5..8%, above 300 under 1.5% and rarer than above 200, max under 470,
 min above -200 (trenches). Neighbouring columns differ by at most ~12 blocks (canyon and trench
 walls, crest cliffs), and the height field has no discontinuities (same tests as Agent 2's, now also
@@ -482,8 +485,12 @@ Frozen seas (`FrozenSea`, `OceanSurface.placeIceFields`, `ServerLevelMixin`):
   along them, narrow cracks (2–4 blocks), wide open leads (up to ~30 blocks) or closed pressure
   ridges (packed ice one or two blocks above the sheet). Small cracks (~60-block cells) run partly
   across the floes and end where their 220-block gate closes, so the network branches. Towards the
-  warm edge leads widen and floes shrink until only drifting pieces remain. 10–30% of the floes are
-  thick multi-year ice (packed ice, two blocks deep). The Voronoi edge distance is exact
+  warm edge leads widen and floes shrink until only drifting pieces remain (that break-up term only
+  ever adds a block or more, so it never draws hairline cracks). A quarter of the large floes are
+  thick multi-year ice (packed ice, two blocks deep). Crack widths are distances in warped space;
+  they are scaled by the largest local stretch of the warp's Jacobian, so every crack is at least
+  ~2 blocks wide in the world and diagonal cracks are connected lines of water, not dashes of
+  blocks touching at their corners (an earlier version showed such dashes in game). The Voronoi edge distance is exact
   (`FrozenSeaTest.voronoiEdgesAreExact`), so cracks are continuous across cell and chunk borders.
 - In the world: after this chunk's features (so vanilla's `freeze_top_layer` cannot close the
   cracks again), every open-sea column (ground below the surface) with ice strength > 0 gets ice,
@@ -491,8 +498,8 @@ Frozen seas (`FrozenSea`, `OceanSurface.placeIceFields`, `ServerLevelMixin`):
   vanilla's icebergs stand frozen into the field. `ServerLevelMixin` stops weather from freezing
   water in a crack of a Vastlands ice field (vanilla freezes water at ice edges in cold biomes,
   which would close the cracks within minutes); other worlds and other water are unchanged.
-- Model: ice 82–88% of a firm field, the largest connected crack network holds 84–94% of the open
-  water, isolated holes under 10 blocks about 1% (`FrozenSeaTest`). Test world `ice2` (16 × 16 chunks,
+- Model: ice 82–88% of a firm field, the largest connected crack network holds 85–95% of the open
+  water, isolated holes under 10 blocks under 0.1% (`FrozenSeaTest`). Test world `ice2` (16 × 16 chunks,
   seed 20261018 around 30208,-19712): the sea surface agrees with the model in 100% of the 12 995
   open-sea columns more than 16 blocks from an iceberg (93.6% overall: icebergs of vanilla's
   frozen-ocean surface rules cover ~17% of that square); no lava or air in the water.

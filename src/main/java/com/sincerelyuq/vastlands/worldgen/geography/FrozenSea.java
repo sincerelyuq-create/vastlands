@@ -28,6 +28,8 @@ public final class FrozenSea {
     /** Size of the large floes and of the small crack cells, in blocks. */
     static final double FLOE_CELL = 170.0;
     static final double CRACK_CELL = 58.0;
+    /** Share of the large floes that are thick multi-year ice. */
+    static final double THICK_FLOES = 0.25;
 
     /** What covers one column of the sea surface. */
     public enum Cover {
@@ -82,8 +84,19 @@ public final class FrozenSea {
         strength = clamp01(strength + 0.35 * fbm(this.iceEdge, x / 2200.0, z / 2200.0, 2, 0.5) * smoothstep(0.0, 0.3, strength));
         double open = 1.0 - strength;
         // Warped coordinates: floe edges curve, and jag at the scale of a few blocks.
-        double wx = x + 40.0 * fbm(this.warpX, x / 300.0, z / 300.0, 2, 0.5) + 5.0 * this.jagX.sample(x / 40.0, z / 40.0);
-        double wz = z + 40.0 * fbm(this.warpZ, x / 300.0, z / 300.0, 2, 0.5) + 5.0 * this.jagZ.sample(x / 40.0, z / 40.0);
+        double wx = this.warpX(x, z);
+        double wz = this.warpZ(x, z);
+        // Widths are distances in warped space; the warp stretches it locally by up to ~2. Scaling
+        // them by the largest stretch of the warp's Jacobian keeps every crack at least its
+        // nominal width in blocks, so diagonal cracks stay connected lines of water, not dashes.
+        double ax = this.warpX(x + 1.0, z) - wx;
+        double az = this.warpZ(x + 1.0, z) - wz;
+        double bx = this.warpX(x, z + 1.0) - wx;
+        double bz = this.warpZ(x, z + 1.0) - wz;
+        double sum = ax * ax + az * az + bx * bx + bz * bz;
+        double diff = ax * ax + az * az - bx * bx - bz * bz;
+        double cross = ax * bx + az * bz;
+        double stretch = Math.sqrt(0.5 * (sum + Math.sqrt(diff * diff + 4.0 * cross * cross)));
 
         double[] cell = new double[2];
         voronoi(this.floes, wx / FLOE_CELL, wz / FLOE_CELL, cell);
@@ -93,34 +106,67 @@ public final class FrozenSea {
         // pressure ridges where it is pushed together, plain cracks in between.
         double lead = fbm(this.leads, x / 650.0, z / 650.0, 2, 0.5);
         double leadOpen = smoothstep(0.05, 0.45, lead);
-        double compress = smoothstep(-0.1, -0.4, lead);
-        // Widths are measured in warped coordinates, which the warp compresses by up to ~1.5: at
-        // least ~1.2 there keeps diagonal cracks connected lines of water blocks, not dashes.
-        double width = (1.25 + 0.6 * (0.5 + 0.5 * this.crackWidth.sample(x / 90.0, z / 90.0))
-                + 13.0 * leadOpen * Math.sqrt(leadOpen)) * (1.0 - compress)
-                + 110.0 * Math.pow(open, 2.2);
+        // A closed edge is a pressure ridge, an open one a crack of full width: narrowing a crack
+        // towards zero would leave chains of single water blocks touching at their corners.
+        boolean closed = lead < -0.25;
+        // At least ~0.9 blocks to either side of the edge, so a diagonal crack is 2 blocks wide.
+        double width = (closed ? 0.0 : (0.9 + 0.6 * (0.5 + 0.5 * this.crackWidth.sample(x / 90.0, z / 90.0))) * stretch
+                + 13.0 * leadOpen * Math.sqrt(leadOpen))
+                + breakup(110.0 * Math.pow(open, 2.2), stretch);
         if (edge < width) {
             return Cover.OPEN_WATER;
         }
-        boolean thick = floeId < 0.1 + 0.2 * strength;
+        // Fixed per floe (not by strength), so a floe is thick or thin throughout.
+        boolean thick = floeId < THICK_FLOES;
 
         // Smaller cracks across the floes; each runs only where its gate is open, so cracks end and branch.
         voronoi(this.cracks, wx / CRACK_CELL, wz / CRACK_CELL, cell);
         double crackEdge = cell[0] * CRACK_CELL;
         double gate = fbm(this.crackGate, x / 220.0, z / 220.0, 2, 0.5) - (thick ? 0.2 : 0.0);
-        double crackWidth = (gate > 0.05 ? 1.15 + 0.35 * smoothstep(0.05, 0.4, gate) : 0.0) + 30.0 * Math.pow(open, 2.5);
+        double crackWidth = (gate > 0.05 ? 0.85 + 0.35 * smoothstep(0.05, 0.4, gate) : 0.0) * stretch
+                + breakup(30.0 * Math.pow(open, 2.5), stretch);
         if (crackEdge < crackWidth) {
             return Cover.OPEN_WATER;
         }
 
-        // Pressure ridges along the closed floe edges.
-        if (compress > 0.3) {
-            double ridgeWidth = 1.2 + 1.3 * compress;
+        // Pressure ridges along the closed floe edges, broader where the ice is pushed hardest.
+        if (closed) {
+            double ridgeWidth = (1.2 + 1.0 * smoothstep(-0.25, -0.45, lead)) * stretch;
             if (edge < ridgeWidth) {
                 return edge < 0.6 * ridgeWidth && this.ridgeCrest.sample(x / 25.0, z / 25.0) > 0.2 ? Cover.HIGH_RIDGE : Cover.PRESSURE_RIDGE;
             }
         }
         return thick ? Cover.THICK_ICE : Cover.ICE;
+    }
+
+    /**
+     * Extra half-width where the field breaks up towards its warm edge. Below a block it would only
+     * add hairline cracks of single blocks touching at their corners, so it starts at one block.
+     */
+    private static double breakup(double width, double stretch) {
+        return width < stretch ? 0.0 : width;
+    }
+
+    /** Diagnostic: the intermediate values of {@link #cover} at (x, z). */
+    public String describe(double x, double z, double strength) {
+        double wx = this.warpX(x, z);
+        double wz = this.warpZ(x, z);
+        double[] cell = new double[2];
+        voronoi(this.floes, wx / FLOE_CELL, wz / FLOE_CELL, cell);
+        double edge = cell[0] * FLOE_CELL;
+        voronoi(this.cracks, wx / CRACK_CELL, wz / CRACK_CELL, cell);
+        double crackEdge = cell[0] * CRACK_CELL;
+        return String.format(java.util.Locale.ROOT, "cover %s warped %.2f,%.2f floe edge %.3f crack edge %.3f lead %.3f gate %.3f",
+                this.cover(x, z, strength), wx, wz, edge, crackEdge, fbm(this.leads, x / 650.0, z / 650.0, 2, 0.5),
+                fbm(this.crackGate, x / 220.0, z / 220.0, 2, 0.5));
+    }
+
+    private double warpX(double x, double z) {
+        return x + 40.0 * fbm(this.warpX, x / 300.0, z / 300.0, 2, 0.5) + 5.0 * this.jagX.sample(x / 40.0, z / 40.0);
+    }
+
+    private double warpZ(double x, double z) {
+        return z + 40.0 * fbm(this.warpZ, x / 300.0, z / 300.0, 2, 0.5) + 5.0 * this.jagZ.sample(x / 40.0, z / 40.0);
     }
 
     /**

@@ -89,8 +89,8 @@ Build and Test Results (Agent 2.5)
   15 600–24 800 blocks; plains provinces run 2 200–3 000 blocks on average; climate zones ~3 000;
   shelf depth under 15, abyssal depth 65–110 (mean); no submarine feature above sea level − 6; trench
   floor 0.19% of the sea floor, deepest Y -155; no field jumps within 1/20 block.
-- Ice fields (model): ice 82–88% of a firm field, largest crack network 84–94% of the open water,
-  isolated holes under 10 blocks about 1%; ice falls monotonically towards the warm edge; neighbour
+- Ice fields (model): ice 82–88% of a firm field, largest crack network 85–95% of the open water,
+  isolated holes under 10 blocks under 0.1%; ice falls monotonically towards the warm edge; neighbour
   changes across chunk borders equal those inside chunks.
 - Test server: router temperature/vegetation equal the terrain's values; trench water open from the
   floor (Y -157 at -82240,-191808) to Y -30 in the final density, rock below; surface biomes: every
@@ -153,6 +153,10 @@ Known Issues
 - A few shoreline dips below sea level stay dry (0.02% of the open-sea columns in the coast test).
 - Climate zones are noise-shaped (no latitude): the coldest and hottest regions are roundish blobs
   of 5 000–15 000 blocks; frozen seas follow them.
+- High ground is rarer than with Agent 2's terrain: 1.6% of the world above Y 200 (Agent 2: 2.7%)
+  and 0.25% above Y 300 (0.5%), because more of the world is sea and plains provinces weaken
+  mountain systems. The highest peaks still reach Y ~450. Tunable: `plainsBias`, `oceanBias`, the
+  activity factor in `GeographyModel.macro`.
 - Agent 2's documented massif at 6750,-1250 (docs/terrain) is now under the sea: the ocean regions
   moved coastlines. Worlds created before this change get seams at the border to new chunks.
 - Unchanged from Agent 2: experimental-settings warning, cloud height 192, `screenshot.py` lost
