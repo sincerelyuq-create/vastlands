@@ -50,7 +50,7 @@ import net.minecraft.world.level.biome.MultiNoiseBiomeSourceParameterList;
  * shares, the mean length of biome runs along rows, and the sampling cost.
  * {@code --region-scale F} renders with all macro wavelengths multiplied by F.
  * {@code --heights} writes the terrain surface heights (float32 little-endian, row-major, z then x)
- * of the square at 1 block/pixel.
+ * of the square at 1 block/pixel, {@code --cover} the expected sea ice cover (see {@link #writeCover}).
  */
 public final class TerrainPreview {
     private static final double SEA = 63.0;
@@ -66,10 +66,12 @@ public final class TerrainPreview {
         double scale = 16;
         String out = null;
         String heights = null;
+        String cover = null;
         double[] camera = null;
         List<String> maps = List.of("relief");
         GeographySettings settings = GeographySettings.DEFAULT;
         double[] iceCenter = null;
+        String find = null;
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
                 case "--seed" -> seed = Long.parseLong(args[++i]);
@@ -81,7 +83,9 @@ public final class TerrainPreview {
                 case "--scale" -> scale = Double.parseDouble(args[++i]);
                 case "--out" -> out = args[++i];
                 case "--heights" -> heights = args[++i];
+                case "--cover" -> cover = args[++i];
                 case "--maps" -> maps = List.of(args[++i].split(","));
+                case "--find" -> find = args[++i];
                 case "--ice-center" -> iceCenter = new double[] {Double.parseDouble(args[++i]), Double.parseDouble(args[++i])};
                 case "--region-scale" -> settings = settings.withRegionScale(Double.parseDouble(args[++i]));
                 case "--camera" -> camera = new double[] {
@@ -110,6 +114,9 @@ public final class TerrainPreview {
             }
             System.out.printf(Locale.ROOT, "wrote %dx%d surface heights from x %d z %d to %s%n", n, n, x0, z0, file);
         }
+        if (cover != null) {
+            writeCover(terrain, cover, (int) Math.floor(centerX - size / 2.0), (int) Math.floor(centerZ - size / 2.0), size);
+        }
         if (out == null) {
             return;
         }
@@ -137,6 +144,9 @@ public final class TerrainPreview {
         printGeography(columns);
         String[][] biomes = biomes(columns);
         printBiomes(biomes, scale);
+        if (find != null) {
+            printLocations(find, biomes, columns, x0, z0, scale);
+        }
 
         File base = new File(out + ".png");
         base.getAbsoluteFile().getParentFile().mkdirs();
@@ -158,6 +168,33 @@ public final class TerrainPreview {
             }
             System.out.println("wrote " + (map.equals("relief") ? base + " and " + out + "-view.png" : file(out, map)));
         }
+    }
+
+    /**
+     * Expected sea surface cover of the square, one byte per column (row-major, z then x): 0 land or
+     * shallow ground, 1 open water, 2 ice, 3 thick ice, 4 pressure ridge, 5 ridge crest; for
+     * {@code tools/worldcheck/oceancheck.py --cover}.
+     */
+    private static void writeCover(VastlandsTerrain terrain, String path, int x0, int z0, int n) throws IOException {
+        byte[] values = new byte[n * n];
+        FrozenSea sea = terrain.geography().frozenSea();
+        IntStream.range(0, n).parallel().forEach(j -> {
+            for (int i = 0; i < n; i++) {
+                int x = x0 + i;
+                int z = z0 + j;
+                if (terrain.surfaceHeight(x, z) > SEA - 1.5) {
+                    continue;
+                }
+                double strength = FrozenSea.strength(terrain.geography().seaLevelTemperature(x, z));
+                values[j * n + i] = (byte) (sea.cover(x, z, strength).ordinal() + 1);
+            }
+        });
+        File file = new File(path);
+        file.getAbsoluteFile().getParentFile().mkdirs();
+        try (FileOutputStream stream = new FileOutputStream(file)) {
+            stream.write(values);
+        }
+        System.out.printf(Locale.ROOT, "wrote %dx%d sea cover classes from x %d z %d to %s%n", n, n, x0, z0, file);
     }
 
     private static File file(String out, String map) {
@@ -284,6 +321,26 @@ public final class TerrainPreview {
                 .forEach(e -> text.append(String.format(Locale.ROOT, " %s %.1f%%", e.getKey(), 100.0 * e.getValue() / total)));
         System.out.println(text);
         System.out.printf(Locale.ROOT, "mean biome run along rows: %.0f blocks (sampled every %.0f blocks)%n", scale * cells / runs, scale);
+    }
+
+    /** Up to eight places of a biome or landform (by name), at least 2 000 blocks apart. */
+    private static void printLocations(String name, String[][] biomes, TerrainColumn[][] columns, double x0, double z0, double scale) {
+        StringBuilder text = new StringBuilder(name + ":");
+        List<double[]> found = new java.util.ArrayList<>();
+        for (int j = 0; j < biomes.length && found.size() < 8; j++) {
+            for (int i = 0; i < biomes.length && found.size() < 8; i++) {
+                if (!biomes[j][i].equals(name) && !columns[j][i].geography().landform().name().equalsIgnoreCase(name)) {
+                    continue;
+                }
+                double x = x0 + i * scale;
+                double z = z0 + j * scale;
+                if (found.stream().noneMatch(p -> Math.hypot(p[0] - x, p[1] - z) < 2000.0)) {
+                    found.add(new double[] {x, z});
+                    text.append(String.format(Locale.ROOT, " %.0f,%.0f (Y %.0f %s)", x, z, columns[j][i].height(), biomes[j][i]));
+                }
+            }
+        }
+        System.out.println(text);
     }
 
     /**

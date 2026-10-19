@@ -14,8 +14,8 @@ import net.minecraft.world.level.chunk.ChunkAccess;
 /**
  * Block-level finishing of the Vastlands oceans, run by {@code VastlandsChunkGenerator}:
  * <ul>
- *     <li>{@link #fillDeepWater}: after noise filling, open water below Y -54 (abyssal trenches)
- *     is water, not the lava vanilla's global fluid picker puts there.</li>
+ *     <li>{@link #fillDeepWater}: after noise filling and after carving, the open water of abyssal
+ *     trenches below Y -54 is water, not the lava (and the aquifer lid above it) vanilla puts there.</li>
  *     <li>{@link #placeIceFields}: after feature decoration, the surface of polar seas becomes the
  *     fractured ice field of {@link FrozenSea}, replacing vanilla's frozen-ocean freezing.</li>
  * </ul>
@@ -25,6 +25,8 @@ import net.minecraft.world.level.chunk.ChunkAccess;
 public final class OceanSurface {
     /** Vanilla's global fluid picker makes every open block below this Y lava. */
     public static final int LAVA_LEVEL = -54;
+    /** The aquifer barrier between that lava and the sea stays below this Y; deep columns are opened up to it. */
+    public static final int TRENCH_FIX_TOP = -30;
     private static final BlockState WATER = Blocks.WATER.defaultBlockState();
     private static final BlockState ICE = Blocks.ICE.defaultBlockState();
     private static final BlockState PACKED_ICE = Blocks.PACKED_ICE.defaultBlockState();
@@ -33,8 +35,13 @@ public final class OceanSurface {
     }
 
     /**
-     * Turns the lava of open water columns below {@value #LAVA_LEVEL} into water: from the generated
-     * floor of each column up to Y -55. Lava in caves under the floor stays.
+     * Opens the water column of abyssal trenches. Below Y {@value #LAVA_LEVEL} vanilla's global
+     * fluid picker fills every open block with lava, and the aquifers wall that lava off from the
+     * sea with a lid of rock and an air gap up to ~20 blocks above it, also over trench walls whose
+     * floor is above that level. In columns whose generated floor lies below Y
+     * {@value #TRENCH_FIX_TOP}, every block from the floor up to that Y becomes water. Carvers cut through water (it is in their replaceable tag) and fill their
+     * tunnels below Y {@value #LAVA_LEVEL} with lava, so this runs again after carving. Lava in caves
+     * under the floor stays.
      */
     public static void fillDeepWater(ChunkAccess chunk, GenerationSystems systems) {
         ChunkPos chunkPos = chunk.getPos();
@@ -44,12 +51,15 @@ public final class OceanSurface {
                 int x = chunkPos.getMinBlockX() + dx;
                 int z = chunkPos.getMinBlockZ() + dz;
                 double surface = systems.surfaceHeight(x, z);
-                if (surface >= LAVA_LEVEL) {
+                if (surface >= TRENCH_FIX_TOP) {
                     continue;
                 }
-                // The top block of the landscape is ceil(surface) - 1; everything above it is open.
-                for (int y = Math.max(chunk.getMinY(), (int) Math.ceil(surface)); y < LAVA_LEVEL; y++) {
-                    if (chunk.getBlockState(pos.set(x, y, z)).is(Blocks.LAVA)) {
+                // The top block of the landscape is ceil(surface) - 1; everything above it is open sea.
+                // Interpolated density can leave the top block itself open: fill it if it is fluid or air.
+                int open = (int) Math.ceil(surface);
+                for (int y = Math.max(chunk.getMinY(), open - 2); y < TRENCH_FIX_TOP; y++) {
+                    BlockState state = chunk.getBlockState(pos.set(x, y, z));
+                    if (!state.is(Blocks.WATER) && (y >= open || state.isAir() || state.is(Blocks.LAVA))) {
                         chunk.setBlockState(pos, WATER);
                     }
                 }
@@ -61,7 +71,8 @@ public final class OceanSurface {
      * Lays the fractured ice field over the polar sea columns of a chunk: ice, thick packed-ice
      * floes and pressure ridges at the water surface (sea level - 1), open water in cracks and
      * leads. Only touches the water or ice of open sea columns (ground below the surface); icebergs
-     * and other blocks stay.
+     * (vanilla's frozen-ocean surface extension and iceberg feature) and other blocks stay, so the
+     * bergs stand frozen into the field.
      */
     public static void placeIceFields(ChunkAccess chunk, GenerationSystems systems, int seaLevel) {
         GeographyModel geography = systems.terrain().geography();

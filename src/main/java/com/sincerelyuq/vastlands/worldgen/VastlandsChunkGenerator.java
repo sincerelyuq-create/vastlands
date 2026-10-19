@@ -12,8 +12,10 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
+import net.minecraft.server.level.WorldGenRegion;
 import net.minecraft.world.level.StructureManager;
 import net.minecraft.world.level.WorldGenLevel;
+import net.minecraft.world.level.biome.BiomeManager;
 import net.minecraft.world.level.biome.BiomeSource;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.ChunkGenerator;
@@ -29,8 +31,8 @@ import net.minecraft.world.level.levelgen.blending.Blender;
  * density stages, exactly like {@code minecraft:noise}. On top of that it runs the generation steps
  * that cannot be expressed as density (see {@link OceanSurface}):
  * <ul>
- *     <li>after noise filling, water instead of lava in the open water of abyssal trenches below
- *     Y -54;</li>
+ *     <li>after noise filling and again after carving, water instead of lava (and the aquifer's
+ *     rock lid above it) in the open water of abyssal trenches below Y -54;</li>
  *     <li>after feature decoration, the fractured ice fields of polar seas.</li>
  * </ul>
  * Later systems add their own steps here (for example, river water above sea level).
@@ -68,6 +70,13 @@ public class VastlandsChunkGenerator extends NoiseBasedChunkGenerator {
             OceanSurface.fillDeepWater(result, context.get().systems());
             return result;
         });
+    }
+
+    @Override
+    public void applyCarvers(WorldGenRegion level, long seed, RandomState random, BiomeManager biomeManager, StructureManager structureManager, ChunkAccess chunk) {
+        super.applyCarvers(level, seed, random, biomeManager, structureManager, chunk);
+        // Carvers cut through water too, and below Y -54 their tunnels fill with lava: reopen trenches.
+        GenerationContext.of(random).ifPresent(context -> OceanSurface.fillDeepWater(chunk, context.systems()));
     }
 
     @Override
