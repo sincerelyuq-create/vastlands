@@ -20,9 +20,10 @@ with `tools/worldcheck/oceancheck.py --png`.
 | `preview-trench-relief-8k.jpg` | 8 192 blocks around -82240,-191808: an abyssal trench (deepest floor Y ~-160) in relief |
 | `preview-ice-field-1k.jpg` | 1 024 blocks, 1 block per pixel, at the coldest sea of the 65 536-block square: floes, thick floes (darker), cracks and leads (dark), pressure ridges (white) |
 | `preview-ice-sea-12k.jpg` | 12 288 blocks at 6 blocks per pixel around 30208,-19712: a frozen sea breaking up towards its warm edge |
-| `surface-ice-world.png` | world `ice` (16 × 16 chunks at 30208,-19712): the generated sea surface, 1 block per pixel (ice, packed ice, water; vanilla icebergs as speckles) |
-| `ingame-ice-field.jpg` | the ice field from above with icebergs frozen in |
-| `ingame-ice-cracks.jpg` | cracks and a lead close up |
-| `ingame-coast-to-basin.jpg` | world `coast1`: island shore looking out over the deep water |
-| `ingame-dry-range.jpg` | world `dry1`: the summit of the dry range (stony and frozen peaks) |
-| `ingame-foothills.jpg` | world `pm1`: forested hills at the foot of a mountain system |
+| `surface-ice-world.png` | world `ice5` (16 × 16 chunks at 30208,-19712): the generated sea surface, 1 block per pixel (light: ice, mid blue: thick packed-ice floes, dark: water; vanilla's icebergs and their skirts as patches and speckles) |
+| `ingame-ice-field.jpg` | world `ice5`: the ice field from above, cracks, a lead and vanilla icebergs frozen in |
+| `ingame-ice-floes.jpg` | world `ice5`: floes and cracks closer up |
+| `ingame-coast-to-basin.jpg` | world `coast1`: a warm desert shore, the light shelf and the dark deep water beyond |
+| `ingame-dry-flank.jpg` | world `dry2`: badlands on the flank of the dry range (terracotta bands) |
+| `ingame-dry-range-summit.jpg` | world `dry1`: the summit of the same range above Y 250 (frozen peaks: high ground is cold even in a hot region) |
+| `ingame-foothills.jpg` | world `pm1`: old growth birch forest on the hills at the foot of a mountain system |
