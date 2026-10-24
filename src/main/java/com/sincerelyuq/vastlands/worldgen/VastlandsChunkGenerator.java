@@ -2,6 +2,8 @@ package com.sincerelyuq.vastlands.worldgen;
 
 import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
+import com.sincerelyuq.vastlands.worldgen.caves.CaveBlocks;
+import com.sincerelyuq.vastlands.worldgen.caves.VastlandsCaves;
 import com.sincerelyuq.vastlands.worldgen.context.GenerationContext;
 import com.sincerelyuq.vastlands.worldgen.geography.GeographySample;
 import com.sincerelyuq.vastlands.worldgen.hydrology.HydrologyModel;
@@ -40,8 +42,12 @@ import net.minecraft.world.level.levelgen.blending.Blender;
  * density stages, exactly like {@code minecraft:noise}. On top of that it runs the generation steps
  * that cannot be expressed as density (see {@link OceanSurface} and {@link RiverWater}):
  * <ul>
- *     <li>after noise filling and again after carving, water instead of lava (and the aquifer's
- *     rock lid above it) in the open water of abyssal trenches below Y -54;</li>
+ *     <li>after noise filling, the caves' block step: spillways between cave water levels and
+ *     volcanic rock around deep lava (see {@link CaveBlocks}); vanilla's carvers are not run, the
+ *     Vastlands caves replace them;</li>
+ *     <li>after noise filling and again after carving, water instead of lava in the open water of
+ *     abyssal trenches below Y -54 (a safety net now: the cave fluid picker already puts sea water
+ *     there);</li>
  *     <li>after noise filling (before surface rules) and again after carving, the water of rivers
  *     and lakes above sea level, their sealed beds and banks, and the curtains of waterfalls;</li>
  *     <li>after feature decoration, the fractured ice fields of polar seas.</li>
@@ -80,19 +86,32 @@ public class VastlandsChunkGenerator extends NoiseBasedChunkGenerator {
         }
         return filled.thenApply(result -> {
             OceanSurface.fillDeepWater(result, context.get().systems());
+            if (context.get().systems().caves() instanceof VastlandsCaves caves) {
+                CaveBlocks.afterNoise(result, caves);
+            }
             RiverWater.place(result, context.get().systems().hydrology(), false);
             return result;
         });
     }
 
+    /**
+     * Vanilla's carvers (cave and canyon worms of the biomes) are not run in Vastlands worlds: the
+     * Vastlands cave system replaces them (see {@code VastlandsCaves}). Carvers ignore the fluid
+     * domains of the caves, so their tunnels would open flooded caves into dry ones, cut river and
+     * lake beds, and fill with lava below Y -54. The steps after carving still run: they are
+     * idempotent and keep trench water and river water as they are.
+     */
     @Override
     public void applyCarvers(WorldGenRegion level, long seed, RandomState random, BiomeManager biomeManager, StructureManager structureManager, ChunkAccess chunk) {
-        super.applyCarvers(level, seed, random, biomeManager, structureManager, chunk);
+        Optional<GenerationContext> context = GenerationContext.of(random);
+        if (context.isEmpty() || !(context.get().systems().caves() instanceof VastlandsCaves)) {
+            super.applyCarvers(level, seed, random, biomeManager, structureManager, chunk);
+        }
         // Carvers cut through water too, and below Y -54 their tunnels fill with lava: reopen trenches.
         // ...and through river beds and banks: refill and reseal rivers and lakes.
-        GenerationContext.of(random).ifPresent(context -> {
-            OceanSurface.fillDeepWater(chunk, context.systems());
-            RiverWater.place(chunk, context.systems().hydrology(), true);
+        context.ifPresent(c -> {
+            OceanSurface.fillDeepWater(chunk, c.systems());
+            RiverWater.place(chunk, c.systems().hydrology(), true);
         });
     }
 
@@ -162,6 +181,9 @@ public class VastlandsChunkGenerator extends NoiseBasedChunkGenerator {
                 info.add(String.format(Locale.ROOT, "Vastlands hydrology: %s%s ground %d, nearest river %s",
                         water.kind(), water.wet() ? " top " + water.waterTop() : "", water.groundTop(),
                         river.riverEdge < 400.0 ? String.format(Locale.ROOT, "%.0f wide, top %d, %.0f blocks away", river.riverWidth, river.riverTop, Math.max(0.0, river.riverEdge)) : "none"));
+            }
+            if (context.systems().caves() instanceof VastlandsCaves caves) {
+                info.add("Vastlands caves: " + caves.describe(pos.getX(), pos.getY(), pos.getZ()));
             }
         }, () -> info.add("Vastlands: no generation context (noise settings contain no Vastlands stage)"));
     }

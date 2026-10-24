@@ -143,3 +143,19 @@ tasks.register('hydrologyPreview', JavaExec) {
     workingDir = layout.projectDirectory.asFile
     jvmArgs '-Djava.awt.headless=true', '-Xmx4G'
 }
+
+// Renders sections and slices of the Vastlands caves, prints cave statistics, checks the cave
+// fluids against vanilla's flow rules and times the cave stage. Arguments: see
+// com.sincerelyuq.vastlands.tools.CavePreview.
+tasks.register('cavePreview', JavaExec) {
+    group = 'vastlands'
+    description = 'Renders Vastlands cave sections (PNG), statistics and fluid checks'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.sincerelyuq.vastlands.tools.CavePreview'
+    workingDir = layout.projectDirectory.asFile
+    jvmArgs '-Djava.awt.headless=true', '-Xmx4G'
+    // Extra JVM arguments, e.g. -PpreviewJvmArgs="-XX:StartFlightRecording=filename=build/caves/bench.jfr" for profiling.
+    if (project.hasProperty('previewJvmArgs')) {
+        jvmArgs project.property('previewJvmArgs').toString().split(' ').toList()
+    }
+}

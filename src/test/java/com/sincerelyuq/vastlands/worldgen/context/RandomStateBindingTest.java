@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.sincerelyuq.vastlands.worldgen.density.StageDensityFunction;
+import com.sincerelyuq.vastlands.worldgen.system.CaveSystem;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.data.registries.VanillaRegistries;
@@ -50,16 +51,18 @@ class RandomStateBindingTest {
         assertSame(context.systems().caves(), finalDensity.implementation());
     }
 
+    /** The wrapped final density is exactly the bound cave system applied to vanilla's density. */
     @Test
-    void passthroughStageKeepsVanillaDensityExactly() {
+    void cavesStageAppliesTheBoundSystemToTheVanillaDensity() {
         RandomState vanillaState = RandomState.create(vanilla, noises, SEED);
         RandomState wrappedState = RandomState.create(wrapped, noises, SEED);
+        CaveSystem caves = GenerationContext.of(wrappedState).orElseThrow().systems().caves();
         for (int x = -3000; x <= 3000; x += 777) {
             for (int z = -3000; z <= 3000; z += 913) {
                 for (int y = -64; y <= 320; y += 37) {
                     DensityFunction.SinglePointContext pos = new DensityFunction.SinglePointContext(x, y, z);
                     assertEquals(
-                            vanillaState.router().finalDensity().compute(pos),
+                            caves.apply(x, y, z, vanillaState.router().finalDensity().compute(pos)),
                             wrappedState.router().finalDensity().compute(pos),
                             "density differs at " + pos);
                 }

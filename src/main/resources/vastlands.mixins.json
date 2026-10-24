@@ -4,6 +4,7 @@
   "package": "com.sincerelyuq.vastlands.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
+    "NoiseBasedChunkGeneratorMixin",
     "RandomStateMixin",
     "ServerLevelMixin",
     "SurfaceRulesContextMixin"

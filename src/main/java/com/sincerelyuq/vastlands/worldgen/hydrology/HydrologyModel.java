@@ -393,6 +393,64 @@ public final class HydrologyModel {
     }
 
     /**
+     * Receives the river channel segments near a column (see {@link #channels}). Read-only view of
+     * the model for other systems.
+     */
+    public interface ChannelVisitor {
+        /**
+         * @param id        stable identity of the segment (the same from any column, thread or run)
+         * @param ax        centre line start x (upstream end)
+         * @param az        centre line start z
+         * @param bx        centre line end x (downstream end)
+         * @param bz        centre line end z
+         * @param halfWidth half width of the channel at the column's projection (plunge pools and
+         *                  river lakes wider than the river)
+         * @param bank      width of the bank beyond the channel
+         * @param waterTop  Y of the top water block of the segment's pool
+         * @param lake      the segment lies in a basin lake (its channel is not carved)
+         * @param distance  distance from the column to the centre line
+         */
+        void segment(long id, double ax, double az, double bx, double bz, double halfWidth, double bank, int waterTop, boolean lake, double distance);
+    }
+
+    /**
+     * Calls {@code visitor} for every river channel segment whose centre line passes within
+     * {@code reach} blocks of the column and whose valley reaches it (segments are indexed by the
+     * reach of their valley, at most ~330 blocks). Integration boundary for the caves (Agent 4),
+     * which roof deep gorges into natural tunnels: they need the centre line, width and water level
+     * of the channels around a column, never the model's internals.
+     */
+    public void channels(int x, int z, double reach, ChannelVisitor visitor) {
+        int regionX = Math.floorDiv(x, WaterIndex.SIZE);
+        int regionZ = Math.floorDiv(z, WaterIndex.SIZE);
+        WaterIndex index = this.index(regionX, regionZ);
+        for (int ref : index.bucket(x - regionX * WaterIndex.SIZE, z - regionZ * WaterIndex.SIZE)) {
+            BasinRivers b = index.owners[ref];
+            int k = index.segments[ref];
+            double ax = b.ax[k];
+            double az = b.az[k];
+            double dx = b.bx[k] - ax;
+            double dz = b.bz[k] - az;
+            if (x < Math.min(ax, b.bx[k]) - reach || x > Math.max(ax, b.bx[k]) + reach
+                    || z < Math.min(az, b.bz[k]) - reach || z > Math.max(az, b.bz[k]) + reach) {
+                continue;
+            }
+            double len2 = dx * dx + dz * dz;
+            double t = len2 > 1e-9 ? ((x - ax) * dx + (z - az) * dz) / len2 : 0.0;
+            t = t < 0.0 ? 0.0 : (t > 1.0 ? 1.0 : t);
+            double px = ax + t * dx - x;
+            double pz = az + t * dz - z;
+            double d = Math.sqrt(px * px + pz * pz);
+            if (d > reach) {
+                continue;
+            }
+            double r = b.rA[k] + (b.rB[k] - b.rA[k]) * t;
+            visitor.segment(b.basin * 0x9E3779B97F4A7C15L + k, ax, az, b.bx[k], b.bz[k], r, b.bank[k], b.waterTop[k],
+                    (b.flags[k] & BasinRivers.IN_LAKE) != 0, d);
+        }
+    }
+
+    /**
      * Whether any river pool or lake can hold water in the block box (inclusive bounds): false
      * when no segment's channel and bank reach it and no lake region covers it. Cheap; lets block
      * steps skip chunks far from water.
