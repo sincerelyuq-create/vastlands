@@ -2,10 +2,11 @@ package com.sincerelyuq.vastlands.worldgen.system;
 
 /**
  * Placeholder for systems that are not implemented yet: density stages return their input
- * unchanged; forests add nothing. Terrain is implemented ({@code VastlandsTerrain}) and has no
- * passthrough: later systems rely on its height queries.
+ * unchanged; forests add nothing. Terrain ({@code VastlandsTerrain}) and hydrology
+ * ({@code VastlandsHydrology}) are implemented and have no passthrough: later systems rely on
+ * their height and water queries.
  */
-public enum Passthrough implements HydrologySystem, CaveSystem, ForestSystem {
+public enum Passthrough implements CaveSystem, ForestSystem {
     INSTANCE;
 
     @Override

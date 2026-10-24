@@ -1,4 +1,4 @@
 {
-  "type": "vastlands:terrain_parameter",
+  "type": "vastlands:hydrology_parameter",
   "parameter": "depth"
 }

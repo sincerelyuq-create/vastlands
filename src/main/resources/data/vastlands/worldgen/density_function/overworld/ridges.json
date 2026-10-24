@@ -1,7 +1,7 @@
 {
   "type": "minecraft:flat_cache",
   "argument": {
-    "type": "vastlands:terrain_parameter",
+    "type": "vastlands:hydrology_parameter",
     "parameter": "weirdness"
   }
 }

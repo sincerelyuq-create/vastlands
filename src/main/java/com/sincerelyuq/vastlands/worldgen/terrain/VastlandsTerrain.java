@@ -69,6 +69,11 @@ public final class VastlandsTerrain implements TerrainSystem {
     }
 
     @Override
+    public TerrainColumn sample(double x, double z) {
+        return this.model.sample(x, z);
+    }
+
+    @Override
     public double surfaceHeight(int blockX, int blockZ) {
         ColumnCache columns = this.cache.get();
         int x0 = blockX & ~3;

@@ -103,9 +103,11 @@ class StageDensityFunctionTest {
         assertNotNull(context);
         assertEquals(7L, context.setup().worldSeed());
         DensityStage terrain = context.systems().terrain();
-        assertEquals(1.0 + terrain.apply(POS.blockX(), POS.blockY(), POS.blockZ(), 0.0), wired.compute(POS));
+        DensityStage hydrology = context.systems().hydrology();
+        assertEquals(terrain.apply(POS.blockX(), POS.blockY(), POS.blockZ(), 0.0)
+                + Math.min(hydrology.apply(POS.blockX(), POS.blockY(), POS.blockZ(), 1.0), 2.0), wired.compute(POS));
         assertSame(terrain, findStage(wired, StageDensityFunction.Stage.TERRAIN).implementation());
-        assertSame(Passthrough.INSTANCE, findStage(wired, StageDensityFunction.Stage.HYDROLOGY).implementation());
+        assertSame(hydrology, findStage(wired, StageDensityFunction.Stage.HYDROLOGY).implementation());
         assertSame(Passthrough.INSTANCE, findStage(wired, StageDensityFunction.Stage.CAVES).implementation());
     }
 

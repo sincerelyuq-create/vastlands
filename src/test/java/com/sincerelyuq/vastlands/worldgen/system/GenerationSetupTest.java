@@ -22,8 +22,8 @@ class GenerationSetupTest {
     }
 
     @Test
-    void terrainIsImplementedAndTheOtherSystemsArePassthrough() {
+    void terrainAndHydrologyAreImplementedAndTheOtherSystemsArePassthrough() {
         GenerationSystems systems = GenerationSystems.create(new GenerationSetup(42L, -256, 768, 63));
-        assertEquals("terrain=vastlands hydrology=passthrough caves=passthrough forests=passthrough", systems.describe());
+        assertEquals("terrain=vastlands hydrology=vastlands caves=passthrough forests=passthrough", systems.describe());
     }
 }

@@ -21,7 +21,7 @@ Development Modules
 1. World Core — project setup, world height configuration, generation infrastructure, shared interfaces, and integration. (Done: Agent 1.)
 2. Terrain — mountain ranges, valleys, plains, plateaus, cliffs, and natural terrain continuity. (Done: Agent 2.)
    2.5. Geography — continent-scale regions, climate, climate-aware biomes, oceans, trenches and frozen seas. (Done: Agent 2.5.)
-3. Hydrology — rivers, tributaries, downhill drainage, waterfalls, and river valleys.
+3. Hydrology — rivers, tributaries, downhill drainage, waterfalls, and river valleys. (Done: Agent 3.)
 4. Caves — large underground caverns, tunnels, vertical shafts, and diverse cave formations.
 5. Forests — large forests, tree diversity, giant trees, and natural vegetation distribution.
 
@@ -77,11 +77,13 @@ src/main/java/com/sincerelyuq/vastlands/
   worldgen/
     WorldHeight.java                  MIN_Y = -256, HEIGHT = 768, MAX_Y = 511
     VastlandsChunkGenerator.java      "vastlands:noise", a NoiseBasedChunkGenerator subclass; trench water and
-                                      ice field steps (OceanSurface)
+                                      ice field steps (OceanSurface), river water steps (RiverWater), base
+                                      heights with river water
     WorldgenDiagnostics.java          level-load checks (height mismatch, missing context)
     context/                          GenerationContext (per-world state), binding visitor, mixin duck interface
     density/StageDensityFunction.java vastlands:terrain / vastlands:hydrology / vastlands:caves router nodes
     density/TerrainParameterFunction.java  vastlands:terrain_parameter router nodes (climate, depth, initial density)
+    density/HydrologyParameterFunction.java  vastlands:hydrology_parameter router nodes (river weirdness, depth, initial density)
     system/                           system interfaces, Passthrough placeholder, GenerationSystems wiring
     noise/                            SimplexNoise, NoiseMath (fBm, ridged, smoothstep, smooth max, spline)
     geography/                        macro geography and climate (pure Java): GeographyModel, GeographySample,
@@ -90,6 +92,9 @@ src/main/java/com/sincerelyuq/vastlands/
                                       BiomeClimate (biome parameters), VastlandsTerrain (TerrainSystem),
                                       TerrainColumn, ColumnCache
     ocean/OceanSurface.java           block steps of the oceans: trench water, ice fields
+    hydrology/                        rivers, lakes, falls: HydrologyModel (pure Java: DrainageDomain, BasinRivers,
+                                      WaterIndex, LruCache), VastlandsHydrology (HydrologySystem), WaterColumn,
+                                      RiverWater (block step)
 src/main/resources/
   vastlands.mixins.json
   assets/vastlands/lang/en_us.json                         world type name
@@ -103,8 +108,11 @@ src/main/resources/
 src/test/java/...                                          JUnit tests (see Testing)
 src/test/java/.../tools/TerrainPreview.java                ./gradlew terrainPreview: terrain, landform, biome, climate
                                                            and ice maps without the game
-tools/worldcheck/                                          world generation, region analysis, heightmaps, oceans, screenshots
-docs/terrain/, docs/geography/                             previews, region maps and in-game screenshots
+src/test/java/.../tools/HydrologyPreview.java              ./gradlew hydrologyPreview: rivers, lakes and falls over the
+                                                           carved relief; expected water export for rivercheck.py
+tools/worldcheck/                                          world generation, region analysis, heightmaps, oceans, rivers,
+                                                           screenshots
+docs/terrain/, docs/geography/, docs/hydrology/            previews, region maps and in-game screenshots
 ```
 
 World Preset and Height
@@ -156,22 +164,27 @@ vanilla final_density body                 slides, blend, interpolation, noise c
         │
 vastlands:caves        ← CaveSystem        wraps the whole final_density (per block, not interpolated)
         │
-NoiseChunk → aquifers → [trench water] → surface rules → carvers → [trench water] → features → [ice fields]
-                                                                                      └─ ForestSystem, via GenerationContext.of(level)
+NoiseChunk → aquifers → [trench water, river water] → surface rules → carvers → [trench water, river water]
+        → features → [ice fields]
+              └─ ForestSystem, via GenerationContext.of(level)
 ```
 
 The bracketed steps are `VastlandsChunkGenerator` overrides (`fillFromNoise`, `applyCarvers`,
-`applyBiomeDecoration`) calling `ocean/OceanSurface`; they only touch the chunk being generated and
-are pure functions of the position, so they do not depend on generation order.
+`applyBiomeDecoration`) calling `ocean/OceanSurface` and `hydrology/RiverWater`; they only touch the
+chunk being generated and are pure functions of the position (and of the hydrology model for the
+neighbouring columns), so they do not depend on generation order.
 
 - Terrain and hydrology stages sit inside `minecraft:interpolated`, so they are evaluated at noise
   cell corners only (every 4×8×4 blocks) and interpolated in between. `cache_once` makes the three
   uses of the landscape share one evaluation per point.
 - Router outputs owned by the terrain (`vastlands:terrain_parameter` nodes, files
-  `density_function/overworld/{continents,erosion,ridges,temperature,vegetation,depth,initial_density,bottom_slide}.json`):
-  the five climate parameters that select biomes, the biome depth, the initial density that aquifers
-  and the preliminary surface use, and the bottom slide factor inside the final density. The five 2D
-  ones are wrapped in `minecraft:flat_cache` like vanilla's.
+  `density_function/overworld/{continents,erosion,temperature,vegetation,bottom_slide}.json`):
+  climate parameters that select biomes and the bottom slide factor inside the final density.
+  Since Agent 3, `ridges.json` (weirdness: river biomes), `depth.json` (biome depth from the
+  carved surface) and `initial_density.json` (the initial density that aquifers and the
+  preliminary surface use: channel floors) are `vastlands:hydrology_parameter` nodes, which pass
+  the terrain's value through away from rivers.
+  The five 2D ones are wrapped in `minecraft:flat_cache` like vanilla's.
 - The caves stage is outside interpolation and runs for every block.
 - Forests are not part of the router; forest features reach their system through
   `GenerationContext.of(ServerLevel)`.
@@ -200,8 +213,9 @@ world's `GenerationContext` (created lazily, once) and binds itself to the match
 System Contracts
 
 All interfaces are in `worldgen/system`. `GenerationSystems.create(GenerationSetup)` is the single
-place where implementations are chosen. Terrain is `VastlandsTerrain`; hydrology, caves and forests
-are still `Passthrough.INSTANCE` (which no longer implements `TerrainSystem`).
+place where implementations are chosen. Terrain is `VastlandsTerrain`, hydrology is
+`VastlandsHydrology`; caves and forests are still `Passthrough.INSTANCE` (which no longer
+implements `TerrainSystem` or `HydrologySystem`).
 
 | System | Interface | Kind | May depend on | Owner |
 |---|---|---|---|---|
@@ -239,8 +253,25 @@ TerrainSystem (contract for later systems; details in Terrain below):
 - `double parameter(TerrainParameter, x, y, z)`: router outputs (see `TerrainParameter` for ranges).
 - `GeographyModel geography()`: the macro geography for any position, uncached (for coarse grids
   such as drainage planning; see Geography, Interfaces for Hydrology).
+- `TerrainColumn sample(x, z)` (Agent 3): the exact model column at any point, uncached, for planning
+  that should not evict the per-thread cache of the chunk being generated.
 - `GenerationSystems.surfaceHeight(x, z)`: the ground surface after all stages that reshape it, used
-  by `SurfaceRulesContextMixin`. Terrain only today; Hydrology must include its channels here.
+  by `SurfaceRulesContextMixin`: the hydrology's surface (terrain with channels, valleys, levees).
+
+HydrologySystem (contract for later systems; details in Hydrology below):
+- `double surfaceHeight(x, z)`: the generated ground surface with channels, valleys and levees
+  (the hydrology's node heights on the 4-block grid, interpolated bilinearly like the density). Top
+  landscape block (before caves) = `ceil(surfaceHeight) - 1`, except on steep carved faces, which
+  jut out above it in places (rough walls, see Hydrology; never below it).
+- `WaterColumn water(x, z)`: the water of a block column: `kind` (DRY, SEA, RIVER, LAKE, ROCK),
+  `waterTop` (Y of the top water block), `groundTop` (top solid block under the water: the density's,
+  or lower at the foot of a fall; a boulder's top for ROCK), `surface`. `placed()` is true for river and lake water, which
+  Vastlands places itself; sea water comes from vanilla's aquifers. Not cached: about a microsecond
+  plus one model column query; query once per column per step.
+- `double parameter(TerrainParameter, x, y, z)`: router outputs as reshaped by hydrology (weirdness,
+  depth, initial density); other parameters are the terrain's.
+- `VastlandsHydrology.model()` (`HydrologyModel`) for planning: `falls(x, z)`, `stats(x, z)`,
+  `describe(x, z)`.
 
 How to implement a system
 
@@ -545,6 +576,218 @@ generation time). Geography queries: `smoothElevation` 1.5 µs, `sample` 3.2 µs
 near the freezing band. Memory: a cached column now carries its `GeographySample` (estimated from
 object sizes: ~1.2 MB per worldgen thread for the 4 096-entry cache).
 
+Hydrology (Agent 3)
+
+Rivers, tributaries, lakes and waterfalls are a separate layer on top of the terrain:
+`worldgen/hydrology`. `HydrologyModel` is pure Java (no game classes) like `TerrainModel`: a
+deterministic function of (seed, x, z) that can be rendered without the game
+(`./gradlew hydrologyPreview`). `VastlandsHydrology` turns it into router density, router
+parameters and block water; `RiverWater` places the water.
+
+Layers, coarse to fine:
+1. Drainage (`DrainageDomain`), on a grid of 128-block cells, per tile of 128 × 128 cells
+   (16 384 blocks) computed with a margin of 128 cells on every side (a square of 384 × 384 cells):
+   - elevation: `GeographyModel.smoothElevation` at cell centres; cells below sea level are sea
+     (oceans and the sea-level basins that aquifers fill);
+   - routing: a priority flood from the sea and the square's border (Barnes et al. 2014) in which
+     each cell is processed in the order of its own elevation ("breaching"): water runs down into a
+     depression and leaves it over its lowest pass, so every land cell drains to the sea;
+   - lakes: a second, filling flood gives each depression's spill level; depressions at least 10
+     blocks deep and 3 cells large hold a lake 6 blocks below the spill level, lower in dry
+     climates (half the depth times the aridity); very dry lakes are terminal (no outflow);
+     shallower depressions are breached by their river;
+   - discharge: runoff (0.25..1.2 from the climate's moisture, up to ×1.9 in mountains above Y 90)
+     accumulated downstream; lakes lose 15..85% to evaporation, terminal lakes all of it;
+   - basins: each land cell belongs to the mouth cell (or terminal lake) it drains to. A tile owns
+     the basins whose mouth lies in its core and that stay four cells clear of the computed
+     square's border. Measured basins reach at most ~15 000 blocks from their mouth (seed 20261018,
+     131 072² blocks), so the 16 384-block margin covers them; a basin that does not fit is owned by
+     nobody and has no rivers (none seen in previews).
+   Every basin is computed by exactly one tile from pure functions of the seed, so a basin's rivers
+   are the same whichever chunk, thread or tile asks first. The raster is dropped after
+   construction; a tile keeps its owned river cells (discharge ≥ 24 runoff-weighted cells) and
+   lakes.
+2. Rivers (`BasinRivers`), per basin, computed on first use:
+   - node points: in each river cell the lowest of 3 × 3 candidates of the exact terrain (40 blocks
+     apart), so rivers find the valley floors of the gully erosion;
+   - reaches (source or confluence to the next confluence, lake or mouth): a valley line through
+     the node points (centripetal Catmull-Rom curve); a reach into the sea ends at the centre of
+     the first sea cell;
+   - meanders on the valley line: a sine-generated curve (the shape of real meanders: the river's
+     direction swings by up to ω about the valley line, ω 0.35..1.45 from a 2 600-block noise),
+     to first order a lateral offset `A (sin φ + c3 sin 3φ)` and a shift along the valley
+     `-B sin 2φ` with `A, B, c3` from Bessel functions of ω. Wavelength 11..16 river widths (at
+     least 110..150 blocks), a whole number of half waves per reach (the reach starts and ends on
+     its valley line, so confluences, mouths and lake inflows stay put), the river below a
+     confluence continuing the phase of the largest river above it, wavelength and strength
+     varying along the river (stretches of deep loops and of gentle bends). The amplitude is held
+     to the flat ground beside the valley line (probed every 32 blocks: no swing into ground
+     rising more than 6 blocks plus 4%), to the valley line's curvature, and to 0 near lakes and
+     the sea. Resampled every 4 blocks;
+   - width `3 + 0.8 × discharge^0.6` (about 8 blocks at a source, 25-30 after a few hundred cells,
+     50 at a thousand, 90-110 for the largest rivers of a continent), ±10% wider in bends and
+     ±8% along the river (noise), depth `1.5 + 0.075 × width` (2..10); sources taper in over 64
+     blocks;
+   - water levels, from the sources down: the highest level that keeps the banks above the water
+     (running minimum of the exact terrain 3 blocks and `4 + 0.2 × half width` blocks beside the
+     channel, every 16 blocks, minus 1.5); a river entering a lake meets its surface (an inflow that
+     arrives lower lowers the lake; levels are iterated until lake surfaces settle); the river below
+     a confluence starts at the lowest incoming level;
+   - pools and falls: levels are split into flat pools. Where the level falls gently, a pool ends
+     when it has dropped 2 blocks (a 2-block ledge). Where it falls steeply, a pool may drop by up
+     to `100 × steepness` blocks (random per pool, at most 56) before the next fall: the pool
+     deepens upstream into a gorge whose head is a tall fall, like a waterfall retreating
+     upstream. A pool shorter than 64 blocks between two falls joins the pool below (one tall fall
+     instead of a staircase, up to 80 blocks). All water tops are `seaTop + 2k`: two water
+     surfaces differ by 0 or at least 2 blocks;
+   - a tributary that arrives above the main river falls into the main river's valley where its
+     level meets the valley wall (a hanging valley); a river that arrives above a lake drops to the
+     lake's level 24 blocks plus its half width before the shore, in its own channel;
+   - bed: parabolic, depth as above; above each fall the bed rises to one block below the water
+     (sill), below it a plunge pool `2 + 0.4 × drop` deep (3..14). Below falls of 6+ blocks the
+     pool is round and wider than the river: radius `(r + bank + 2) × 1.05..1.35`, narrowing back
+     to the river over `max(8 + 0.5 × drop, 1.5 × radius)` blocks;
+   - valley: a one-block bank, a floodplain rising 1 block per 20 (`2 + 0.8 × width`, up to 80
+     blocks, in gentle terrain only), valley walls of slope 0.7 (gentle) to 2.0 (steep), and a steep
+     rise at a per-segment cutoff (at most 320 blocks) so the valley always meets the terrain. The
+     valley shape is smoothed along the river over ±48 blocks;
+   - fall lips (`BasinRivers.fallSide`): a fall cuts the channel across along its lip, a line
+     through the fall bowed upstream in the middle (a horseshoe: 0.2..0.5 × the half width of
+     channel and bank at falls of 6+ blocks; ±0.25 at ledges) and ragged (two octaves of value
+     noise, 1..5 blocks). Beyond the banks the line curves downstream (parabola), so the valley
+     below ends in a rounded head, an amphitheatre below a tall fall and a curved terrace edge
+     beside a ledge, not a straight cut across the valley. Segments below a fall do not reach
+     upstream of its lip, segments above it not downstream (within 330 blocks along the river,
+     and only segments wholly on their side, so a meander swinging back keeps its channel);
+   - boulders: 2..6 in the plunge pool of every fall of 6+ blocks (clear of the curtain), 0..2 on
+     its lip (they split the curtain), a few along ledges (on and below the step) and in steep
+     narrow streams (every 12 blocks with a chance rising with the slope). Radius 0.8..2.6 blocks,
+     an irregular outline, 1..3 blocks above the water they stand in.
+3. Index (`WaterIndex`): the segments and lake cells that can affect a 512-block region, from every
+   tile that may own a basin reaching it (the 3 × 3 tiles around), bucketed by 32 blocks.
+4. Column (`HydrologyModel.sample`): for each segment within reach, the channel profile at the
+   distance from its centre line, jittered by noise of the column (ragged banks: up to 0.8..3
+   blocks at the water's edge, 16- and 6-block noise; ragged valley walls: up to 2.5..12 blocks
+   beyond the bank, 56- and 20-block noise); steep valley walls rise in bands of steeper and
+   gentler slope every 8 blocks of height (ledges). The carved height is
+   `max(min(terrain, min profile), min(levee, cap))`: carving takes the lowest profile, levees raise
+   ground beside a channel above sea level to one block above its water (rare: banks are measured),
+   capped by every channel bed so no levee closes another channel. Boulders covering the column
+   give its rock top.
+
+Water bodies and the block step (`VastlandsHydrology.water`, `RiverWater`):
+- A column's water is the lowest body that holds water there: a river channel always does inside
+  its wetted width, a river pool (within its width plus the bank width) or a lake region (its
+  coarse lake cells plus a ring of cells) where the ground lies below its water top; the sea where
+  the ground lies below sea level (aquifers fill it). A boulder at or above that water (or above
+  dry ground) makes the column ROCK. `WaterColumn` gives the ground top (a boulder's top), the
+  water top and the kind (DRY, SEA, RIVER, LAKE, ROCK).
+- `RiverWater.place` runs after noise filling (so surface rules see the water: channel floors get
+  vanilla's underwater dirt and gravel) and again after carving (carvers cut through water and
+  banks). For the chunk plus a 2-column margin it reads the water columns from the model, then
+  fills water from the ground up to the water top; seals the bed and every block next to
+  neighbouring water that is not solid (cave and carver openings; stone over a hole, never gravel,
+  and sand or gravel holding water back over a hole gets a stone block under it, so nothing falls
+  at the first block update); raises a dry column that is
+  lower than a neighbouring water surface to it (a levee one block wide: 0.8% of the shore edges
+  around the test places, about half beside the tallest fall, the rest 1..2 blocks high along a
+  broad lowland river); builds a sill under the upper edge of every fall
+  (one water block deep); cuts away the bilinear ramp of the density inside a channel at the foot
+  of a fall; hangs a curtain in the lower column: a flowing block (amount 7) at the upper water
+  top and falling water down to the lower water, through any rock the rough walls put there; and
+  builds boulders from the ground up (andesite, cobblestone and mossy cobblestone, mossier at the
+  water: surface rules only repaint plain stone, so they keep these materials).
+- Stability: these are the states vanilla computes for those blocks (`FlowingFluid.getNewLiquid`):
+  no fluid ticks are scheduled and nothing changes when a chunk loads or a block next to the
+  water updates. The 2-block minimum between water surfaces matters: next to a 1-block step, air
+  above the lower water with two upper sources beside it turns into a source, and that spreads
+  along the whole step and down the river. `RiverWaterTest` checks the ported fluid rules on 3 × 3
+  proto-chunks around falls (borders included), `tools/worldcheck/rivercheck.py` on generated
+  worlds.
+- Every decision depends only on the model for the column and its neighbours, never on the
+  chunk's neighbours' blocks, so chunks agree across their borders in any generation order.
+
+Router and integration:
+- `vastlands:hydrology` (density): the terrain density with the surface moved to the carved
+  height: `density - d(terrain) + d(carved)`, both clamped like the terrain's. Output range ±256
+  around the input (conservative). Rough walls: where carving left a steep face (the carved
+  heights of a grid column and its four neighbours differ by more than 6 blocks, the hydrology cut
+  into the terrain there, and more than 8 blocks above the foot of the face), the surface at a
+  height is the higher of the carved surface and the carved surface sampled up to 3.5 blocks
+  away (a smooth 3D offset, 13 blocks across and 9 high): cliffs and gorge walls jut out in
+  ledges and buttresses that change every few blocks of height instead of rising as one vertical
+  outline. Only outward, so no hollow ever opens below the 2D surface (the water, the aquifers
+  and the preliminary surface rely on it); the block step clears the rock where a fall's curtain
+  hangs.
+- `vastlands:hydrology_parameter` (new node type): `ridges` (weirdness) is 0 at grid columns inside
+  a channel at least 6 blocks wide, so vanilla's table picks river or frozen river (or swamp,
+  mangrove swamp in E6 lowland, and the middle biome in mid/far-inland E0/E1 mountains, as in
+  vanilla valleys); `initial_density_without_jaggedness` uses the lowest carved height of the
+  noise cell, so aquifers and the preliminary surface never see ground above a channel floor;
+  `depth` is measured from the carved surface, so the floors of gorges (up to ~60 blocks below
+  the terrain) get surface biomes, not the cave biomes (dripstone, lush caves) their depth below
+  the uncarved terrain would select. Other parameters pass the terrain's values through.
+- `GenerationSystems.surfaceHeight` is the hydrology's surface (channels included):
+  `SurfaceRulesContextMixin` paints channel floors and valley walls.
+- `VastlandsChunkGenerator.getBaseHeight/getBaseColumn` include river and lake water, as vanilla's
+  include the sea, so structures placed before the chunk exists (village paths and houses) stand on
+  the water surface rather than on the channel floor.
+- Freezing is vanilla's: rivers and lakes in cold biomes (frozen river, snowy biomes) freeze by
+  `freeze_top_layer` and weather. `ServerLevelMixin` only keeps sea ice field cracks open.
+- F3: a "Vastlands hydrology" line (water kind and top, ground, nearest river: width, top, distance).
+
+Hydrology in numbers (seed 20261018, `hydrologyPreview`; 4 vCPU container):
+- 65 536 × 65 536 blocks around 0,0: rivers and lakes above sea level cover 2.3% of the land; the
+  widest rivers are 90..110 blocks (sampled every 256 blocks; plunge pools of the largest rivers
+  slightly wider), the tallest falls 72..84 blocks (mountain falls of 84 and 74 blocks at
+  32018,2298 and 31975,2351, 76 blocks at 2272,19974). Rendering it computes 42 drainage tiles
+  (9.5 s) and 687 basins with rivers (474 000 river segments of 4 blocks, 11.2 s).
+- Drainage on a 131 072-block square (prototype, before breaching): basins reach at most 15 100
+  blocks from their mouth; filling every depression would have made lakes of 9% of the land.
+- Four test places (`HydrologyModelTest`): 55 345 segments, 396 steps, 80 falls of 8+ blocks,
+  tallest 50; 182 river mouths and 3 rivers ending in terminal lakes in 2 × 2 tiles around 0,0.
+
+Performance:
+- Drainage of a tile: 0.4..0.6 s of CPU (147 456 cells; the smooth elevation, 2.7 µs a sample,
+  dominates; samples are cached in shared 64 × 64-cell tiles, so neighbouring tiles reuse two
+  thirds of theirs). The first query in a new area computes the 3 × 3 tiles around it in parallel:
+  1.3..2.2 s of wall time on this machine, once per 16 384 blocks travelled.
+- Rivers of a basin: 16 ms on average (bank samples of the exact terrain every 16 blocks; room
+  for meanders probed every 32 blocks).
+- Per chunk, once the area's drainage is known (`hydrologyPreview --bench`, one thread): the node
+  columns of the density 26..66 µs; the water columns of the two block steps 0.22 ms per chunk
+  around a mountain river, 0.88 ms along a broad lowland river (`sampleWater` only looks at
+  segments within reach of their water), almost nothing for chunks with no river or lake within
+  reach (`mayHoldWater`). Rough walls add a few node lookups and two 3D value noises per cell
+  corner on steep carved faces only.
+- End to end (dedicated server, `generate.py`, 40 × 40 chunks around -200,2700, a
+  broad river with tributaries; runs alternated with the branch before hydrology): 13.81 and
+  13.81 chunks/s with hydrology, 13.73 and 13.78 without, so no measurable difference (vanilla's
+  worldgen pipeline dominates). The smaller test worlds of Agent 3 (16 × 16 to 24 × 24 chunks,
+  start-up included) generated at 6.3..9.4 chunks/s.
+- Memory: up to 32 tiles (owned river cells, lakes, and the rivers of the basins used: about 105
+  bytes per segment, ~1 MB per tile), 256 region indexes, 400 elevation tiles (6.4 MB), a
+  4 096-entry node cache per worldgen thread.
+
+Limitations (details and the full list: PROGRESS.md, Known Issues):
+- Structures (villages) can stand across rivers and fill parts of their channels.
+- Levees one block wide at the edges of a tall fall's lip and 1..2-block banks along some lowland
+  rivers (0.5% of the shore edges at the test places).
+- River valleys follow the 128-block drainage cells (meanders swing about them); no streams below the river
+  threshold (vanilla springs only); no dry river beds in arid regions.
+- River biomes only in channels 6+ blocks wide; lakes keep the surrounding biome.
+- A basin reaching more than ~16 000 blocks beyond its tile would have no rivers (none seen).
+- Any change of a hydrology constant changes generation (seams at rivers in existing worlds).
+
+Tuning: drainage constants in `DrainageDomain` (cell size, tile and margin, river threshold, lake
+depth, size and freeboard, runoff), river shape in `BasinRivers` (`widthFor`, depth, freeboard,
+meanders in `meander` and `room`, pools and falls in `levels`, lips, sills, plunge pools and
+boulders in `emit`, `floodplain`, `wallSlope`, lake entry, cutoff), meander angles in
+`HydrologyModel.meanderAngle`, bank and wall jitter in `HydrologyModel.sample`, the cross-section
+and ledges in `HydrologyModel.profile`, rough walls in `VastlandsHydrology` (`ROUGHNESS`,
+`roughSurface`), the river biome width in `BasinRivers.emit`.
+Render with `hydrologyPreview` before generating worlds; `HydrologyModelTest` guards the properties.
+
 Vanilla Isolation
 
 - Vanilla world types are untouched: only `vastlands:*` data is added, plus one entry appended to
@@ -558,10 +801,10 @@ Vanilla Isolation
 
 Testing and Verification
 
-JUnit (`./gradlew test`, 54 tests):
+JUnit (`./gradlew test`, 63 tests):
 - `WorldHeightDataTest` — data files agree with `WorldHeight` and pass vanilla's codecs.
 - `GenerationSetupTest` — seeded randomness is deterministic and separated per system and seed;
-  terrain is implemented, the other systems are passthrough.
+  terrain and hydrology are implemented, caves and forests are passthrough.
 - `StageDensityFunctionTest` — passthrough when unbound, delegation and bounds when bound,
   `fillArray`, lazy context creation, binding survives later visitors, codec round trip.
 - `TerrainParameterFunctionTest` — unbound value and bounds, binding to the context's terrain, codec.
@@ -571,8 +814,8 @@ JUnit (`./gradlew test`, 54 tests):
   continuity (max neighbour step < 12 blocks, mean < 0.4 over 4 seeds), no discontinuities (no
   jump within 0.05 blocks), height distribution
   (sea 25..50%, lowland > 38%, above 200 0.5..8%, above 300 < 1.5% and rarer than above 200,
-  max < 470, min > -200), climate parameters in range, underwater ⇔ ocean continentalness, no river
-  weirdness.
+  max < 470, min > -200), climate parameters in range, underwater ⇔ ocean continentalness, the
+  terrain itself never selects the river slice (weirdness).
 - `GeographyModelTest` — determinism from any thread; no jumps in elevation, smooth elevation,
   temperature, moisture and masks within 0.05 blocks (4 seeds); region scale along 60 000-block
   transects (plains provinces > 1 500 blocks, climate zones > 2 500, an open sea > 5 000 wide, sea
@@ -590,13 +833,29 @@ JUnit (`./gradlew test`, 54 tests):
 - `PresetDataTest` (on NeoForge's `EphemeralTestServerProvider`, data loaded exactly as the game
   does) — preset listed, generator and height; router outputs the terrain does not own (aquifer and
   ore vein noises) are bit-for-bit vanilla over Y -256..511; terrain-owned outputs (including
-  temperature and vegetation) equal the terrain; final density solid at the bottom, air at the top
-  and above the terrain surface; the bottom slide is vanilla's under ordinary ground and the deepest
-  trench found is open water down to its floor, solid below.
+  temperature and vegetation) equal the terrain, weirdness, depth and the initial density the hydrology's;
+  final density solid at the bottom, air at the top and above the generated surface (channels
+  included); the bottom slide is vanilla's under ordinary ground and the deepest trench found is
+  open water down to its floor, solid below.
 - `TerrainBiomeTest` (test server) — surface biomes from vanilla's table agree with the terrain
-  (ocean ⇔ under water, mountain biomes above Y 300, no river biomes) and with the climate (frozen
-  oceans polar, deserts warm, jungles humid); the mean biome run along transects is more than twice
-  vanilla's for the same seed (measured 593 vs 166 blocks).
+  (ocean ⇔ under water, mountain biomes above Y 300, river biomes only in hydrology channels:
+  measured 574 of 90 000 samples) and with the climate (frozen oceans polar, deserts warm, jungles
+  humid); the mean biome run along transects is more than twice vanilla's for the same seed
+  (measured 541 vs 166 blocks; 593 before rivers).
+- `HydrologyModelTest` — the same water from two models whatever order and thread computes tiles
+  and regions; water never rises along a reach or across a confluence, every water top is
+  `seaTop + 2k` (rivers and lakes); every river cell drains into a river, the sea, a terminal lake
+  or ends in a lake; widest river 50..110 blocks (plunge pools aside), falls of 8+ blocks exist, the tallest at least
+  30; at four places (a plateau fall, broad lowland rivers, lakes), no two water surfaces 1 block
+  apart and levees needed on under 2% of the shore edges (measured 0.5%); off the rivers the terrain
+  is unchanged (reshaped on 5% of random grid columns, never raised); `mayHoldWater` never says no
+  for a box with river or lake water and skips at least a quarter of the boxes around the test
+  places; level quantization.
+- `RiverWaterTest` (test server) — 3 × 3 proto-chunks at three places and up to two falls near
+  each (7 areas) are filled with the model's ground and sea-level water, get their river water,
+  have bed and banks cut by a carver-like tunnel and get it again; no water block of the middle chunk (borders included) changes
+  under vanilla's fluid rules (ported from `FlowingFluid`), every source above sea level is river or
+  lake water of the model and all flowing water is a fall curtain.
 
 Terrain previews without the game: `./gradlew terrainPreview --args="..."` (`TerrainPreview` in the
 test sources): `--seed S --center X Z --size BLOCKS --scale BLOCKS_PER_PIXEL --out PREFIX` writes a
@@ -609,6 +868,13 @@ at the coldest sea of the square, or around `--ice-center X Z` at the square's s
 prints landform, climate band and biome shares, the mean biome run along rows and the highest
 peaks; `--find NAME` lists places of a biome or landform; `--cover FILE` exports the expected sea
 ice cover for `oceancheck.py --cover`; `--region-scale F` renders other region sizes.
+
+River previews: `./gradlew hydrologyPreview --args="--seed S --center X Z --size BLOCKS --scale
+BLOCKS_PER_PIXEL --out PREFIX"` (`HydrologyPreview`) renders the carved relief with rivers and lakes
+(blue), frozen water (pale: snowy or frozen biomes by vanilla's table), the sea and falls of 8+
+blocks (white), and prints the drainage time, the tallest falls and the widest rivers of the square
+and the work done (tiles, basins, segments). `--probe X Z` prints the columns and segments around a
+point; `--water FILE` exports the expected water of a square for `rivercheck.py --expected`.
 
 Real world checks (`tools/worldcheck`, standard-library Python; screenshots need python-xlib):
 - `generate.py --level-name NAME [--level-type ID] [--seed N] [--center X Z] [--radius R] --fresh
@@ -629,6 +895,12 @@ Real world checks (`tools/worldcheck`, standard-library Python; screenshots need
 - `heightmap.py run/NAME [--png FILE] [--expected FILE] [--compare run/OTHER]` builds the ground
   heightmap from the saved chunk heightmaps: relief PNG, neighbour steps inside chunks vs across
   chunk borders (seams), comparison with the model's expected surface, ground identity of two worlds.
+- `rivercheck.py run/NAME [--expected FILE] [--png FILE]` checks the water above sea level of a
+  generated world: source, lip, falling and other flowing water; blocks that vanilla's fluid tick
+  would change (rules of `FlowingFluid`), at rivers and lakes vs elsewhere (vanilla springs and cave
+  water), inside chunks vs on chunk borders; with `--expected` (`./gradlew hydrologyPreview
+  --args="--center CX CZ --size N --water FILE"` for the world's square: centre = `block_origin` +
+  N/2) the agreement of water tops and ground with the model; river biome cells at the surface.
 - `screenshot.py run/NAME --out DIR --shot "name:X Y Z YAW PITCH" ...` copies the world to
   `run/saves`, enables commands, starts the dev client under Xvfb with `--quickPlaySingleplayer`,
   and for each shot teleports (spectator), waits for chunks to render and saves an F2 screenshot.
@@ -648,8 +920,7 @@ Technical Limitations (verified)
   the new limits: diamonds (vanilla -64..16) now generate at -256..-176, lower redstone at
   -256..-224, tuff, geodes, deep monster rooms, lower fossils, gravel, lava springs and the cave
   carvers (min Y -248 instead of -56) shift too. Owner: Caves (underground), within the isolation rule above.
-- No rivers or inland lakes yet: the terrain never selects river biomes, and inland water only
-  appears where the ground dips below sea level (aquifers fill it to Y 63). Owner: Hydrology.
+- Hydrology: see Hydrology, Limitations.
 - Surface building cost grows with the world depth: vanilla's `SurfaceSystem.buildSurface` tests the
   surface rules for every stone block from the surface down to Y -256 on the single, consecutive
   "worldgen" executor of 1.21.8. See Performance.
