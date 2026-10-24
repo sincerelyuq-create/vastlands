@@ -8,8 +8,9 @@ import com.sincerelyuq.vastlands.worldgen.noise.SimplexNoise;
  * Enormous caverns: at most one per {@value #CELL}-block cell, about a third of the cells. Most
  * lie in the deep zone (centres Y -200..-130, under the aquitard), a few in the upper zone under
  * high ground. A cavern is 45..110 blocks in radius and 20..52 high: a flattened dome over a
- * breakdown floor of rubble mounds, its outline lobed by noise, its walls stepping back in
- * terraces, and pillars (wider at floor and ceiling) standing in it. Their fluid comes from the
+ * breakdown floor of rubble mounds under a ceiling with breakdown hollows and hanging lobes, its
+ * outline lobed by noise, its walls stepping back in uneven terraces, and pillars (wider at floor
+ * and ceiling) standing in it. Their fluid comes from the
  * domains like everything else: in a flooded domain the floor holds an underground lake, in a lava
  * domain a lava lake, and tunnels of the levels they cut through open into them.
  */
@@ -39,9 +40,15 @@ final class Caverns {
     /** A cavern's section at one column. */
     static final class Section {
         Cavern cavern;
+        double x, z;
         double dh;
         double lobes;
         double rubble;
+        /** Breakdown of the ceiling: how far it hangs below the dome here. */
+        double roof;
+        /** Height offset of the terrace edges at this column. */
+        double phase;
+        SimplexNoise terraces;
         double pillarDistance;
         double pillarRadius;
 
@@ -52,15 +59,18 @@ final class Caverns {
         /** Signed distance to the cavern's rock at a height (negative inside), terraces and pillars included. */
         double sdf(double y) {
             Cavern c = this.cavern;
-            long band = (long) Math.floor((y + 1000.0) / 6.0);
-            double terrace = 1.0 + 0.07 * (FluidDomains.unit(c.seed ^ band, 3) - 0.5);
+            // Terraces: bands about 6 blocks high whose edges wander up and down along the wall
+            // and whose step differs around it, so ledges come and go instead of forming rings.
+            long band = (long) Math.floor((y + this.phase + 1000.0) / 6.0);
+            double wobble = this.terraces.sample(this.x / 23.0 + band * 3.7, this.z / 23.0 - band * 1.9);
+            double terrace = 1.0 + 0.045 * (FluidDomains.unit(c.seed ^ band, 3) - 0.5) + 0.035 * wobble;
             double rh = c.rh * this.lobes * terrace;
             double q = this.dh / rh;
             if (q >= 1.0) {
                 return (q - 1.0) * rh;
             }
             double s = Math.sqrt(1.0 - q * q);
-            double ceiling = c.y + c.rv * Math.pow(s, 0.8);
+            double ceiling = c.y + c.rv * Math.pow(s, 0.8) - this.roof * s;
             double floor = c.y - c.rv * c.floorDepth * Math.sqrt(s) + this.rubble;
             double sdf = Math.max(floor - y, y - ceiling);
             if (this.pillarRadius > 0.0 && ceiling > floor) {
@@ -124,9 +134,14 @@ final class Caverns {
                     continue;
                 }
                 out.cavern = c;
+                out.x = x;
+                out.z = z;
                 out.dh = dh;
                 out.lobes = lobes;
                 out.rubble = 0.12 * c.rv * this.rubble.sample(x / 18.0, z / 18.0);
+                out.roof = 0.1 * c.rv * (0.5 + 0.5 * this.rubble.sample(x / 13.0 + 300.0, z / 13.0));
+                out.phase = 5.0 * this.outline.sample(x / 37.0 + 50.0, z / 37.0);
+                out.terraces = this.outline;
                 // Pillars: the nearest site of a jittered grid, if it holds one.
                 out.pillarRadius = 0.0;
                 double best = Double.POSITIVE_INFINITY;

@@ -1,5 +1,7 @@
 package com.sincerelyuq.vastlands.worldgen.caves;
 
+import com.sincerelyuq.vastlands.worldgen.noise.SimplexNoise;
+
 import static com.sincerelyuq.vastlands.worldgen.noise.NoiseMath.smoothstep;
 
 /**
@@ -39,9 +41,16 @@ final class CaveColumn {
     final int[] solidHi = new int[MAX_SOLIDS];
     int solids;
     final CavePrimitive[] pieces = new CavePrimitive[MAX_PIECES];
-    /** Chambers: squared horizontal distance to the centre and the rubble of the floor here. */
+    /**
+     * Chambers: squared horizontal distance to the centre, the rubble of the floor, how far the
+     * ceiling's breakdown hangs below the dome and the height offset of the terrace edges here.
+     */
     final double[] dh2 = new double[MAX_PIECES];
     final double[] rubble = new double[MAX_PIECES];
+    final double[] breakdown = new double[MAX_PIECES];
+    final double[] phase = new double[MAX_PIECES];
+    /** Noise for the ledges of chamber walls (set by the model). */
+    SimplexNoise ledges;
     int count;
     final Fractures.Crack upperCrack = new Fractures.Crack();
     final Fractures.Crack deepCrack = new Fractures.Crack();
@@ -189,14 +198,17 @@ final class CaveColumn {
     }
 
     private double chamber(CavePrimitive p, int i, int y) {
-        long band = (long) Math.floor((y + 1000.0) / 5.0);
-        double rh = p.ra * (1.0 + 0.08 * (FluidDomains.unit(p.seed ^ band, 5) - 0.5));
+        // Terraces: bands about 5 blocks high whose edges wander up and down along the wall and
+        // whose step differs around it, so ledges come and go instead of forming rings.
+        long band = (long) Math.floor((y + this.phase[i] + 1000.0) / 5.0);
+        double wobble = this.ledges.sample(this.x / 19.0 + band * 3.7, this.z / 19.0 - band * 1.9);
+        double rh = p.ra * (1.0 + 0.05 * (FluidDomains.unit(p.seed ^ band, 5) - 0.5) + 0.04 * wobble);
         double q2 = this.dh2[i] / (rh * rh);
         if (q2 >= 1.0) {
             return (Math.sqrt(q2) - 1.0) * rh;
         }
         double s = Math.sqrt(1.0 - q2);
-        double ceiling = p.ay + p.rb * s;
+        double ceiling = p.ay + p.rb * s - this.breakdown[i] * s;
         double floor = p.ay - p.rb * p.shape * Math.sqrt(s) + this.rubble[i];
         return Math.max(floor - y, y - ceiling);
     }

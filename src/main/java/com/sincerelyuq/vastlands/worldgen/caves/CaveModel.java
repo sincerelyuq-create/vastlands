@@ -138,6 +138,7 @@ public final class CaveModel {
         c.x = x;
         c.z = z;
         c.valid = true;
+        c.ledges = this.damNoise;
         c.count = 0;
         c.solids = 0;
         c.notchY = Integer.MIN_VALUE;
@@ -233,6 +234,8 @@ public final class CaveModel {
                 double lobes = 0.8 + 0.2 * (1.0 + this.damNoise.sample(x / (0.6 * piece.ra + 6.0) + piece.seed % 89, z / (0.6 * piece.ra + 6.0)));
                 c.dh2[i] = (u * u + v * v) / (lobes * lobes);
                 c.rubble[i] = 0.1 * piece.rb * this.damNoise.sample(x / 9.0 + piece.seed % 61, z / 9.0);
+                c.breakdown[i] = 0.12 * piece.rb * (0.5 + 0.5 * this.damNoise.sample(x / 11.0 + piece.seed % 71 + 200.0, z / 11.0));
+                c.phase[i] = 4.0 * this.damNoise.sample(x / 31.0 + piece.seed % 53 - 100.0, z / 31.0);
             }
         });
         this.fractures.upper(x, z, c.surface, c.bandHi + 6, geo, this.seaTop, c.upperCrack);
