@@ -56,6 +56,9 @@ public final class RiverWater {
         ChunkPos chunkPos = chunk.getPos();
         int minX = chunkPos.getMinBlockX() - MARGIN;
         int minZ = chunkPos.getMinBlockZ() - MARGIN;
+        if (!hydrology.mayHoldWater(minX, minZ, minX + WIDTH - 1, minZ + WIDTH - 1)) {
+            return 0;
+        }
         int[] ground = new int[WIDTH * WIDTH];
         int[] dug = new int[WIDTH * WIDTH];
         int[] top = new int[WIDTH * WIDTH];

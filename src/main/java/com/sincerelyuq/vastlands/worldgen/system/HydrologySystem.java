@@ -30,6 +30,12 @@ public interface HydrologySystem extends DensityStage {
     /** The water body of a block column: rivers, lakes, the sea, or none. */
     WaterColumn water(int blockX, int blockZ);
 
+    /**
+     * False if no river or lake water can lie in the block box (inclusive): {@link #water} then
+     * returns no {@link WaterColumn#placed() placed} water for any column in it. Cheap.
+     */
+    boolean mayHoldWater(int minX, int minZ, int maxX, int maxZ);
+
     /** Value of a router output as reshaped by hydrology, within the parameter's range. */
     double parameter(TerrainParameter parameter, int blockX, int blockY, int blockZ);
 }

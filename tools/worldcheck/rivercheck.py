@@ -132,14 +132,18 @@ def main():
         n = size * size
         expected = (struct.unpack("<%dh" % n, data[:2 * n]), struct.unpack("<%dh" % n, data[2 * n:4 * n]), data[4 * n:5 * n])
 
-    def near_model_water(x, z):
+    def near_model_water(x, z, y):
+        """True if a river or lake column of the model within 2 blocks holds water (or a fall's
+        curtain) at this height; water in caves under a river bed is not the river's."""
         if expected is None:
             return True
         for dz in range(-2, 3):
             for dx in range(-2, 3):
                 xx, zz = x + dx, z + dz
-                if 0 <= xx < size and 0 <= zz < size and expected[2][zz * size + xx] in (2, 3):
-                    return True
+                if 0 <= xx < size and 0 <= zz < size:
+                    c = zz * size + xx
+                    if expected[2][c] in (2, 3) and expected[0][c] < y <= expected[1][c] + 64:
+                        return True
         return False
 
     def at(x, y, z):
@@ -207,7 +211,7 @@ def main():
                 if changes:
                     counts["flowing would change"] += 1
                     unstable.append((x, z, y, border))
-    rivers = [u for u in unstable if near_model_water(u[0], u[1])]
+    rivers = [u for u in unstable if near_model_water(u[0], u[1], u[2])]
     inside = sum(1 for u in rivers if not u[3])
     border = len(rivers) - inside
     report = {"water_above_sea": dict(counts), "unstable": len(unstable),
@@ -232,7 +236,7 @@ def main():
         grounds, tops, kinds = expected
         mismatches = []
         differences = Counter()
-        placed = top_ok = ground_ok = ground_close = 0
+        placed = top_ok = ground_ok = ground_close = ground_checked = 0
         for z in range(size):
             for x in range(size):
                 c = z * size + x
@@ -254,12 +258,15 @@ def main():
                 differences["none" if actual_top is None else str(max(-3, min(3, actual_top - tops[c])))] += 1
                 if actual_top != tops[c] and len(mismatches) < 12:
                     mismatches.append([meta["block_origin"][0] + x, meta["block_origin"][1] + z, tops[c], actual_top])
-                ground_ok += actual_ground == grounds[c]
-                ground_close += actual_ground is not None and abs(actual_ground - grounds[c]) <= 1
+                if grounds[c] >= LOW:
+                    ground_checked += 1
+                    ground_ok += actual_ground == grounds[c]
+                    ground_close += actual_ground is not None and abs(actual_ground - grounds[c]) <= 1
         report["model_river_lake_columns"] = placed
         if placed:
             report["water_top_matches_model"] = "%.2f%%" % (100.0 * top_ok / placed)
-            report["ground_matches_model"] = "%.2f%% (within 1: %.2f%%)" % (100.0 * ground_ok / placed, 100.0 * ground_close / placed)
+            report["ground_matches_model"] = "%.2f%% (within 1: %.2f%%) of %d columns with ground above Y %d" % (
+                100.0 * ground_ok / max(1, ground_checked), 100.0 * ground_close / max(1, ground_checked), ground_checked, LOW)
             report["water_top_mismatches (x, z, model, world)"] = mismatches
             report["water_top_world_minus_model"] = dict(differences)
 

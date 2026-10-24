@@ -51,6 +51,9 @@ public final class HydrologyModel {
     private final int seaTop;
     private final LruCache<Long, DrainageDomain> domains = new LruCache<>(32);
     private final LruCache<Long, WaterIndex> regions = new LruCache<>(256);
+    /** Cells per side of a cached block of elevation samples (16 KB each). */
+    private static final int ELEVATION_TILE = 64;
+    private final LruCache<Long, float[]> elevationTiles = new LruCache<>(400);
 
     public HydrologyModel(GeographyModel geography, TerrainHeights heights) {
         this.geography = geography;
@@ -83,6 +86,56 @@ public final class HydrologyModel {
         }
         int k = (int) Math.floor((level - this.seaTop) / 2.0);
         return this.seaTop + 2 * Math.max(0, k);
+    }
+
+    /**
+     * Smooth regional elevation at the centres of an {@code n × n} block of drainage cells. The
+     * samples are cached in tiles of {@value #ELEVATION_TILE} × {@value #ELEVATION_TILE} cells on a
+     * global lattice, so the overlapping squares of neighbouring drainage tiles share them; missing
+     * tiles are computed in parallel.
+     */
+    float[] elevations(long ci0, long cj0, int n) {
+        long tx0 = Math.floorDiv(ci0, ELEVATION_TILE);
+        long tz0 = Math.floorDiv(cj0, ELEVATION_TILE);
+        long tx1 = Math.floorDiv(ci0 + n - 1, ELEVATION_TILE);
+        long tz1 = Math.floorDiv(cj0 + n - 1, ELEVATION_TILE);
+        List<long[]> tiles = new ArrayList<>();
+        for (long tz = tz0; tz <= tz1; tz++) {
+            for (long tx = tx0; tx <= tx1; tx++) {
+                tiles.add(new long[] {tx, tz});
+            }
+        }
+        float[] out = new float[n * n];
+        tiles.parallelStream().forEach(tile -> {
+            float[] values = this.elevationTiles.get(DrainageDomain.key(tile[0], tile[1]), key -> this.elevationTile(tile[0], tile[1]));
+            long baseI = tile[0] * ELEVATION_TILE;
+            long baseJ = tile[1] * ELEVATION_TILE;
+            for (int b = 0; b < ELEVATION_TILE; b++) {
+                long j = baseJ + b - cj0;
+                if (j < 0 || j >= n) {
+                    continue;
+                }
+                for (int a = 0; a < ELEVATION_TILE; a++) {
+                    long i = baseI + a - ci0;
+                    if (i >= 0 && i < n) {
+                        out[(int) (j * n + i)] = values[b * ELEVATION_TILE + a];
+                    }
+                }
+            }
+        });
+        return out;
+    }
+
+    private float[] elevationTile(long tileX, long tileZ) {
+        float[] values = new float[ELEVATION_TILE * ELEVATION_TILE];
+        double cell = DrainageDomain.CELL;
+        for (int b = 0; b < ELEVATION_TILE; b++) {
+            for (int a = 0; a < ELEVATION_TILE; a++) {
+                values[b * ELEVATION_TILE + a] = (float) this.geography.smoothElevation(
+                        (tileX * ELEVATION_TILE + a + 0.5) * cell, (tileZ * ELEVATION_TILE + b + 0.5) * cell);
+            }
+        }
+        return values;
     }
 
     DrainageDomain domain(int tileX, int tileZ) {
@@ -247,6 +300,44 @@ public final class HydrologyModel {
             carved = Math.max(carved, Math.min(levee, cap));
         }
         out.carved = carved;
+    }
+
+    /**
+     * Whether any river pool or lake can hold water in the block box (inclusive bounds): false
+     * when no segment's channel and bank reach it and no lake region covers it. Cheap; lets block
+     * steps skip chunks far from water.
+     */
+    public boolean mayHoldWater(int minX, int minZ, int maxX, int maxZ) {
+        for (int rx = Math.floorDiv(minX, WaterIndex.SIZE); rx <= Math.floorDiv(maxX, WaterIndex.SIZE); rx++) {
+            for (int rz = Math.floorDiv(minZ, WaterIndex.SIZE); rz <= Math.floorDiv(maxZ, WaterIndex.SIZE); rz++) {
+                WaterIndex index = this.index(rx, rz);
+                int x0 = Math.max(minX, rx * WaterIndex.SIZE);
+                int x1 = Math.min(maxX, rx * WaterIndex.SIZE + WaterIndex.SIZE - 1);
+                int z0 = Math.max(minZ, rz * WaterIndex.SIZE);
+                int z1 = Math.min(maxZ, rz * WaterIndex.SIZE + WaterIndex.SIZE - 1);
+                for (int bx = x0 - Math.floorMod(x0, WaterIndex.BUCKET); bx <= x1; bx += WaterIndex.BUCKET) {
+                    for (int bz = z0 - Math.floorMod(z0, WaterIndex.BUCKET); bz <= z1; bz += WaterIndex.BUCKET) {
+                        for (int ref : index.bucket(bx - rx * WaterIndex.SIZE, bz - rz * WaterIndex.SIZE)) {
+                            BasinRivers b = index.owners[ref];
+                            int k = index.segments[ref];
+                            double reach = Math.max(b.rA[k], b.rB[k]) + b.bank[k] + 1.0;
+                            if (Math.max(b.ax[k], b.bx[k]) + reach >= minX && Math.min(b.ax[k], b.bx[k]) - reach <= maxX
+                                    && Math.max(b.az[k], b.bz[k]) + reach >= minZ && Math.min(b.az[k], b.bz[k]) - reach <= maxZ) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                for (long ci = Math.floorDiv(x0, DrainageDomain.CELL); ci <= Math.floorDiv(x1, DrainageDomain.CELL); ci++) {
+                    for (long cj = Math.floorDiv(z0, DrainageDomain.CELL); cj <= Math.floorDiv(z1, DrainageDomain.CELL); cj++) {
+                        if (index.lakeTops(DrainageDomain.key(ci, cj)) != null) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     /**

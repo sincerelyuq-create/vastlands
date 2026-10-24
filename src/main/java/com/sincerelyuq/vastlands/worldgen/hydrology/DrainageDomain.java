@@ -12,7 +12,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.IntStream;
 
 /**
  * Coarse drainage of one tile of the world: which way water runs on a grid of
@@ -118,12 +117,7 @@ final class DrainageDomain {
         long ci0 = (long) tileX * CORE - MARGIN;
         long cj0 = (long) tileZ * CORE - MARGIN;
 
-        float[] h = new float[n * n];
-        IntStream.range(0, n).parallel().forEach(j -> {
-            for (int i = 0; i < n; i++) {
-                h[j * n + i] = (float) geography.smoothElevation((ci0 + i + 0.5) * CELL, (cj0 + j + 0.5) * CELL);
-            }
-        });
+        float[] h = model.elevations(ci0, cj0, n);
         float[] moisture = climateField(geography, ci0, cj0, n);
         boolean[] ocean = new boolean[n * n];
         for (int c = 0; c < n * n; c++) {

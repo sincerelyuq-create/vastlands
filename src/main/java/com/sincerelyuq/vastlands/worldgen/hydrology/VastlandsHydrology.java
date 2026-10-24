@@ -96,6 +96,11 @@ public final class VastlandsHydrology implements HydrologySystem {
         return new WaterColumn(surface, ground, Integer.MIN_VALUE, WaterColumn.Kind.DRY);
     }
 
+    @Override
+    public boolean mayHoldWater(int minX, int minZ, int maxX, int maxZ) {
+        return this.model.mayHoldWater(minX, minZ, maxX, maxZ);
+    }
+
     /** Diagnostics of the nearest channel (F3 screen). */
     public HydrologyModel.Column describe(int blockX, int blockZ) {
         HydrologyModel.Column column = new HydrologyModel.Column();

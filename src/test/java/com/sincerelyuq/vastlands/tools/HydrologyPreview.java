@@ -75,6 +75,64 @@ public final class HydrologyPreview {
         System.out.printf(Locale.ROOT, "wrote %dx%d water columns from x %d z %d to %s%n", n, n, x0, z0, file);
     }
 
+    /**
+     * Cost of the hydrology per chunk once the drainage of the area is known: the node columns the
+     * density reads (5 × 5 per chunk) and the water columns the block step reads (20 × 20 per
+     * chunk, twice), single-threaded, chunk by chunk over the square.
+     */
+    private static void benchmark(long seed, int centerX, int centerZ, int size) {
+        GenerationSetup setup = new GenerationSetup(seed, WorldHeight.MIN_Y, WorldHeight.HEIGHT, (int) SEA);
+        VastlandsTerrain terrain = new VastlandsTerrain(setup);
+        VastlandsHydrology hydrology = new VastlandsHydrology(setup, terrain);
+        long start = System.nanoTime();
+        hydrology.water(centerX, centerZ);
+        System.out.printf(Locale.ROOT, "drainage and rivers around the centre: %.2f s (%s)%n", (System.nanoTime() - start) / 1e9, HydrologyModel.COUNTERS);
+        int chunks = size / 16;
+        int x0 = centerX - size / 2;
+        int z0 = centerZ - size / 2;
+        for (int pass = 0; pass < 2; pass++) {
+            long terrainNanos = 0;
+            long nodeNanos = 0;
+            long waterNanos = 0;
+            int placed = 0;
+            double sink = 0;
+            for (int cz = 0; cz < chunks; cz++) {
+                for (int cx = 0; cx < chunks; cx++) {
+                    int bx = x0 + cx * 16;
+                    int bz = z0 + cz * 16;
+                    long t0 = System.nanoTime();
+                    for (int i = 0; i <= 16; i += 4) {
+                        for (int j = 0; j <= 16; j += 4) {
+                            sink += terrain.column(bx + i, bz + j).height();
+                        }
+                    }
+                    long t1 = System.nanoTime();
+                    for (int i = 0; i <= 16; i += 4) {
+                        for (int j = 0; j <= 16; j += 4) {
+                            sink += hydrology.carvedHeight(bx + i, bz + j);
+                        }
+                    }
+                    long t2 = System.nanoTime();
+                    for (int k = 0; k < 2 && hydrology.mayHoldWater(bx - 2, bz - 2, bx + 17, bz + 17); k++) {
+                        for (int i = -2; i < 18; i++) {
+                            for (int j = -2; j < 18; j++) {
+                                WaterColumn column = hydrology.water(bx + i, bz + j);
+                                placed += column.placed() ? 1 : 0;
+                            }
+                        }
+                    }
+                    long t3 = System.nanoTime();
+                    terrainNanos += t1 - t0;
+                    nodeNanos += t2 - t1;
+                    waterNanos += t3 - t2;
+                }
+            }
+            int n = chunks * chunks;
+            System.out.printf(Locale.ROOT, "pass %d, %d chunks: terrain grid %.0f us, hydrology nodes %.0f us, water columns (2 x 400) %.0f us per chunk; %d placed water columns (%.0f)%n",
+                    pass, n, terrainNanos / 1e3 / n, nodeNanos / 1e3 / n, waterNanos / 1e3 / n, placed / 2, sink * 0);
+        }
+    }
+
     public static void main(String[] args) throws IOException {
         long seed = 20261018L;
         double centerX = 0;
@@ -84,6 +142,7 @@ public final class HydrologyPreview {
         String out = "build/hydrology/preview";
         int[] probe = null;
         String waterFile = null;
+        boolean bench = false;
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
                 case "--seed" -> seed = Long.parseLong(args[++i]);
@@ -95,6 +154,7 @@ public final class HydrologyPreview {
                 case "--scale" -> scale = Double.parseDouble(args[++i]);
                 case "--out" -> out = args[++i];
                 case "--water" -> waterFile = args[++i];
+                case "--bench" -> bench = true;
                 case "--probe" -> {
                     probe = new int[] {Integer.parseInt(args[++i]), Integer.parseInt(args[++i])};
                 }
@@ -103,6 +163,10 @@ public final class HydrologyPreview {
         }
         VastlandsTerrain terrain = new VastlandsTerrain(new GenerationSetup(seed, WorldHeight.MIN_Y, WorldHeight.HEIGHT, (int) SEA));
         HydrologyModel hydrology = new HydrologyModel(terrain.geography(), (x, z) -> terrain.sample(x, z).height());
+        if (bench) {
+            benchmark(seed, (int) centerX, (int) centerZ, size);
+            return;
+        }
         if (waterFile != null) {
             writeWater(seed, waterFile, (int) Math.floor(centerX - size / 2.0), (int) Math.floor(centerZ - size / 2.0), size);
             return;
@@ -149,6 +213,10 @@ public final class HydrologyPreview {
                         top = column.tops[k];
                         break;
                     }
+                }
+                if (top < SEA && h < SEA) {
+                    // A channel that runs on into the sea at its level is sea.
+                    top = Integer.MIN_VALUE;
                 }
                 water[j][i] = top;
                 lake[j][i] = top != Integer.MIN_VALUE && top == column.lakeTop;

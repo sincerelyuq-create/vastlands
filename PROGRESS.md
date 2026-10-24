@@ -2,30 +2,228 @@ Vastlands — Development Progress
 
 Current Status
 
-Phase: Terrain and geography complete, ready for Agent 3 (Hydrology)
+Phase: Terrain, geography and hydrology complete, ready for Agent 4 (Caves)
 Project: Vastlands
 Minecraft: 1.21.8
 Loader: NeoForge 21.8.57
 
-The project builds and all 54 tests pass. The "Vastlands" world type generates a
+The project builds and all 63 tests pass. The "Vastlands" world type generates a
 continent-scale geography in a world of Y -256..511: open oceans with shelves, continental slopes,
 abyssal plains (Y -22..-30), mid-ocean ridges, seamounts and rare trenches (to Y ~-160); continents
 with vast plains provinces, hill country, mountain systems with branch ranges (peaks up to Y ~450),
 tablelands and basins; climate zones of thousands of blocks with temperature falling with height and
-rain shadows behind ranges; vanilla biomes chosen from landform and climate; and polar seas covered by
-fractured ice fields. Hydrology, caves and forests are still passthrough placeholders: there are no
-rivers yet.
+rain shadows behind ranges; vanilla biomes chosen from landform and climate; polar seas covered by
+fractured ice fields; and river networks that drain every continent to the sea: tributaries joining
+into broad rivers (up to ~100 blocks wide), lakes in deep basins, weirs and waterfalls (up to 40..60
+blocks off escarpments and in mountains) with gorges below them, river and frozen river biomes,
+frozen rivers in polar climates. Caves and forests are still passthrough placeholders.
 
 Development Roadmap
 
 - [x] Agent 1 — World Core: Create the NeoForge project foundation, configure shared generation infrastructure, and investigate expanded world height.
 - [x] Agent 2 — Terrain: Implement realistic mountains, valleys, plains, and terrain continuity.
 - [x] Agent 2.5 — Geography: Continent-scale regions, climate, climate-aware biomes, oceans, trenches and frozen seas.
-- [ ] Agent 3 — Hydrology: Implement large rivers, tributaries, downhill drainage, and waterfalls.
+- [x] Agent 3 — Hydrology: Implement large rivers, tributaries, downhill drainage, and waterfalls.
 - [ ] Agent 4 — Caves: Implement diverse cave systems and underground formations.
 - [ ] Agent 5 — Forests: Implement large forests, giant trees, and tree variations.
 
-Latest Completed Work (Agent 2.5 — Geography)
+Latest Completed Work (Agent 3 — Hydrology)
+
+- `worldgen/hydrology` (new): rivers, tributaries, lakes and waterfalls: a pure-Java model on top
+  of the terrain, a hydrology system for the router and a block step for the water. Algorithm,
+  constants and contracts: ARCHITECTURE.md, "Hydrology" and "System Contracts".
+  - `DrainageDomain`: drainage on 128-block cells per 16 384-block tile (computed with a 16 384-block
+    margin): a breaching priority flood from the sea, so every land cell drains to the sea over the
+    lowest pass of every depression; a filling flood for spill levels; lakes in depressions deeper
+    than 10 blocks, lower and terminal in dry climates; discharge from climate runoff (more in wet
+    climates and mountains); basins owned by the tile that holds their mouth, so rivers do not
+    depend on which chunk, thread or tile asks first.
+  - `BasinRivers`: rivers through the lowest ground of their cells as smooth curves of 4-block
+    segments; width from discharge (about 8 blocks at a source, 90..110 for the largest rivers of a
+    continent); levels that never rise downstream and keep both banks above the water; flat pools
+    with 2-block weirs in gentle terrain and tall falls with a gorge below in steep terrain (falls of
+    40..60 blocks off escarpments and in mountains); sills and plunge pools; hanging-valley falls at
+    confluences; rivers meet lakes and the sea at their level; valleys with a floodplain and walls,
+    smoothed along the river; falls cut the channel square across.
+  - `VastlandsHydrology` (`HydrologySystem`): carved density, river biomes (weirdness 0 in channels
+    6+ blocks wide: river or frozen river), initial density on channel floors, the surface for
+    surface rules, the water of every column (`WaterColumn`), a quick "may hold water" check.
+  - `RiverWater`: water above sea level placed after noise filling (before surface rules) and again
+    after carving, with sealed beds and banks, fall sills, cut fall ramps and stable fall curtains:
+    states vanilla's fluid rules leave as they are, no fluid ticks.
+- Router: `ridges` and `initial_density_without_jaggedness` read the new node type
+  `vastlands:hydrology_parameter`.
+- `VastlandsChunkGenerator`: the river water steps; base height and base column queries include
+  river and lake water, so structures stand on the water surface; an F3 "Vastlands hydrology" line.
+- `TerrainSystem.sample(x, z)`: uncached model columns for planning. `HydrologySystem` extended;
+  `Passthrough` no longer implements it. `GenerationSystems.surfaceHeight` is the hydrology's.
+- Tools: `./gradlew hydrologyPreview` (rivers, lakes, frozen water and falls over the carved relief;
+  tallest falls and widest rivers of a square; `--probe`, `--water` export, `--bench`);
+  `tools/worldcheck/rivercheck.py` (water above sea level of a generated world: stability under
+  vanilla's fluid rules, agreement with the model, river biomes).
+
+Files and Modules Affected (Agent 3)
+
+- New: `worldgen/hydrology/{HydrologyModel,DrainageDomain,BasinRivers,WaterIndex,LruCache,
+  VastlandsHydrology,WaterColumn,RiverWater}`, `worldgen/density/HydrologyParameterFunction`.
+- Changed: `worldgen/system/{HydrologySystem,TerrainSystem,GenerationSystems,Passthrough}`,
+  `worldgen/terrain/VastlandsTerrain` (`sample`), `worldgen/VastlandsChunkGenerator`,
+  `registry/VastlandsRegistries`.
+- Data: `density_function/overworld/{ridges,initial_density}.json`.
+- Tests: `hydrology/{HydrologyModelTest,RiverWaterTest}` (new); `PresetDataTest`, `TerrainBiomeTest`,
+  `StageDensityFunctionTest`, `GenerationSetupTest` (hydrology is implemented, river biomes in
+  channels); `tools/{HydrologyPreview (new),TerrainPreview}`.
+- Build: `build.gradle` (`hydrologyPreview` task).
+- Tools and docs: `tools/worldcheck/rivercheck.py` (new), `ARCHITECTURE.md` (Hydrology section and
+  updates), `PROGRESS.md`, `README.md`, `docs/hydrology/` (previews and in-game images).
+
+Build and Test Results (Agent 3)
+
+- `./gradlew build`: BUILD SUCCESSFUL (JDK 21, Gradle 9.2.1), 2 min 9 s on a 4 vCPU container.
+- JUnit: 63 tests, 0 failures, 0 skipped: WorldHeightDataTest 3, GenerationSetupTest 3,
+  StageDensityFunctionTest 6, TerrainParameterFunctionTest 3, RandomStateBindingTest 3,
+  TerrainModelTest 8, VastlandsTerrainTest 7, PresetDataTest 6, TerrainBiomeTest 2,
+  GeographyModelTest 7, FrozenSeaTest 6, HydrologyModelTest 8 (new), RiverWaterTest 1 (new).
+- `HydrologyModelTest` (seed 20261018, four places and the 2 × 2 tiles around 0,0): 58 200 river
+  segments, 410 level steps, 83 falls of 8+ blocks (tallest 50), widest river 91 blocks; 182 river
+  mouths and 3 rivers ending in terminal lakes; 83 941 river and lake columns, 32 of 3 868 shore
+  edges need a levee (0.8%); off the rivers 184 of 4 000 random grid columns are reshaped (valleys),
+  none raised; the quick check skips 9 578 of 10 816 boxes of 20 × 20 columns and never misses
+  water.
+- `RiverWaterTest` (test server): 7 areas of 3 × 3 proto-chunks, 3 810 water blocks above sea level
+  and 1 100 curtain blocks, none changed by the ported fluid rules, also after a carver-like tunnel.
+- Test server: router weirdness and initial density are the hydrology's; surface biomes: river
+  biomes in 487 of 90 000 samples, all in hydrology channels; mean biome run 545 blocks (vanilla
+  166, 593 before rivers).
+
+Verification in Game (Agent 3)
+
+Dedicated server (`tools/worldcheck/generate.py`, seed 20261018, all chunks fully generated), checked
+with `rivercheck.py --expected` against the model's water for the same square:
+- fall2 — 16×16 chunks at -5925,14778: a river falling 50 blocks (water top 146 → 96) off a plateau
+  escarpment into a gorge (the tallest fall within 32 000 blocks of 0,0 in the previews). 13 165
+  source blocks above sea level, a curtain of 95 lip and 575 falling blocks. Water that vanilla's
+  fluid tick would change: 0 at rivers and lakes (54 elsewhere: vanilla springs on hillsides).
+  Water tops equal the model in 93.2% of 3 713 river columns, ground in 97.3%; every difference lies
+  under a savanna village built across the river (paths, houses and their foundations in the
+  channel). An earlier version (world fall1) let the upper pool spill over the ramp of the fall and
+  needed tall levees beside it; the fall planes and the cut ramp fixed it.
+- plains1 — 24×24 chunks at -200,2700: a broad river (about 80 blocks wide, water top 82) with
+  2-block weirs and tributary falls, in bamboo jungle. 37 030 river columns: water tops 99.99%,
+  ground 99.77% equal to the model; 0 unstable blocks at the river (13 elsewhere, all in caves);
+  2 297 of 9 215 surface biome cells are river.
+- river1 — 24×24 chunks at 22600,-25200: a 90-block jungle river at sea level (aquifer water) with
+  tributaries: 49 148 river columns, water tops 99.85%, ground 96.4% (where measurable above Y 56).
+- lake1 — 16×16 chunks at 22856,-21972: a lake (top 88) with rivers falling into it: 15 275
+  columns, water tops and ground 99.99%; 0 unstable at the lake.
+- polar1 — 16×16 chunks at 33300,-21450: a meandering river in snowy plains: 7 119 columns, water
+  and ground 100%; 7 095 of them frozen over (frozen river biome, vanilla's freeze_top_layer).
+- Seams: in all worlds no unstable water on chunk borders; `RiverWaterTest` checks the borders of
+  3 × 3 proto-chunks around falls with the ported fluid rules.
+- Screenshots (`screenshot.py`, dev client under Xvfb): the plateau fall from downstream, from the
+  side and at its lip; the broad river and a weir; the frozen river (`docs/hydrology/`). Shots in
+  dense jungle (river1, lake1) only showed the canopy and are not kept.
+- Not verified: real GPU rendering; multiplayer; seeds other than 20261018 in generated worlds
+  (`HydrologyModelTest` uses one seed; the drainage statistics below are from previews); long play
+  next to a frozen fall (weather freezing the sill, see Known Issues); structures other than one
+  village on a river.
+
+Performance (Agent 3)
+
+- Drainage: the first query in a new area computes the 3 × 3 drainage tiles around it (16 384
+  blocks each) in parallel: 1.3..2.2 s of wall time on a 4 vCPU container (0.4..0.6 s of CPU per
+  tile), once per 16 384 blocks travelled; rivers of a basin 10 ms on average, on first use.
+- Per chunk, once the area's drainage is known (`hydrologyPreview --bench`, one thread): router
+  node columns 10..40 µs; water columns of the two block steps 0.24 ms (mountain river) to 1.15 ms
+  (broad lowland river); chunks with no river or lake within reach skip the step (`mayHoldWater`).
+- End to end (dedicated server, 40 × 40 chunks around -200,2700, runs alternated with the branch
+  before hydrology): 13.81 and 13.81 chunks/s with hydrology, 13.73 and 13.78 without, no
+  measurable difference.
+- Fluids: no fluid ticks are scheduled; the placed water is in the states vanilla's fluid rules
+  compute, so loading chunks and block updates next to rivers change nothing (0 unstable blocks at
+  rivers and lakes in the five test worlds).
+- Memory: up to 32 drainage tiles (~1 MB each with their rivers), 256 region indexes, 400
+  elevation tiles (6.4 MB), a 4 096-entry node cache per worldgen thread.
+
+Known Issues
+
+- Villages and other structures can stand across rivers: their foundations fill parts of the
+  channel and paths cross on the water (as vanilla villages next to water). Base height queries
+  include the water, so pieces stand on its surface rather than on the channel floor.
+- The block step raises dry columns that lie lower than a neighbouring water surface up to it (a
+  levee one block wide): 0.8% of the shore edges at the four test places. About half are beside
+  a 50-block fall, where they read as narrow rock pillars at the edge of the curtain; the rest are
+  1..2-block banks along a broad lowland river.
+- Falls in cold biomes: weather can freeze the sill's water; a block update next to the curtain
+  then drains it (vanilla behaviour of flowing water without a source). Frozen rivers themselves
+  are vanilla's (frozen river biome, freeze_top_layer).
+- River paths follow 128-block drainage cells through their lowest ground; they do not meander more
+  finely, and at sharp bends of wide rivers the floodplain outline (an offset of the river line)
+  has angular corners.
+- No streams below a discharge of 24 runoff-weighted cells (about 0.4 km² of wet land): small
+  brooks and springs are vanilla's (spring features). Dry regions have few rivers and no dry beds.
+- River biomes only where a channel is 6+ blocks wide; in mid/far-inland mountains (vanilla erosion
+  E0/E1) vanilla's table puts the valley's middle biome instead of a river biome, as in vanilla
+  mountain valleys. Lakes keep the surrounding biome.
+- A basin that reaches more than ~16 000 blocks beyond its owning tile has no rivers (none seen; the
+  largest measured reach from a mouth is 15 100 blocks).
+- Ravines and caves near rivers below sea level can hold vanilla water flowing from aquifers
+  (seen in river1, on dry land); river water itself is sealed in.
+- Changing any hydrology constant changes generation: worlds created before get seams at rivers.
+- Unchanged from earlier agents: lava below Y -54 and the bottom slide (Caves), iceberg melt pools,
+  deep frozen oceans with rain, corals on trench floors, monument pillars (unverified), badlands
+  terracotta bands, noise-shaped climate zones, rarer high ground, experimental-settings warning,
+  cloud height 192, `screenshot.py` lost input, license "All Rights Reserved".
+
+Architectural Decisions (Agent 3)
+
+- Drainage on coarse tiles with basin ownership instead of local rules: rivers need a global
+  structure (where water comes from, where it goes), and a tile of 128 × 128 cells with a margin
+  as wide holds every basin measured. Each basin is computed by exactly one tile, from pure
+  functions of the seed, so results never depend on generation order; nothing reads chunks.
+- Breaching (not filling) for routing, filling only to find lakes: shallow depressions are cut
+  through by their river (a short gorge), deep ones hold lakes; plain filling would have made lakes
+  of 9% of the land.
+- Water levels from the real terrain beside the channel, as a running minimum: rivers never rise
+  and never run above their banks; levees are only a fallback.
+- Levels `seaTop + 2k`: two water surfaces are equal or at least 2 blocks apart, which is what keeps
+  vanilla's source conversion from flooding a river along a 1-block step. Falls are vertical with a
+  curtain in the exact states vanilla computes, so nothing needs a fluid tick.
+- The water is a block step (vanilla's aquifers only fill to sea level), placed before surface rules
+  so channel floors get vanilla's underwater materials, and again after carvers; every decision
+  depends only on the model for the column and its neighbours, so chunks agree across borders.
+- River biomes through weirdness only (vanilla's valley slice), so vanilla's own table picks river,
+  frozen river, swamp or the valley's middle biome; no custom biomes.
+- Base heights include river water, like vanilla's include the sea, so structures do not end up on
+  channel floors.
+
+Instructions for Agent 4 (Caves)
+
+1. Read ARCHITECTURE.md: "Hydrology" (the block step and its rules), "System Contracts"
+   (HydrologySystem), "Generation Pipeline" and "Technical Limitations".
+2. The caves stage wraps the final density, which already contains the hydrology's channels,
+   valleys and levees. Keep cave openings out of river and lake beds: `HydrologySystem.water(x, z)`
+   says where water lies (`placed()` for river and lake water, `groundTop`, `waterTop`), and
+   `mayHoldWater(minX, minZ, maxX, maxZ)` is a cheap check for a box. `RiverWater` seals only the
+   block under the water and the blocks beside it at water heights (after noise filling and after
+   carvers): a cave that passes under a bed or beside a bank is sealed off, but a cave room right
+   under a river shows a one-block "ceiling" of sealed bed.
+3. If you add block steps (for example the fix for vanilla's lava below Y -54), run them before the
+   second `RiverWater.place` in `VastlandsChunkGenerator.applyCarvers`, or leave columns with
+   `water(x, z).placed()` alone above their ground.
+4. `GenerationSystems.surfaceHeight` is the hydrology's surface. If caves reshape the surface
+   itself (entrances, sinkholes), surface rules should see it: extend it there.
+5. Rivers and lakes are all at Y 62 or above. Underground water is vanilla's aquifers; if you add
+   underground lakes or rivers, keep them sealed from river beds (water surfaces 1 block apart and
+   touching would flood, see Hydrology).
+6. Biome depth still reads the terrain surface, not the carved one: under rivers (channels 2..10
+   blocks deep, gorges below falls up to ~40) cave biomes begin that much closer to the bed.
+7. Verify with `rivercheck.py` that caves did not open river water (0 unstable blocks at rivers and
+   lakes in the test worlds of Agent 3) and with `RiverWaterTest`.
+
+Agent 2.5 — Geography (completed earlier)
+
+Completed Work (Agent 2.5)
 
 - `GeographyModel` (new package `worldgen/geography`, pure Java): the macro layer of the terrain,
   extracted from `TerrainModel` with Agent 2's noises and seeds, and extended:
@@ -162,7 +360,7 @@ Same machine (this container, 4 vCPU), pure-Java harness, 64 squares of 512×512
 - Memory: each cached `TerrainColumn` now holds a `GeographySample` (estimated from object sizes:
   ~1.2 MB per worldgen thread for the 4 096-entry cache instead of ~0.5 MB).
 
-Known Issues
+Known Issues at the end of Agent 2.5 (current list: see Agent 3 above)
 
 - No rivers, streams or inland lakes above sea level yet (Hydrology). Interior basins below sea level
   hold sea-level lakes (aquifers), as before.
@@ -530,6 +728,6 @@ Do not mark a feature complete unless it has actually been implemented and verif
 
 Next Task
 
-Agent 3: Implement the Hydrology system: rivers with tributaries that drain downhill to the sea or
-to lakes, lakes in basins, waterfalls, through `HydrologySystem` and the router, using the
-geography and terrain queries described above (Instructions for Agent 3).
+Agent 4: Implement the Cave system: large caverns, tunnels, vertical shafts and cave formations
+through `CaveSystem` and the router, including the fix for vanilla's lava below Y -54 and the bottom
+slide, keeping river and lake beds sealed (Instructions for Agent 4).

@@ -233,6 +233,32 @@ class HydrologyModelTest {
         assertTrue(raised < 0.01 * samples, "too many levees: " + raised);
     }
 
+    /** The quick check block steps use to skip chunks never misses river or lake water. */
+    @Test
+    void quickCheckNeverMissesWater() {
+        VastlandsHydrology hydrology = hydrology();
+        int skipped = 0;
+        int boxes = 0;
+        for (int[] place : PLACES) {
+            for (int bx = place[0] - 512; bx < place[0] + 512; bx += 20) {
+                for (int bz = place[1] - 512; bz < place[1] + 512; bz += 20) {
+                    boxes++;
+                    if (hydrology.mayHoldWater(bx, bz, bx + 19, bz + 19)) {
+                        continue;
+                    }
+                    skipped++;
+                    for (int x = bx; x < bx + 20; x++) {
+                        for (int z = bz; z < bz + 20; z++) {
+                            assertTrue(!hydrology.water(x, z).placed(), "water missed at " + x + ", " + z);
+                        }
+                    }
+                }
+            }
+        }
+        Vastlands.LOGGER.info("HydrologyModelTest: {} of {} boxes skipped", skipped, boxes);
+        assertTrue(skipped > boxes / 4, "the quick check skips too little: " + skipped + " of " + boxes);
+    }
+
     @Test
     void levelsAreQuantizedAboveTheSea() {
         HydrologyModel model = hydrology().model();

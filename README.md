@@ -17,16 +17,18 @@ foothills, passes and eroded valleys, plateaus with escarpments); and the geogra
 open oceans with shelves, abyssal plains, mid-ocean ridges, seamounts and rare deep trenches, vast
 plains provinces and hill country, dry regions with tablelands, climate zones thousands of blocks
 across with cold mountain tops and rain shadows, vanilla biomes chosen from landform and climate,
-and polar seas covered by fractured ice fields. Rivers, caves and forests are not implemented yet.
-See PROGRESS.md.
+and polar seas covered by fractured ice fields; and rivers: networks of tributaries that drain every
+continent downhill to the sea, broad rivers up to ~100 blocks wide in valleys of their own, lakes in
+deep basins, weirs and waterfalls (tall ones off escarpments and in mountains, with a gorge below),
+frozen rivers in polar climates. Caves and forests are not implemented yet. See PROGRESS.md.
 
 Using it
 
 - Singleplayer: Create New World → World → World Type: Vastlands.
 - Dedicated server: `level-type=vastlands\:vastlands` in `server.properties` before the world is created.
 - The default world types are not changed by the mod.
-- F3 shows "Vastlands terrain" and "Vastlands geography" lines for the column you stand on
-  (surface, landform, climate, ice).
+- F3 shows "Vastlands terrain", "Vastlands geography" and "Vastlands hydrology" lines for the column
+  you stand on (surface, landform, climate, ice, water and the nearest river).
 
 Building
 
@@ -35,4 +37,6 @@ Requires Java 21. `./gradlew build` produces `build/libs/vastlands-<version>.jar
 `./gradlew terrainPreview --args="--seed 1 --size 16384 --scale 16 --out build/preview"` renders
 the terrain of a seed as a relief map and a perspective view without starting the game; add
 `--maps relief,landform,biome,temperature,moisture,ice` for geography, biome, climate and ice maps.
+`./gradlew hydrologyPreview --args="--seed 1 --size 16384 --scale 8 --out build/rivers"` renders
+rivers, lakes and waterfalls over the carved relief and lists the tallest falls and widest rivers.
 Architecture and contribution notes: ARCHITECTURE.md.
