@@ -1,5 +1,6 @@
 package com.sincerelyuq.vastlands.worldgen.hydrology;
 
+import com.sincerelyuq.vastlands.worldgen.noise.SimplexNoise;
 import com.sincerelyuq.vastlands.worldgen.system.HydrologySystem;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.ChunkPos;
@@ -31,6 +32,9 @@ import net.minecraft.world.level.material.Fluids;
  *     down to its own surface. Vanilla computes exactly these states for them, and the air next
  *     to the curtain has no solid or source block below and next to it in the way that turns
  *     water into new sources, so the fall stays as generated.</li>
+ *     <li>Boulders are solid columns of andesite, cobblestone and mossy cobblestone (mossier at
+ *     the water) from the ground to at least the water around them. Surface rules only repaint
+ *     plain stone, so they keep these materials.</li>
  * </ul>
  */
 public final class RiverWater {
@@ -41,6 +45,9 @@ public final class RiverWater {
     private static final BlockState AIR = Blocks.AIR.defaultBlockState();
     private static final BlockState GRAVEL = Blocks.GRAVEL.defaultBlockState();
     private static final BlockState DIRT = Blocks.DIRT.defaultBlockState();
+    private static final BlockState ANDESITE = Blocks.ANDESITE.defaultBlockState();
+    private static final BlockState COBBLESTONE = Blocks.COBBLESTONE.defaultBlockState();
+    private static final BlockState MOSSY_COBBLESTONE = Blocks.MOSSY_COBBLESTONE.defaultBlockState();
     private static final int MARGIN = 2;
     private static final int WIDTH = 16 + 2 * MARGIN;
 
@@ -63,6 +70,8 @@ public final class RiverWater {
         int[] dug = new int[WIDTH * WIDTH];
         int[] top = new int[WIDTH * WIDTH];
         boolean[] placed = new boolean[WIDTH * WIDTH];
+        boolean[] rock = new boolean[WIDTH * WIDTH];
+        int[] rockWater = new int[WIDTH * WIDTH];
         boolean any = false;
         for (int j = 0; j < WIDTH; j++) {
             for (int i = 0; i < WIDTH; i++) {
@@ -70,9 +79,11 @@ public final class RiverWater {
                 int c = j * WIDTH + i;
                 ground[c] = column.groundTop();
                 dug[c] = column.surfaceTop();
-                top[c] = column.waterTop();
+                rock[c] = column.kind() == WaterColumn.Kind.ROCK;
+                top[c] = rock[c] ? Integer.MIN_VALUE : column.waterTop();
+                rockWater[c] = rock[c] ? column.waterTop() : Integer.MIN_VALUE;
                 placed[c] = column.placed();
-                any |= placed[c];
+                any |= placed[c] || rock[c];
             }
         }
         if (!any) {
@@ -106,6 +117,26 @@ public final class RiverWater {
                 int x = minX + i;
                 int z = minZ + j;
                 boolean wet = top[c] != Integer.MIN_VALUE;
+                if (rock[c]) {
+                    // A boulder: rock from the density's ground up; in a channel, the ramp of the
+                    // density above it is cut away like the water's.
+                    int water = rockWater[c] != Integer.MIN_VALUE ? rockWater[c] : ground[c] - 2;
+                    for (int y = Math.max(chunk.getMinY(), Math.min(dug[c], effective[c]) + 1); y <= effective[c]; y++) {
+                        BlockState state = chunk.getBlockState(pos.set(x, y, z));
+                        if (!isSolid(state)) {
+                            chunk.setBlockState(pos, rock(x, y, z, water));
+                            changed++;
+                        }
+                    }
+                    if (rockWater[c] != Integer.MIN_VALUE) {
+                        for (int y = effective[c] + 1; y <= dug[c]; y++) {
+                            if (!chunk.getBlockState(pos.set(x, y, z)).isAir()) {
+                                chunk.setBlockState(pos, AIR);
+                                changed++;
+                            }
+                        }
+                    }
+                }
                 // Solid ground up to the effective ground: the bed under placed water (sealed where
                 // carvers cut it), sills at the upper edge of falls, levees of dry columns.
                 int from = placed[c] ? ground[c] : ground[c] + 1;
@@ -151,21 +182,20 @@ public final class RiverWater {
                         }
                         BlockState state = chunk.getBlockState(pos.set(x, y, z));
                         if (!isSolid(state)) {
-                            chunk.setBlockState(pos, seal(finished, wet, y, effective[c], top[c]));
+                            chunk.setBlockState(pos, rock[c] ? rock(x, y, z, top[n]) : seal(finished, wet, y, effective[c], top[c]));
                             changed++;
                         }
                     }
                 }
-                // The curtain of a fall: a flowing lip at the upper water top, falling water below.
+                // The curtain of a fall: a flowing lip at the upper water top, falling water below,
+                // through any rock the rough walls put in its way.
                 if (curtain != Integer.MIN_VALUE) {
                     for (int y = top[c] + 1; y <= curtain; y++) {
                         BlockState state = chunk.getBlockState(pos.set(x, y, z));
-                        if (state.isAir() || state.getFluidState().is(Fluids.WATER) || state.getFluidState().is(Fluids.FLOWING_WATER)) {
-                            BlockState water = y == curtain ? LIP : FALLING;
-                            if (state != water) {
-                                chunk.setBlockState(pos, water);
-                                changed++;
-                            }
+                        BlockState water = y == curtain ? LIP : FALLING;
+                        if (state != water) {
+                            chunk.setBlockState(pos, water);
+                            changed++;
                         }
                     }
                 }
@@ -182,6 +212,17 @@ public final class RiverWater {
 
     private static boolean isSolid(BlockState state) {
         return !state.isAir() && state.getFluidState().isEmpty();
+    }
+
+    /** Boulder material: mossy cobblestone (most often at the water), cobblestone and andesite. */
+    private static BlockState rock(int x, int y, int z, int water) {
+        long h = SimplexNoise.mix(x * 0x9E3779B97F4A7C15L ^ y * 0xC2B2AE3D27D4EB4FL ^ z * 0x165667B19E3779F9L);
+        double u = (h >>> 11) * 0x1.0p-53;
+        double moss = y <= water + 1 ? 0.45 : 0.2;
+        if (u < moss) {
+            return MOSSY_COBBLESTONE;
+        }
+        return u < moss + 0.3 ? COBBLESTONE : ANDESITE;
     }
 
     /** Material for a sealed or raised block: stone before surface rules, surface materials after. */

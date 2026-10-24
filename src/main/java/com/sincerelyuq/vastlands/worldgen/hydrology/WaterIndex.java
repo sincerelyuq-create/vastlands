@@ -25,6 +25,10 @@ final class WaterIndex {
     final BasinRivers[] owners;
     final int[] segments;
     private final int[][] buckets;
+    /** Boulders in the region: owning basin and index, bucketed like the segments. */
+    final BasinRivers[] rockOwners;
+    final int[] rockIds;
+    private final int[][] rockBuckets;
     /** Coarse cell key → water tops of the lakes whose region contains the cell. */
     private final Map<Long, int[]> lakeTops;
 
@@ -115,6 +119,37 @@ final class WaterIndex {
         for (int b = 0; b < this.buckets.length; b++) {
             this.buckets[b] = lists.get(b).stream().mapToInt(Integer::intValue).toArray();
         }
+
+        List<BasinRivers> rockOwners = new ArrayList<>();
+        List<Integer> rockIds = new ArrayList<>();
+        List<List<Integer>> rockLists = new ArrayList<>();
+        for (int b = 0; b < BUCKETS * BUCKETS; b++) {
+            rockLists.add(new ArrayList<>());
+        }
+        for (BasinRivers rivers : basins) {
+            for (int q = 0; q < rivers.rocks; q++) {
+                double reach = 1.4 * rivers.rockR[q] + 1.0;
+                double x = rivers.rockX[q];
+                double z = rivers.rockZ[q];
+                if (x + reach < minX || x - reach >= maxX || z + reach < minZ || z - reach >= maxZ) {
+                    continue;
+                }
+                int ref = rockIds.size();
+                rockOwners.add(rivers);
+                rockIds.add(q);
+                for (int bz = clampBucket((int) Math.floor((z - reach - minZ) / BUCKET)); bz <= clampBucket((int) Math.floor((z + reach - minZ) / BUCKET)); bz++) {
+                    for (int bx = clampBucket((int) Math.floor((x - reach - minX) / BUCKET)); bx <= clampBucket((int) Math.floor((x + reach - minX) / BUCKET)); bx++) {
+                        rockLists.get(bz * BUCKETS + bx).add(ref);
+                    }
+                }
+            }
+        }
+        this.rockOwners = rockOwners.toArray(new BasinRivers[0]);
+        this.rockIds = rockIds.stream().mapToInt(Integer::intValue).toArray();
+        this.rockBuckets = new int[BUCKETS * BUCKETS][];
+        for (int b = 0; b < this.rockBuckets.length; b++) {
+            this.rockBuckets[b] = rockLists.get(b).stream().mapToInt(Integer::intValue).toArray();
+        }
     }
 
     private static int clampBucket(int b) {
@@ -124,6 +159,11 @@ final class WaterIndex {
     /** Segment references whose influence may reach the block column (local coordinates in the region). */
     int[] bucket(int localX, int localZ) {
         return this.buckets[(localZ / BUCKET) * BUCKETS + localX / BUCKET];
+    }
+
+    /** Boulder references that may cover the block column (local coordinates in the region). */
+    int[] rockBucket(int localX, int localZ) {
+        return this.rockBuckets[(localZ / BUCKET) * BUCKETS + localX / BUCKET];
     }
 
     /** Water tops of the lakes whose region contains the coarse cell, or null. */

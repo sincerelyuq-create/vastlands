@@ -88,8 +88,8 @@ class PresetDataTest {
     }
 
     /**
-     * The terrain-owned router outputs read the terrain system of the world; weirdness and the
-     * initial density come through the hydrology (river biomes, channel floors).
+     * The terrain-owned router outputs read the terrain system of the world; weirdness, depth and
+     * the initial density come through the hydrology (river biomes, carved floors).
      */
     @Test
     void terrainOwnedOutputsFollowTheTerrain(MinecraftServer server) {
@@ -106,7 +106,7 @@ class PresetDataTest {
                 assertEquals(hydrology.parameter(TerrainParameter.WEIRDNESS, x, 70, z), router.ridges().compute(pos));
                 assertEquals(column.climateTemperature(), router.temperature().compute(pos));
                 assertEquals(column.climateHumidity(), router.vegetation().compute(pos));
-                assertEquals(VastlandsTerrain.depth(column.height(), 70), router.depth().compute(pos));
+                assertEquals(hydrology.parameter(TerrainParameter.DEPTH, x, 70, z), router.depth().compute(pos));
                 // The preliminary surface (initial density threshold 0.390625) never lies above the
                 // generated surface, channels included.
                 int above = (int) Math.ceil(hydrology.surfaceHeight(x & ~3, z & ~3));

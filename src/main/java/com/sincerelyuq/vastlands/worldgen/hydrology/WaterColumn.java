@@ -7,9 +7,10 @@ package com.sincerelyuq.vastlands.worldgen.hydrology;
  *                  {@code ceil(surface) - 1}
  * @param groundTop top solid block under the water: the density's, or lower inside a river
  *                  channel at the foot of a fall, where the block step cuts the bilinear ramp of the
- *                  density down to below the water
+ *                  density down to below the water; for a boulder, the boulder's top
  * @param waterTop  Y of the top water block of the body covering the column (every block from
- *                  {@code groundTop + 1} up to it is water), or {@link Integer#MIN_VALUE} if dry
+ *                  {@code groundTop + 1} up to it is water), or {@link Integer#MIN_VALUE} if dry;
+ *                  for a boulder, the water it stands in (or {@link Integer#MIN_VALUE})
  * @param kind      what the water is
  */
 public record WaterColumn(double surface, int groundTop, int waterTop, Kind kind) {
@@ -21,7 +22,12 @@ public record WaterColumn(double surface, int groundTop, int waterTop, Kind kind
         /** A river pool above sea level (or a river at sea level inside its channel). */
         RIVER,
         /** A lake. */
-        LAKE
+        LAKE,
+        /**
+         * A boulder in or beside a river: rock placed by the block step from the density's ground
+         * up to {@code groundTop}, at or above the water around it.
+         */
+        ROCK
     }
 
     /** Top solid block of the density's landscape. */
@@ -30,7 +36,7 @@ public record WaterColumn(double surface, int groundTop, int waterTop, Kind kind
     }
 
     public boolean wet() {
-        return this.kind != Kind.DRY;
+        return this.kind == Kind.SEA || this.kind == Kind.RIVER || this.kind == Kind.LAKE;
     }
 
     /** Water that Vastlands places itself (vanilla's aquifers do not fill water above sea level). */

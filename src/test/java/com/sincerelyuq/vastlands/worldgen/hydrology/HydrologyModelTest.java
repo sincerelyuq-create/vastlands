@@ -134,7 +134,7 @@ class HydrologyModelTest {
         assertTrue(ocean > 50, "too few river mouths: " + ocean);
     }
 
-    /** Broad rivers, rare big ones up to ~100 blocks wide, falls in steep places. */
+    /** Broad rivers, rare big ones up to ~100 blocks wide (plunge pools aside), falls in steep places. */
     @Test
     void widthsAndFalls() {
         HydrologyModel model = hydrology().model();
@@ -143,7 +143,9 @@ class HydrologyModelTest {
         double tallest = 0.0;
         for (BasinRivers rivers : basins(model)) {
             for (int k = 0; k < rivers.segments; k++) {
-                widest = Math.max(widest, 2.0 * Math.max(rivers.rA[k], rivers.rB[k]));
+                if ((rivers.flags[k] & BasinRivers.POOL) == 0) {
+                    widest = Math.max(widest, 2.0 * Math.max(rivers.rA[k], rivers.rB[k]));
+                }
             }
             tallFalls += rivers.tallFalls;
             tallest = Math.max(tallest, rivers.tallestFall);

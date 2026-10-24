@@ -162,7 +162,7 @@ public final class HydrologyPreview {
             }
         }
         VastlandsTerrain terrain = new VastlandsTerrain(new GenerationSetup(seed, WorldHeight.MIN_Y, WorldHeight.HEIGHT, (int) SEA));
-        HydrologyModel hydrology = new HydrologyModel(terrain.geography(), (x, z) -> terrain.sample(x, z).height());
+        HydrologyModel hydrology = new HydrologyModel(terrain.geography(), (x, z) -> terrain.sample(x, z).height(), seed);
         if (bench) {
             benchmark(seed, (int) centerX, (int) centerZ, size);
             return;
@@ -197,6 +197,7 @@ public final class HydrologyPreview {
         int[][] water = new int[n][n];
         boolean[][] lake = new boolean[n][n];
         boolean[][] frozen = new boolean[n][n];
+        boolean[][] rocks = new boolean[n][n];
         double finalScale = scale;
         start = System.nanoTime();
         IntStream.range(0, n).parallel().forEach(j -> {
@@ -218,6 +219,7 @@ public final class HydrologyPreview {
                     // A channel that runs on into the sea at its level is sea.
                     top = Integer.MIN_VALUE;
                 }
+                rocks[j][i] = column.rockTop != Integer.MIN_VALUE && column.rockTop >= Math.max(top, column.carved);
                 water[j][i] = top;
                 lake[j][i] = top != Integer.MIN_VALUE && top == column.lakeTop;
                 if (top != Integer.MIN_VALUE) {
@@ -277,7 +279,9 @@ public final class HydrologyPreview {
             for (int i = 0; i < n; i++) {
                 double h = carved[j][i];
                 int[] c;
-                if (water[j][i] != Integer.MIN_VALUE) {
+                if (rocks[j][i]) {
+                    c = new int[] {120, 118, 112};
+                } else if (water[j][i] != Integer.MIN_VALUE) {
                     c = frozen[j][i] ? new int[] {175, 205, 240} : (lake[j][i] ? new int[] {70, 120, 200} : new int[] {40, 90, 225});
                     boolean fall = false;
                     for (int[] o : new int[][] {{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) {

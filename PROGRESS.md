@@ -41,17 +41,18 @@ Latest Completed Work (Agent 3 — Hydrology)
   - `BasinRivers`: rivers through the lowest ground of their cells as smooth curves of 4-block
     segments; width from discharge (about 8 blocks at a source, 90..110 for the largest rivers of a
     continent); levels that never rise downstream and keep both banks above the water; flat pools
-    with 2-block weirs in gentle terrain and tall falls with a gorge below in steep terrain (falls of
+    with 2-block ledges in gentle terrain and tall falls with a gorge below in steep terrain (falls of
     40..60 blocks off escarpments and in mountains); sills and plunge pools; hanging-valley falls at
     confluences; rivers meet lakes and the sea at their level; valleys with a floodplain and walls,
-    smoothed along the river; falls cut the channel square across.
+    smoothed along the river; meanders, ragged fall lips, round plunge pools and boulders (see
+    "Natural shapes" below).
   - `VastlandsHydrology` (`HydrologySystem`): carved density, river biomes (weirdness 0 in channels
     6+ blocks wide: river or frozen river), initial density on channel floors, the surface for
     surface rules, the water of every column (`WaterColumn`), a quick "may hold water" check.
   - `RiverWater`: water above sea level placed after noise filling (before surface rules) and again
     after carving, with sealed beds and banks, fall sills, cut fall ramps and stable fall curtains:
     states vanilla's fluid rules leave as they are, no fluid ticks.
-- Router: `ridges` and `initial_density_without_jaggedness` read the new node type
+- Router: `ridges`, `depth` and `initial_density_without_jaggedness` read the new node type
   `vastlands:hydrology_parameter`.
 - `VastlandsChunkGenerator`: the river water steps; base height and base column queries include
   river and lake water, so structures stand on the water surface; an F3 "Vastlands hydrology" line.
@@ -151,15 +152,17 @@ Known Issues
   channel and paths cross on the water (as vanilla villages next to water). Base height queries
   include the water, so pieces stand on its surface rather than on the channel floor.
 - The block step raises dry columns that lie lower than a neighbouring water surface up to it (a
-  levee one block wide): 0.8% of the shore edges at the four test places. About half are beside
-  a 50-block fall, where they read as narrow rock pillars at the edge of the curtain; the rest are
-  1..2-block banks along a broad lowland river.
+  levee one block wide): 0.5% of the shore edges at the four test places (24 of 4 411), at the
+  edges of a 50-block fall's lip and 1..2-block banks along a broad lowland river.
 - Falls in cold biomes: weather can freeze the sill's water; a block update next to the curtain
   then drains it (vanilla behaviour of flowing water without a source). Frozen rivers themselves
   are vanilla's (frozen river biome, freeze_top_layer).
-- River paths follow 128-block drainage cells through their lowest ground; they do not meander more
-  finely, and at sharp bends of wide rivers the floodplain outline (an offset of the river line)
-  has angular corners.
+- River valleys follow 128-block drainage cells through their lowest ground; meanders swing about
+  them only where the ground beside is flat, so rivers in hills and narrow valleys run in gentle
+  bends. Meander loops never cut off (no oxbow lakes); where two loops at different levels pass
+  close, the model's levee keeps a narrow bank between them.
+- Rough walls (rock jutting out of steep carved faces) exist only in the game's density, not in the
+  2D model: previews and `rivercheck.py --expected` see the smooth faces.
 - No streams below a discharge of 24 runoff-weighted cells (about 0.4 km² of wet land): small
   brooks and springs are vanilla's (spring features). Dry regions have few rivers and no dry beds.
 - River biomes only where a channel is 6+ blocks wide; in mid/far-inland mountains (vanilla erosion
@@ -216,8 +219,10 @@ Instructions for Agent 4 (Caves)
 5. Rivers and lakes are all at Y 62 or above. Underground water is vanilla's aquifers; if you add
    underground lakes or rivers, keep them sealed from river beds (water surfaces 1 block apart and
    touching would flood, see Hydrology).
-6. Biome depth still reads the terrain surface, not the carved one: under rivers (channels 2..10
-   blocks deep, gorges below falls up to ~40) cave biomes begin that much closer to the bed.
+6. Biome depth is measured from the carved surface (`depth.json` is a hydrology parameter). On
+   steep carved faces the density juts out above `surfaceHeight` (rough walls, never below it):
+   cave entrances cut into gorge walls see that rock. Boulders are `WaterColumn.Kind.ROCK`
+   columns (andesite, cobblestone, mossy cobblestone) placed by `RiverWater`.
 7. Verify with `rivercheck.py` that caves did not open river water (0 unstable blocks at rivers and
    lakes in the test worlds of Agent 3) and with `RiverWaterTest`.
 

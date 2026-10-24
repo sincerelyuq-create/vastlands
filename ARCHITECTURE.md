@@ -83,7 +83,7 @@ src/main/java/com/sincerelyuq/vastlands/
     context/                          GenerationContext (per-world state), binding visitor, mixin duck interface
     density/StageDensityFunction.java vastlands:terrain / vastlands:hydrology / vastlands:caves router nodes
     density/TerrainParameterFunction.java  vastlands:terrain_parameter router nodes (climate, depth, initial density)
-    density/HydrologyParameterFunction.java  vastlands:hydrology_parameter router nodes (river weirdness, initial density)
+    density/HydrologyParameterFunction.java  vastlands:hydrology_parameter router nodes (river weirdness, depth, initial density)
     system/                           system interfaces, Passthrough placeholder, GenerationSystems wiring
     noise/                            SimplexNoise, NoiseMath (fBm, ridged, smoothstep, smooth max, spline)
     geography/                        macro geography and climate (pure Java): GeographyModel, GeographySample,
@@ -178,11 +178,12 @@ neighbouring columns), so they do not depend on generation order.
   cell corners only (every 4×8×4 blocks) and interpolated in between. `cache_once` makes the three
   uses of the landscape share one evaluation per point.
 - Router outputs owned by the terrain (`vastlands:terrain_parameter` nodes, files
-  `density_function/overworld/{continents,erosion,temperature,vegetation,depth,bottom_slide}.json`):
-  climate parameters that select biomes, the biome depth and the bottom slide factor inside the
-  final density. Since Agent 3, `ridges.json` (weirdness: river biomes) and `initial_density.json`
-  (the initial density that aquifers and the preliminary surface use: channel floors) are
-  `vastlands:hydrology_parameter` nodes, which pass the terrain's value through away from rivers.
+  `density_function/overworld/{continents,erosion,temperature,vegetation,bottom_slide}.json`):
+  climate parameters that select biomes and the bottom slide factor inside the final density.
+  Since Agent 3, `ridges.json` (weirdness: river biomes), `depth.json` (biome depth from the
+  carved surface) and `initial_density.json` (the initial density that aquifers and the
+  preliminary surface use: channel floors) are `vastlands:hydrology_parameter` nodes, which pass
+  the terrain's value through away from rivers.
   The five 2D ones are wrapped in `minecraft:flat_cache` like vanilla's.
 - The caves stage is outside interpolation and runs for every block.
 - Forests are not part of the router; forest features reach their system through
@@ -260,14 +261,15 @@ TerrainSystem (contract for later systems; details in Terrain below):
 HydrologySystem (contract for later systems; details in Hydrology below):
 - `double surfaceHeight(x, z)`: the generated ground surface with channels, valleys and levees
   (the hydrology's node heights on the 4-block grid, interpolated bilinearly like the density). Top
-  landscape block (before caves) = `ceil(surfaceHeight) - 1`.
-- `WaterColumn water(x, z)`: the water of a block column: `kind` (DRY, SEA, RIVER, LAKE),
+  landscape block (before caves) = `ceil(surfaceHeight) - 1`, except on steep carved faces, which
+  jut out above it in places (rough walls, see Hydrology; never below it).
+- `WaterColumn water(x, z)`: the water of a block column: `kind` (DRY, SEA, RIVER, LAKE, ROCK),
   `waterTop` (Y of the top water block), `groundTop` (top solid block under the water: the density's,
-  or lower at the foot of a fall), `surface`. `placed()` is true for river and lake water, which
+  or lower at the foot of a fall; a boulder's top for ROCK), `surface`. `placed()` is true for river and lake water, which
   Vastlands places itself; sea water comes from vanilla's aquifers. Not cached: about a microsecond
   plus one model column query; query once per column per step.
 - `double parameter(TerrainParameter, x, y, z)`: router outputs as reshaped by hydrology (weirdness,
-  initial density); other parameters are the terrain's.
+  depth, initial density); other parameters are the terrain's.
 - `VastlandsHydrology.model()` (`HydrologyModel`) for planning: `falls(x, z)`, `stats(x, z)`,
   `describe(x, z)`.
 
@@ -608,47 +610,78 @@ Layers, coarse to fine:
 2. Rivers (`BasinRivers`), per basin, computed on first use:
    - node points: in each river cell the lowest of 3 × 3 candidates of the exact terrain (40 blocks
      apart), so rivers find the valley floors of the gully erosion;
-   - reaches (source or confluence to the next confluence, lake or mouth) are centripetal
-     Catmull-Rom curves through the node points, resampled every 4 blocks; a reach into the sea
-     ends at the centre of the first sea cell;
+   - reaches (source or confluence to the next confluence, lake or mouth): a valley line through
+     the node points (centripetal Catmull-Rom curve); a reach into the sea ends at the centre of
+     the first sea cell;
+   - meanders on the valley line: a sine-generated curve (the shape of real meanders: the river's
+     direction swings by up to ω about the valley line, ω 0.35..1.45 from a 2 600-block noise),
+     to first order a lateral offset `A (sin φ + c3 sin 3φ)` and a shift along the valley
+     `-B sin 2φ` with `A, B, c3` from Bessel functions of ω. Wavelength 11..16 river widths (at
+     least 110..150 blocks), a whole number of half waves per reach (the reach starts and ends on
+     its valley line, so confluences, mouths and lake inflows stay put), the river below a
+     confluence continuing the phase of the largest river above it, wavelength and strength
+     varying along the river (stretches of deep loops and of gentle bends). The amplitude is held
+     to the flat ground beside the valley line (probed every 32 blocks: no swing into ground
+     rising more than 6 blocks plus 4%), to the valley line's curvature, and to 0 near lakes and
+     the sea. Resampled every 4 blocks;
    - width `3 + 0.8 × discharge^0.6` (about 8 blocks at a source, 25-30 after a few hundred cells,
-     50 at a thousand, 90-110 for the largest rivers of a continent), depth `1.5 + 0.075 × width`
-     (2..10); sources taper in over 64 blocks;
+     50 at a thousand, 90-110 for the largest rivers of a continent), ±10% wider in bends and
+     ±8% along the river (noise), depth `1.5 + 0.075 × width` (2..10); sources taper in over 64
+     blocks;
    - water levels, from the sources down: the highest level that keeps the banks above the water
      (running minimum of the exact terrain 3 blocks and `4 + 0.2 × half width` blocks beside the
      channel, every 16 blocks, minus 1.5); a river entering a lake meets its surface (an inflow that
      arrives lower lowers the lake; levels are iterated until lake surfaces settle); the river below
      a confluence starts at the lowest incoming level;
    - pools and falls: levels are split into flat pools. Where the level falls gently, a pool ends
-     when it has dropped 2 blocks (a 2-block weir). Where it falls steeply, a pool may drop by up to
-     `90 × steepness` blocks (random per pool, at most 40) before the next fall: the pool deepens
-     upstream into a gorge whose head is a tall fall, like a waterfall retreating upstream. All
-     water tops are `seaTop + 2k`: two water surfaces differ by 0 or at least 2 blocks;
+     when it has dropped 2 blocks (a 2-block ledge). Where it falls steeply, a pool may drop by up
+     to `100 × steepness` blocks (random per pool, at most 56) before the next fall: the pool
+     deepens upstream into a gorge whose head is a tall fall, like a waterfall retreating
+     upstream. A pool shorter than 64 blocks between two falls joins the pool below (one tall fall
+     instead of a staircase, up to 80 blocks). All water tops are `seaTop + 2k`: two water
+     surfaces differ by 0 or at least 2 blocks;
    - a tributary that arrives above the main river falls into the main river's valley where its
      level meets the valley wall (a hanging valley); a river that arrives above a lake drops to the
      lake's level 24 blocks plus its half width before the shore, in its own channel;
    - bed: parabolic, depth as above; above each fall the bed rises to one block below the water
-     (sill), below it a plunge pool `2 + 0.4 × drop` deep (3..14);
+     (sill), below it a plunge pool `2 + 0.4 × drop` deep (3..14). Below falls of 6+ blocks the
+     pool is round and wider than the river: radius `(r + bank + 2) × 1.05..1.35`, narrowing back
+     to the river over `max(8 + 0.5 × drop, 1.5 × radius)` blocks;
    - valley: a one-block bank, a floodplain rising 1 block per 20 (`2 + 0.8 × width`, up to 80
      blocks, in gentle terrain only), valley walls of slope 0.7 (gentle) to 2.0 (steep), and a steep
      rise at a per-segment cutoff (at most 320 blocks) so the valley always meets the terrain. The
      valley shape is smoothed along the river over ±48 blocks;
-   - falls cut the channel square across: segments below a fall do not reach back past the line
-     through it, segments above it not past it (within 330 blocks along the river).
+   - fall lips (`BasinRivers.fallSide`): a fall cuts the channel across along its lip, a line
+     through the fall bowed upstream in the middle (a horseshoe: 0.2..0.5 × the half width of
+     channel and bank at falls of 6+ blocks; ±0.25 at ledges) and ragged (two octaves of value
+     noise, 1..5 blocks). Beyond the banks the line curves downstream (parabola), so the valley
+     below ends in a rounded head, an amphitheatre below a tall fall and a curved terrace edge
+     beside a ledge, not a straight cut across the valley. Segments below a fall do not reach
+     upstream of its lip, segments above it not downstream (within 330 blocks along the river,
+     and only segments wholly on their side, so a meander swinging back keeps its channel);
+   - boulders: 2..6 in the plunge pool of every fall of 6+ blocks (clear of the curtain), 0..2 on
+     its lip (they split the curtain), a few along ledges (on and below the step) and in steep
+     narrow streams (every 12 blocks with a chance rising with the slope). Radius 0.8..2.6 blocks,
+     an irregular outline, 1..3 blocks above the water they stand in.
 3. Index (`WaterIndex`): the segments and lake cells that can affect a 512-block region, from every
    tile that may own a basin reaching it (the 3 × 3 tiles around), bucketed by 32 blocks.
 4. Column (`HydrologyModel.sample`): for each segment within reach, the channel profile at the
-   distance from its centre line; the carved height is
+   distance from its centre line, jittered by noise of the column (ragged banks: up to 0.8..3
+   blocks at the water's edge, 16- and 6-block noise; ragged valley walls: up to 2.5..12 blocks
+   beyond the bank, 56- and 20-block noise); steep valley walls rise in bands of steeper and
+   gentler slope every 8 blocks of height (ledges). The carved height is
    `max(min(terrain, min profile), min(levee, cap))`: carving takes the lowest profile, levees raise
    ground beside a channel above sea level to one block above its water (rare: banks are measured),
-   capped by every channel bed so no levee closes another channel.
+   capped by every channel bed so no levee closes another channel. Boulders covering the column
+   give its rock top.
 
 Water bodies and the block step (`VastlandsHydrology.water`, `RiverWater`):
 - A column's water is the lowest body that holds water there: a river channel always does inside
   its wetted width, a river pool (within its width plus the bank width) or a lake region (its
   coarse lake cells plus a ring of cells) where the ground lies below its water top; the sea where
-  the ground lies below sea level (aquifers fill it). `WaterColumn` gives the ground top, the water
-  top and the kind (DRY, SEA, RIVER, LAKE).
+  the ground lies below sea level (aquifers fill it). A boulder at or above that water (or above
+  dry ground) makes the column ROCK. `WaterColumn` gives the ground top (a boulder's top), the
+  water top and the kind (DRY, SEA, RIVER, LAKE, ROCK).
 - `RiverWater.place` runs after noise filling (so surface rules see the water: channel floors get
   vanilla's underwater dirt and gravel) and again after carving (carvers cut through water and
   banks). For the chunk plus a 2-column margin it reads the water columns from the model, then
@@ -658,8 +691,10 @@ Water bodies and the block step (`VastlandsHydrology.water`, `RiverWater`):
   around the test places, about half beside the tallest fall, the rest 1..2 blocks high along a
   broad lowland river); builds a sill under the upper edge of every fall
   (one water block deep); cuts away the bilinear ramp of the density inside a channel at the foot
-  of a fall; and hangs a curtain in the lower column: a flowing block (amount 7) at the upper water
-  top and falling water down to the lower water.
+  of a fall; hangs a curtain in the lower column: a flowing block (amount 7) at the upper water
+  top and falling water down to the lower water, through any rock the rough walls put there; and
+  builds boulders from the ground up (andesite, cobblestone and mossy cobblestone, mossier at the
+  water: surface rules only repaint plain stone, so they keep these materials).
 - Stability: these are the states vanilla computes for those blocks (`FlowingFluid.getNewLiquid`):
   no fluid ticks are scheduled and nothing changes when a chunk loads or a block next to the
   water updates. The 2-block minimum between water surfaces matters: next to a 1-block step, air
@@ -673,13 +708,23 @@ Water bodies and the block step (`VastlandsHydrology.water`, `RiverWater`):
 Router and integration:
 - `vastlands:hydrology` (density): the terrain density with the surface moved to the carved
   height: `density - d(terrain) + d(carved)`, both clamped like the terrain's. Output range ±256
-  around the input (conservative).
+  around the input (conservative). Rough walls: where carving left a steep face (the carved
+  heights of a grid column and its four neighbours differ by more than 6 blocks, the hydrology cut
+  into the terrain there, and more than 8 blocks above the foot of the face), the surface at a
+  height is the higher of the carved surface and the carved surface sampled up to 3.5 blocks
+  away (a smooth 3D offset, 13 blocks across and 9 high): cliffs and gorge walls jut out in
+  ledges and buttresses that change every few blocks of height instead of rising as one vertical
+  outline. Only outward, so no hollow ever opens below the 2D surface (the water, the aquifers
+  and the preliminary surface rely on it); the block step clears the rock where a fall's curtain
+  hangs.
 - `vastlands:hydrology_parameter` (new node type): `ridges` (weirdness) is 0 at grid columns inside
   a channel at least 6 blocks wide, so vanilla's table picks river or frozen river (or swamp,
   mangrove swamp in E6 lowland, and the middle biome in mid/far-inland E0/E1 mountains, as in
   vanilla valleys); `initial_density_without_jaggedness` uses the lowest carved height of the
-  noise cell, so aquifers and the preliminary surface never see ground above a channel floor.
-  Other parameters pass the terrain's values through.
+  noise cell, so aquifers and the preliminary surface never see ground above a channel floor;
+  `depth` is measured from the carved surface, so the floors of gorges (up to ~60 blocks below
+  the terrain) get surface biomes, not the cave biomes (dripstone, lush caves) their depth below
+  the uncarved terrain would select. Other parameters pass the terrain's values through.
 - `GenerationSystems.surfaceHeight` is the hydrology's surface (channels included):
   `SurfaceRulesContextMixin` paints channel floors and valley walls.
 - `VastlandsChunkGenerator.getBaseHeight/getBaseColumn` include river and lake water, as vanilla's
@@ -723,7 +768,7 @@ Limitations (details and the full list: PROGRESS.md, Known Issues):
 - Structures (villages) can stand across rivers and fill parts of their channels.
 - Levees one block wide: rock pillars beside the tallest falls, 1..2-block banks along some
   lowland rivers (0.8% of the shore edges at the test places).
-- River paths follow the 128-block drainage cells; no fine meanders; no streams below the river
+- River valleys follow the 128-block drainage cells (meanders swing about them); no streams below the river
   threshold (vanilla springs only); no dry river beds in arid regions.
 - River biomes only in channels 6+ blocks wide; lakes keep the surrounding biome.
 - A basin reaching more than ~16 000 blocks beyond its tile would have no rivers (none seen).

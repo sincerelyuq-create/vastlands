@@ -1,6 +1,9 @@
 package com.sincerelyuq.vastlands.worldgen.hydrology;
 
+import static com.sincerelyuq.vastlands.worldgen.noise.NoiseMath.smoothstep;
+
 import com.sincerelyuq.vastlands.worldgen.geography.GeographyModel;
+import com.sincerelyuq.vastlands.worldgen.noise.SimplexNoise;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -54,12 +57,35 @@ public final class HydrologyModel {
     /** Cells per side of a cached block of elevation samples (16 KB each). */
     private static final int ELEVATION_TILE = 64;
     private final LruCache<Long, float[]> elevationTiles = new LruCache<>(400);
+    /** Raggedness of banks (fine) and valley walls (coarse), and how strongly rivers meander. */
+    private final SimplexNoise bankNoise;
+    private final SimplexNoise bankDetail;
+    private final SimplexNoise wallNoise;
+    private final SimplexNoise wallDetail;
+    private final SimplexNoise meanderNoise;
+    /** Height of the bands of valley walls and gorges (blocks): steeper and gentler in turn, like ledges. */
+    private static final double LEDGE = 8.0;
 
-    public HydrologyModel(GeographyModel geography, TerrainHeights heights) {
+    public HydrologyModel(GeographyModel geography, TerrainHeights heights, long seed) {
         this.geography = geography;
         this.heights = heights;
         this.seaLevel = geography.seaLevel();
         this.seaTop = (int) Math.ceil(this.seaLevel) - 1;
+        long s = SimplexNoise.mix(seed ^ 0x48594452L);
+        this.bankNoise = new SimplexNoise(s + 1);
+        this.bankDetail = new SimplexNoise(s + 2);
+        this.wallNoise = new SimplexNoise(s + 3);
+        this.wallDetail = new SimplexNoise(s + 4);
+        this.meanderNoise = new SimplexNoise(s + 5);
+    }
+
+    /**
+     * Largest angle (radians) by which a river's direction swings about its valley line at a
+     * point: 0.35 (gentle bends) to 1.45 (deep meanders, the river at times running across its
+     * valley), varying over thousands of blocks.
+     */
+    double meanderAngle(double x, double z) {
+        return 0.35 + 1.1 * smoothstep(-0.55, 0.55, this.meanderNoise.sample(x / 2600.0, z / 2600.0));
     }
 
     public GeographyModel geography() {
@@ -188,6 +214,10 @@ public final class HydrologyModel {
          * foot of a fall the bilinear ground can be higher than the lower water.
          */
         public int channelTop = Integer.MAX_VALUE;
+        /** Top of a boulder covering the column (at or above the water it stands in), or {@link Integer#MIN_VALUE}. */
+        public int rockTop = Integer.MIN_VALUE;
+        /** Some channel's valley reaches the column (it may be reshaped). */
+        public boolean near;
 
         void reset() {
             this.topCount = 0;
@@ -197,6 +227,8 @@ public final class HydrologyModel {
             this.riverEdge = Double.POSITIVE_INFINITY;
             this.lakeTop = Integer.MIN_VALUE;
             this.channelTop = Integer.MAX_VALUE;
+            this.rockTop = Integer.MIN_VALUE;
+            this.near = false;
         }
 
         void addTop(int top) {
@@ -223,6 +255,19 @@ public final class HydrologyModel {
      * terrain beside a channel would be lower than its water).
      */
     public void sample(int x, int z, double terrainHeight, Column out) {
+        this.sample(x, z, terrainHeight, out, false);
+    }
+
+    /**
+     * The water bodies of a column only ({@code tops}, {@code channelTop}, {@code lakeTop},
+     * {@code rockTop}): segments are only looked at within reach of their water, so it is much
+     * cheaper than {@link #sample}; {@code carved} is not computed.
+     */
+    public void sampleWater(int x, int z, Column out) {
+        this.sample(x, z, Double.POSITIVE_INFINITY, out, true);
+    }
+
+    private void sample(int x, int z, double terrainHeight, Column out, boolean waterOnly) {
         out.reset();
         int regionX = Math.floorDiv(x, WaterIndex.SIZE);
         int regionZ = Math.floorDiv(z, WaterIndex.SIZE);
@@ -231,6 +276,8 @@ public final class HydrologyModel {
         double carve = Double.POSITIVE_INFINITY;
         double levee = Double.NEGATIVE_INFINITY;
         double cap = Double.POSITIVE_INFINITY;
+        double bankJitter = Double.NaN;
+        double wallJitter = 0.0;
         for (int ref : refs) {
             BasinRivers b = index.owners[ref];
             int k = index.segments[ref];
@@ -238,40 +285,57 @@ public final class HydrologyModel {
                 continue;
             }
             double cut = b.cutoff[k];
+            // Water reaches no farther than the channel, its bank and the jitter of the bank.
+            double reach = waterOnly ? Math.max(b.rA[k], b.rB[k]) + b.bank[k] + 6.0 : cut;
             double ax = b.ax[k];
             double az = b.az[k];
             double dx = b.bx[k] - ax;
             double dz = b.bz[k] - az;
-            if (x < Math.min(ax, b.bx[k]) - cut || x > Math.max(ax, b.bx[k]) + cut
-                    || z < Math.min(az, b.bz[k]) - cut || z > Math.max(az, b.bz[k]) + cut) {
+            if (x < Math.min(ax, b.bx[k]) - reach || x > Math.max(ax, b.bx[k]) + reach
+                    || z < Math.min(az, b.bz[k]) - reach || z > Math.max(az, b.bz[k]) + reach) {
                 continue;
             }
             double len2 = dx * dx + dz * dz;
             double t = len2 > 1e-9 ? ((x - ax) * dx + (z - az) * dz) / len2 : 0.0;
-            float upX = b.upX[k];
-            if (upX == upX && (x - upX) * b.upNx[k] + (z - b.upZ[k]) * b.upNz[k] < 0.0) {
-                continue;
-            }
-            float downX = b.downX[k];
-            if (downX == downX && (x - downX) * b.downNx[k] + (z - b.downZ[k]) * b.downNz[k] > 0.0) {
-                continue;
-            }
             t = t < 0.0 ? 0.0 : (t > 1.0 ? 1.0 : t);
             double px = ax + t * dx - x;
             double pz = az + t * dz - z;
             double d = Math.sqrt(px * px + pz * pz);
-            if (d >= cut) {
+            if (d >= reach) {
                 continue;
             }
+            int upFall = b.upFall[k];
+            if (upFall >= 0 && b.fallSide(upFall, x, z) < 0.0) {
+                continue;
+            }
+            int downFall = b.downFall[k];
+            if (downFall >= 0 && b.fallSide(downFall, x, z) > 0.0) {
+                continue;
+            }
+            out.near = true;
             double r = b.rA[k] + (b.rB[k] - b.rA[k]) * t;
             double depth = b.dA[k] + (b.dB[k] - b.dA[k]) * t;
             int top = b.waterTop[k];
-            double p = profile(d, r, top, depth, b.floodplain[k], b.wall[k], cut);
-            carve = Math.min(carve, p);
-            cap = Math.min(cap, d <= r + 1.0 ? p : p + 3.0 * (d - r - 1.0));
+            // Ragged banks and valley walls: the distance from the channel is jittered by noise of
+            // the column, a few blocks at the water's edge, more on the walls beyond the bank.
+            if (bankJitter != bankJitter) {
+                bankJitter = 0.7 * this.bankNoise.sample(x / 16.0, z / 16.0) + 0.3 * this.bankDetail.sample(x / 6.0, z / 6.0);
+                wallJitter = waterOnly ? 0.0 : 0.7 * this.wallNoise.sample(x / 56.0, z / 56.0) + 0.3 * this.wallDetail.sample(x / 20.0, z / 20.0);
+            }
             double bank = b.bank[k];
-            if (top > this.seaTop) {
-                levee = Math.max(levee, top + 1.0 - 4.0 * Math.max(0.0, r + 1.0 - d) - Math.max(0.0, d - (r + bank)));
+            // The water's reach takes the bank's jitter only (the walls' starts beyond the bank), so it
+            // never lies farther than the bank's jitter beyond the bank.
+            double raw = d;
+            d = Math.max(0.0, raw + Math.min(3.0, 0.8 + 0.06 * r) * bankJitter);
+            if (!waterOnly) {
+                double wall = Math.max(0.0, d + Math.min(12.0, 2.5 + 0.08 * (b.floodplain[k] + r)) * wallJitter
+                        * smoothstep(bank + 1.0, bank + 8.0, raw - r));
+                double p = profile(wall, r, top, depth, b.floodplain[k], b.wall[k], cut);
+                carve = Math.min(carve, p);
+                cap = Math.min(cap, wall <= r + 1.0 ? p : p + 3.0 * (wall - r - 1.0));
+                if (top > this.seaTop) {
+                    levee = Math.max(levee, top + 1.0 - 4.0 * Math.max(0.0, r + 1.0 - wall) - Math.max(0.0, wall - (r + bank)));
+                }
             }
             if (d <= r + bank) {
                 out.addTop(top);
@@ -294,6 +358,28 @@ public final class HydrologyModel {
                 out.addTop(top);
                 out.lakeTop = Math.max(out.lakeTop, top);
             }
+        }
+        // Boulders: rounded, irregular blocks of rock standing out of the water.
+        for (int ref : index.rockBucket(x - regionX * WaterIndex.SIZE, z - regionZ * WaterIndex.SIZE)) {
+            BasinRivers b = index.rockOwners[ref];
+            int q = index.rockIds[ref];
+            double dx = x + 0.5 - b.rockX[q];
+            double dz = z + 0.5 - b.rockZ[q];
+            double radius = b.rockR[q];
+            double d2 = dx * dx + dz * dz;
+            if (d2 > 1.9 * radius * radius) {
+                continue;
+            }
+            long seed = b.rockSeed[q];
+            double angle = Math.atan2(dz, dx);
+            double outline = radius * (1.0 + 0.22 * Math.sin(2.0 * angle + 6.0 * BasinRivers.unit(seed, 7))
+                    + 0.12 * Math.sin(3.0 * angle + 6.0 * BasinRivers.unit(seed, 8)));
+            double u = Math.sqrt(d2) / outline;
+            if (u > 1.0) {
+                continue;
+            }
+            int rockTop = b.rockBase[q] + (int) Math.floor(b.rockHeight[q] * Math.sqrt(1.0 - u * u) + 0.5);
+            out.rockTop = Math.max(out.rockTop, rockTop);
         }
         double carved = Math.min(terrainHeight, carve);
         if (levee > Double.NEGATIVE_INFINITY) {
@@ -320,7 +406,8 @@ public final class HydrologyModel {
                         for (int ref : index.bucket(bx - rx * WaterIndex.SIZE, bz - rz * WaterIndex.SIZE)) {
                             BasinRivers b = index.owners[ref];
                             int k = index.segments[ref];
-                            double reach = Math.max(b.rA[k], b.rB[k]) + b.bank[k] + 1.0;
+                            // Channel, bank and the jitter of the bank (see sample).
+                            double reach = Math.max(b.rA[k], b.rB[k]) + b.bank[k] + 6.0;
                             if (Math.max(b.ax[k], b.bx[k]) + reach >= minX && Math.min(b.ax[k], b.bx[k]) - reach <= maxX
                                     && Math.max(b.az[k], b.bz[k]) + reach >= minZ && Math.min(b.az[k], b.bz[k]) - reach <= maxZ) {
                                 return true;
@@ -342,7 +429,8 @@ public final class HydrologyModel {
 
     /**
      * Cross-section of a channel and its valley: a parabolic bed below the water top inside the
-     * channel, a one-block bank, a floodplain rising one block per 20, valley walls, and a steep
+     * channel, a one-block bank, a floodplain rising one block per 20, valley walls (in bands of
+     * steeper and gentler slope where they are steep, like the ledges of a gorge), and a steep
      * rise at the cutoff so the shape always meets the terrain before it.
      */
     static double profile(double d, double r, int top, double depth, double floodplain, double wall, double cutoff) {
@@ -355,7 +443,9 @@ public final class HydrologyModel {
         if (e > 1.0) {
             p += 0.05 * Math.min(e - 1.0, floodplain);
             if (e > 1.0 + floodplain) {
-                p += wall * (e - 1.0 - floodplain);
+                double rise = wall * (e - 1.0 - floodplain);
+                double ledges = 0.55 * smoothstep(0.9, 1.6, wall);
+                p += rise + ledges * LEDGE / (2.0 * Math.PI) * Math.sin(2.0 * Math.PI * rise / LEDGE);
             }
         }
         if (d > cutoff - 16.0) {

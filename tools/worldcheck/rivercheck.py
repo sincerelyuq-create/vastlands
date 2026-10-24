@@ -262,6 +262,22 @@ def main():
                     ground_checked += 1
                     ground_ok += actual_ground == grounds[c]
                     ground_close += actual_ground is not None and abs(actual_ground - grounds[c]) <= 1
+        # Boulders (kind 4): the top solid block is the boulder's top.
+        rocks = rock_ok = 0
+        for z in range(size):
+            for x in range(size):
+                c = z * size + x
+                if kinds[c] != 4 or grounds[c] < LOW:
+                    continue
+                rocks += 1
+                for y in range(LOW + height - 1, LOW - 1, -1):
+                    k, _ = at(x, y, z)
+                    if k == SOLID:
+                        rock_ok += y == grounds[c]
+                        break
+        report["model_rock_columns"] = rocks
+        if rocks:
+            report["rock_top_matches_model"] = "%.2f%%" % (100.0 * rock_ok / rocks)
         report["model_river_lake_columns"] = placed
         if placed:
             report["water_top_matches_model"] = "%.2f%%" % (100.0 * top_ok / placed)

@@ -100,10 +100,16 @@ public class VastlandsChunkGenerator extends NoiseBasedChunkGenerator {
     public int getBaseHeight(int x, int z, Heightmap.Types type, LevelHeightAccessor level, RandomState random) {
         int base = super.getBaseHeight(x, z, type, level, random);
         Optional<GenerationContext> context = GenerationContext.of(random);
-        if (context.isEmpty() || !type.isOpaque().test(Blocks.WATER.defaultBlockState())) {
+        if (context.isEmpty()) {
             return base;
         }
         WaterColumn water = context.get().systems().hydrology().water(x, z);
+        if (water.kind() == WaterColumn.Kind.ROCK) {
+            return Math.max(base, water.groundTop() + 1);
+        }
+        if (!type.isOpaque().test(Blocks.WATER.defaultBlockState())) {
+            return base;
+        }
         return water.placed() ? Math.max(base, water.waterTop() + 1) : base;
     }
 
@@ -119,6 +125,11 @@ public class VastlandsChunkGenerator extends NoiseBasedChunkGenerator {
                 }
                 for (int y = water.waterTop() + 1; y <= Math.min(height.getMaxY(), water.surfaceTop()); y++) {
                     column.setBlock(y, Blocks.AIR.defaultBlockState());
+                }
+            } else if (water.kind() == WaterColumn.Kind.ROCK) {
+                BlockState rock = Blocks.COBBLESTONE.defaultBlockState();
+                for (int y = Math.max(height.getMinY(), water.surfaceTop() + 1); y <= Math.min(height.getMaxY(), water.groundTop()); y++) {
+                    column.setBlock(y, rock);
                 }
             }
         });
