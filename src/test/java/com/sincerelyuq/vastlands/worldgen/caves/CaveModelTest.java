@@ -14,6 +14,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 import java.util.stream.IntStream;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -33,6 +34,14 @@ class CaveModelTest {
         systems = GenerationSystems.create(new GenerationSetup(SEED, WorldHeight.MIN_Y, WorldHeight.HEIGHT, 63));
         caves = (VastlandsCaves) systems.caves();
         volume = new CaveVolume(systems, caves);
+    }
+
+    /** Lets the models and their caches go: the test JVM runs the other test classes after this one. */
+    @AfterAll
+    static void tearDown() {
+        systems = null;
+        caves = null;
+        volume = null;
     }
 
     /** Two worlds of the same seed agree block for block, whatever thread and order asks. */
@@ -116,34 +125,21 @@ class CaveModelTest {
         assertTrue(checked > 3000, "too few river columns: " + checked);
     }
 
-    /** Coastal caves are flooded to sea level and some open into the sea; deep lava only. */
+    /**
+     * Sea caves: the entrances of the network with their mouth at the sea in a square of coast and
+     * shelf (sea-cave adits and blue holes) open into the sea and hold their water. Deep lava only.
+     */
     @Test
     void seaCavesAndDeepLava() {
-        long openings = 0;
-        long lavaAboveLimit = 0;
-        for (int[] place : new int[][] {{330, -210}, {430, 120}}) {
-            int x0 = place[0] - 48;
-            int z0 = place[1] - 48;
-            for (int i = 1; i < 95; i++) {
-                for (int j = 1; j < 95; j++) {
-                    int x = x0 + i;
-                    int z = z0 + j;
-                    double surface = volume.surface(x, z);
-                    for (int y = -60; y < Math.min(62, surface); y++) {
-                        if (volume.block(x, y, z, Integer.MIN_VALUE) != CaveVolume.Block.CAVE_WATER) {
-                            continue;
-                        }
-                        if (volume.block(x + 1, y, z, Integer.MIN_VALUE) == CaveVolume.Block.SEA
-                                || volume.block(x - 1, y, z, Integer.MIN_VALUE) == CaveVolume.Block.SEA
-                                || volume.block(x, y, z + 1, Integer.MIN_VALUE) == CaveVolume.Block.SEA
-                                || volume.block(x, y, z - 1, Integer.MIN_VALUE) == CaveVolume.Block.SEA
-                                || volume.block(x, y + 1, z, Integer.MIN_VALUE) == CaveVolume.Block.SEA) {
-                            openings++;
-                        }
-                    }
-                }
-            }
+        List<CaveVolume.SeaCave> seaCaves = volume.seaCaves(512, -2048, 1024);
+        int open = 0;
+        int sinkholes = 0;
+        for (CaveVolume.SeaCave c : seaCaves) {
+            assertEquals(0, c.check().unstable(), "unstable fluids at the sea cave at " + c.x() + "," + c.z() + ": " + c.check());
+            open += c.check().seaOpenings() > 0 ? 1 : 0;
+            sinkholes += c.sinkhole() ? 1 : 0;
         }
+        long lavaAboveLimit = 0;
         for (int x = -2048; x < 2048; x += 37) {
             for (int z = -2048; z < 2048; z += 41) {
                 for (int y = -54; y < 140; y += 2) {
@@ -153,8 +149,10 @@ class CaveModelTest {
                 }
             }
         }
-        Vastlands.LOGGER.info("CaveModelTest: {} cave water blocks open to the sea, {} lava blocks above Y -54", openings, lavaAboveLimit);
-        assertTrue(openings > 20, "no flooded caves open into the sea: " + openings);
+        Vastlands.LOGGER.info("CaveModelTest: {} sea caves with a mouth at the sea ({} blue holes), {} open to the sea; {} lava blocks above Y -54",
+                seaCaves.size(), sinkholes, open, lavaAboveLimit);
+        assertTrue(seaCaves.size() >= 10 && sinkholes > 0 && sinkholes < seaCaves.size(), "sea caves: " + seaCaves.size() + ", blue holes " + sinkholes);
+        assertTrue(open * 5 >= seaCaves.size() * 4, "sea caves open to the sea: " + open + " of " + seaCaves.size());
         assertEquals(0, lavaAboveLimit, "cave lava above Y -54");
     }
 

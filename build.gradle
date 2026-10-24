@@ -76,6 +76,9 @@ dependencies {
 
 test {
     useJUnitPlatform()
+    // Gradle gives test workers 512 MB by default; the tests run inside a loaded game and the
+    // terrain, hydrology and cave models keep per-thread caches.
+    maxHeapSize = '2G'
 }
 
 // Expands ${} properties from gradle.properties into src/main/templates (mod metadata).

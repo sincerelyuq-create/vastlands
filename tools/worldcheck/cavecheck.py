@@ -30,7 +30,7 @@ from anvil import read_chunk  # noqa: E402
 
 MIN_Y = -256
 SEA_LEVEL = 63
-AIR, SOLID, WATER, WATER_FLOW, LAVA, LAVA_FLOW, PASSABLE, WATERLOGGED, PLANT = range(9)
+AIR, SOLID, WATER, WATER_FLOW, LAVA, LAVA_FLOW, PASSABLE, WATERLOGGED, PLANT, BUBBLES = range(10)
 # Trees and big plants: solid for fluids, but not ground (their shade is not a cave).
 PLANT_HINTS = ("leaves", "_log", "_wood", "mushroom_block", "mushroom_stem", "mangrove_roots", "bee_nest", "bamboo",
                "cactus", "sugar_cane", "chorus", "pumpkin", "melon", "azalea", "big_dripleaf", "small_dripleaf",
@@ -55,6 +55,9 @@ def classify(entry):
         return WATER if props.get("level", "0") == "0" else WATER_FLOW
     if name == "minecraft:lava":
         return LAVA if props.get("level", "0") == "0" else LAVA_FLOW
+    if name == "minecraft:bubble_column":
+        # A water source to the fluid rules (churning water under falls).
+        return BUBBLES
     if name in WATER_PLANTS or props.get("waterlogged") == "true":
         return WATERLOGGED
     short = name.split(":", 1)[1]
@@ -133,8 +136,8 @@ def main():
     top_index = height - 1 - np.argmax(solid[::-1], axis=0)
     ground = np.where(has_solid, top_index + MIN_Y, MIN_Y)
     under = ys < ground[None, :, :]
-    open_ = (b == AIR) | (b == PASSABLE) | (b == PLANT) & ~under
-    fluid_water = (b == WATER) | (b == WATER_FLOW)
+    open_ = (b == AIR) | (b == PASSABLE)
+    fluid_water = (b == WATER) | (b == WATER_FLOW) | (b == BUBBLES)
     fluid_lava = (b == LAVA) | (b == LAVA_FLOW)
 
     print("world %s: %d x %d columns from x %d z %d, Y %d..%d" % (args.world, nx, nz, x0, z0, MIN_Y, MIN_Y + height - 1))
@@ -200,7 +203,7 @@ def main():
     # vanilla springs placed by features usually are not yet (they still have pending ticks).
     def water_level(k, j, i):
         t = b[k, j, i]
-        if t == WATER or t == WATERLOGGED and False:
+        if t == WATER or t == BUBBLES:
             return 0
         if t == WATER_FLOW:
             return int(lv[k, j, i])
@@ -210,7 +213,7 @@ def main():
         return b[k, j, i] in (SOLID, WATERLOGGED, PLANT)
 
     changes = {"caves": 0, "surface": 0}
-    examples = []
+    examples = {"caves": [], "surface": []}
     for k, j, i in np.argwhere((b == WATER_FLOW) & interior):
         level = int(lv[k, j, i])
         sides = [(k, j, i + 1), (k, j, i - 1), (k, j + 1, i), (k, j - 1, i)]
@@ -238,10 +241,12 @@ def main():
         if change:
             zone = "caves" if under[k, j, i] else "surface"
             changes[zone] += 1
-            if len(examples) < 5:
-                examples.append("%d %d %d (level %d)" % (x0 + i, MIN_Y + k, z0 + j, level))
-    print("flowing water that a fluid tick would change: %d in caves, %d at the surface%s" % (
-        changes["caves"], changes["surface"], (" e.g. " + ", ".join(examples)) if examples else ""))
+            if len(examples[zone]) < 6:
+                examples[zone].append("%d %d %d (level %d)" % (x0 + i, MIN_Y + k, z0 + j, level))
+    print("flowing water that a fluid tick would change: %d in caves, %d at the surface" % (changes["caves"], changes["surface"]))
+    for zone in ("caves", "surface"):
+        if examples[zone]:
+            print("    %s e.g. %s" % (zone, ", ".join(examples[zone])))
     lava_y = np.argwhere(fluid_lava.any(axis=(1, 2)))
     if len(lava_y):
         print("lava between Y %d and %d; above Y -54: %d blocks" % (
@@ -275,6 +280,12 @@ def main():
     outside_air = open_ & ~under
     mouth = cave_air & (shifted(outside_air, 0, 1, 0) | shifted(outside_air, 0, -1, 0) | shifted(outside_air, 0, 0, 1) | shifted(outside_air, 0, 0, -1)) & interior
     print("cave mouths: %d underground air blocks beside open air, in %d columns" % (int(mouth.sum()), int(mouth.any(axis=0).sum())))
+    # Flooded openings: underground water beside (or below) open water above the ground (the sea, lakes).
+    cave_water = fluid_water & under
+    open_water = fluid_water & ~under
+    flooded = cave_water & (shifted(open_water, 0, 1, 0) | shifted(open_water, 0, -1, 0) | shifted(open_water, 0, 0, 1)
+                            | shifted(open_water, 0, 0, -1) | shifted(open_water, -1, 0, 0)) & interior
+    print("flooded cave openings: %d underground water blocks beside open water, in %d columns" % (int(flooded.sum()), int(flooded.any(axis=0).sum())))
 
     if args.png:
         from PIL import Image
@@ -310,7 +321,8 @@ def main():
         else:
             sl = b[:, value - z0, :].copy()
             below = under[:, value - z0, :]
-        # Cave air (below the ground) black, open sky pale, trees green.
+        # Cave air (below the ground) black, open sky pale, trees green, bubble columns as water.
+        sl[sl == BUBBLES] = WATER
         sl[(sl == AIR) & below] = 9
         colors = np.array([[200, 220, 240], [110, 110, 110], [46, 134, 255], [120, 180, 255], [255, 122, 16],
                            [255, 170, 80], [90, 160, 90], [60, 110, 200], [60, 130, 50], [16, 16, 16]], dtype=np.uint8)

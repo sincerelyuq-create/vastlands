@@ -171,6 +171,25 @@ public final class VastlandsCaves implements CaveSystem {
         return y >= column.roof.grottoLo && y <= column.roof.grottoHi;
     }
 
+    /**
+     * Entrances of the cave network in the 64-block cells of a square, for previews and tests:
+     * {inner x, y, z, mouth x, y, z, radius, 0 for an adit or 1 for a sinkhole}.
+     */
+    public java.util.List<double[]> entrances(int minX, int minZ, int maxX, int maxZ) {
+        java.util.List<double[]> out = new java.util.ArrayList<>();
+        for (long i = Math.floorDiv(minX, (int) CaveNetwork.CELL); i <= Math.floorDiv(maxX, (int) CaveNetwork.CELL); i++) {
+            for (long j = Math.floorDiv(minZ, (int) CaveNetwork.CELL); j <= Math.floorDiv(maxZ, (int) CaveNetwork.CELL); j++) {
+                for (CavePrimitive p : this.model.network.cell(i, j).primitives) {
+                    if (p.ignoresCover) {
+                        boolean sinkhole = p.funnelTop == p.funnelTop;
+                        out.add(new double[] {p.ax, p.ay, p.az, p.bx, p.by, p.bz, p.ra, sinkhole ? 1 : 0});
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
     /** Shaft positions (x, z) and river water tops of the swallets sited near a column, for previews and tests. */
     public java.util.List<int[]> swalletsNear(int x, int z) {
         java.util.List<int[]> out = new java.util.ArrayList<>();

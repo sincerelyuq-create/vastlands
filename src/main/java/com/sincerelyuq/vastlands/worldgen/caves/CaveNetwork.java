@@ -419,14 +419,27 @@ final class CaveNetwork {
         boolean underwater = n.surface < this.seaTop - 2;
         boolean coastal = geo.coast() > 0.25 || underwater;
         double u = unit(h, 500);
-        if (slope >= 0.2 && (coastal || slope >= 0.28)) {
-            double length = depth / slope * 1.3 + 14.0;
-            double chance = coastal
-                    ? (underwater ? 0.35 : 0.45) * this.settings.seaCaves()
-                    : 0.32 * this.settings.entrances() * (0.6 + 0.6 * geo.karst() + 0.3 * geo.fracture()) * (slope > 0.9 ? 1.5 : 1.0);
+        if (coastal && slope >= 0.03) {
+            // Sea caves: rising seaward (about 1 in 4) to meet the shore or the sea floor, so gentle
+            // coasts get mouths too, half or wholly under water.
+            double grade = 0.25;
+            double length = depth / (grade + slope) * 1.25 + 8.0;
+            double chance = (underwater ? 0.2 : 0.28) * this.settings.seaCaves();
             if (length <= MAX_ADIT && u < chance) {
-                boolean large = unit(h, 501) < (coastal ? 0.2 : 0.12);
-                double r = large ? 7.0 + 6.0 * unit(h, 502) : (coastal ? 3.5 + 3.5 * unit(h, 502) : 2.4 + 2.2 * unit(h, 502));
+                boolean large = unit(h, 501) < 0.2;
+                double r = large ? 7.0 + 6.0 * unit(h, 502) : 3.5 + 3.5 * unit(h, 502);
+                double ex = n.x - n.slopeX / slope * length;
+                double ez = n.z - n.slopeZ / slope * length;
+                out.add(CavePrimitive.entrance(n.x, y, n.z, ex, y + grade * length, ez, r, r * 1.7, 0.8, 1.2 + 0.1 * r, h + 503));
+                return;
+            }
+        }
+        if (slope >= 0.28 && !underwater) {
+            double length = depth / slope * 1.3 + 14.0;
+            double chance = 0.32 * this.settings.entrances() * (0.6 + 0.6 * geo.karst() + 0.3 * geo.fracture()) * (slope > 0.9 ? 1.5 : 1.0);
+            if (length <= MAX_ADIT && u < chance) {
+                boolean large = unit(h, 501) < 0.12;
+                double r = large ? 7.0 + 6.0 * unit(h, 502) : 2.4 + 2.2 * unit(h, 502);
                 double ex = n.x - n.slopeX / slope * length;
                 double ez = n.z - n.slopeZ / slope * length;
                 // Rising slightly towards the mouth, so the floor drains out of the hill.
@@ -437,7 +450,7 @@ final class CaveNetwork {
         }
         if (underwater) {
             // Blue holes: flooded sinkholes opening into the sea floor (shelf and slopes).
-            if (depth <= 50.0 && u < 0.18 * this.settings.seaCaves() * (0.5 + geo.karst())) {
+            if (depth <= 50.0 && u < 0.06 * this.settings.seaCaves() * (0.5 + geo.karst())) {
                 double r = 3.0 + 4.0 * unit(h, 520);
                 out.add(CavePrimitive.funnel(n.x, y - 1.0, n.z, n.surface + 4.0, r, n.surface, 1.2 + 0.1 * r, h + 521));
             }

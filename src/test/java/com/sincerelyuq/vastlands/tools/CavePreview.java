@@ -28,8 +28,9 @@ import javax.imageio.ImageIO;
  * Y,Y,...} writes top-down slices. {@code --stats} prints cave volume, water and lava shares by
  * height band over random columns of the square. {@code --check N} builds an N × N column box
  * around the centre and counts fluid blocks vanilla's fluid rules would move (water or lava next
- * to open air at its own height or above air, water touching lava). {@code --bench} times the
- * cave stage per chunk as noise filling calls it.
+ * to open air at its own height or above air, water touching lava). {@code --sea} lists the
+ * entrances of the square whose mouth lies at the sea, checks each of them and gives sea caves per
+ * km of coastline. {@code --bench} times the cave stage per chunk as noise filling calls it.
  */
 public final class CavePreview {
     private CavePreview() {
@@ -50,6 +51,7 @@ public final class CavePreview {
         int[] order = null;
         boolean bench = false;
         int check = 0;
+        boolean sea = false;
         int[] slices = null;
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
@@ -69,6 +71,7 @@ public final class CavePreview {
                 case "--probe" -> probe = new int[] {Integer.parseInt(args[++i]), Integer.parseInt(args[++i]), Integer.parseInt(args[++i])};
                 case "--bench" -> bench = true;
                 case "--check" -> check = Integer.parseInt(args[++i]);
+                case "--sea" -> sea = true;
                 case "--slices" -> {
                     String[] parts = args[++i].split(",");
                     slices = new int[parts.length];
@@ -79,7 +82,7 @@ public final class CavePreview {
                 default -> throw new IllegalArgumentException("unknown argument " + args[i]);
             }
         }
-        if (!section && !stats && !bench && check == 0 && slices == null && plan == 0 && tunnels == 0 && !roofs) {
+        if (!section && !stats && !bench && check == 0 && slices == null && plan == 0 && tunnels == 0 && !roofs && !sea) {
             section = true;
         }
         GenerationSetup setup = new GenerationSetup(seed, WorldHeight.MIN_Y, WorldHeight.HEIGHT, 63);
@@ -127,6 +130,9 @@ public final class CavePreview {
         if (check > 0) {
             CaveVolume.Check result = volume.check(cx - check / 2, cz - check / 2, check, check);
             System.out.println(result);
+        }
+        if (sea) {
+            sea(systems, volume, caves, cx, cz, size);
         }
         if (bench) {
             bench(systems, caves, cx, cz, size);
@@ -357,6 +363,52 @@ public final class CavePreview {
             }
             System.out.println(line);
         }
+    }
+
+    /**
+     * Sea caves of a square: every entrance of the network whose mouth lies at or in the sea (the
+     * sea within its radius), checked block by block (cave water open to the sea beside or above
+     * it), and the coastline length (land and sea columns side by side, sampled every 8 blocks).
+     */
+    private static void sea(GenerationSystems systems, CaveVolume volume, VastlandsCaves caves, int cx, int cz, int size) {
+        int x0 = cx - size / 2;
+        int z0 = cz - size / 2;
+        int n = size / 8;
+        boolean[][] wet = new boolean[n][n];
+        IntStream.range(0, n).parallel().forEach(j -> {
+            for (int i = 0; i < n; i++) {
+                wet[j][i] = systems.hydrology().water(x0 + i * 8, z0 + j * 8).kind() == com.sincerelyuq.vastlands.worldgen.hydrology.WaterColumn.Kind.SEA;
+            }
+        });
+        long edges = 0;
+        for (int j = 0; j < n; j++) {
+            for (int i = 0; i < n; i++) {
+                edges += i + 1 < n && wet[j][i] != wet[j][i + 1] ? 1 : 0;
+                edges += j + 1 < n && wet[j][i] != wet[j + 1][i] ? 1 : 0;
+            }
+        }
+        double coast = edges * 8.0 * Math.PI / 4.0;
+        int adits = 0;
+        int sinkholes = 0;
+        for (double[] e : caves.entrances(x0, z0, x0 + size - 1, z0 + size - 1)) {
+            boolean sinkhole = e[7] == 1;
+            double mx = sinkhole ? e[0] : e[3];
+            double mz = sinkhole ? e[2] : e[5];
+            if (mx >= x0 && mx < x0 + size && mz >= z0 && mz < z0 + size) {
+                adits += sinkhole ? 0 : 1;
+                sinkholes += sinkhole ? 1 : 0;
+            }
+        }
+        java.util.List<CaveVolume.SeaCave> found = volume.seaCaves(x0, z0, size);
+        System.out.printf(Locale.ROOT, "%d x %d blocks: coastline ~%.1f km; %d adits and %d sinkholes, %d with a mouth at the sea%n",
+                size, size, coast / 1000.0, adits, sinkholes, found.size());
+        int open = 0;
+        for (CaveVolume.SeaCave c : found) {
+            open += c.check().seaOpenings() > 0 ? 1 : 0;
+            System.out.printf(Locale.ROOT, "  %s at %.0f %.0f (r %.1f): %d cave water blocks open to the sea, unstable %d%n",
+                    c.sinkhole() ? "sinkhole" : "adit", c.x(), c.z(), c.radius(), c.check().seaOpenings(), c.check().unstable());
+        }
+        System.out.printf(Locale.ROOT, "%d sea caves open to the sea: %.2f per km of coastline%n", open, open / Math.max(0.001, coast / 1000.0));
     }
 
     /** Lists the river tunnels of a square: 256-block cells with roofed river columns. */

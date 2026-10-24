@@ -81,18 +81,53 @@ public final class CaveVolume {
 
     /** Result of {@link #check}. */
     public record Check(long blocks, long caveAir, long caveWater, long caveLava, long waterFlows, long lavaFlows,
-                        long waterOnLava, long outsideLeaks, long spillways, String example) {
+                        long waterOnLava, long outsideLeaks, long spillways, long seaOpenings, String example) {
         @Override
         public String toString() {
             return String.format(Locale.ROOT,
-                    "%d blocks checked: cave air %d, cave water %d, cave lava %d; spillway blocks %d; unstable: water %d, lava %d, water touching lava %d, outside water into dry caves %d%s",
-                    this.blocks, this.caveAir, this.caveWater, this.caveLava, this.spillways, this.waterFlows, this.lavaFlows, this.waterOnLava,
+                    "%d blocks checked: cave air %d, cave water %d (%d open to the sea), cave lava %d; spillway blocks %d; unstable: water %d, lava %d, water touching lava %d, outside water into dry caves %d%s",
+                    this.blocks, this.caveAir, this.caveWater, this.seaOpenings, this.caveLava, this.spillways, this.waterFlows, this.lavaFlows, this.waterOnLava,
                     this.outsideLeaks, this.example.isEmpty() ? "" : " (first at " + this.example + ")");
         }
 
         public long unstable() {
             return this.waterFlows + this.lavaFlows + this.waterOnLava + this.outsideLeaks;
         }
+    }
+
+    /** An entrance of the cave network with its mouth at the sea, and the check of the box around it. */
+    public record SeaCave(double x, double z, double radius, boolean sinkhole, Check check) {
+    }
+
+    /**
+     * The entrances of the network whose mouth lies in a square and at the sea (sea water at the
+     * mouth or within its radius): sea-cave adits and blue holes. Each is checked block by block in
+     * a box around its mouth; {@link Check#seaOpenings} says whether the cave water there is open
+     * to the sea.
+     */
+    public java.util.List<SeaCave> seaCaves(int x0, int z0, int size) {
+        java.util.List<SeaCave> out = new java.util.ArrayList<>();
+        for (double[] e : this.caves.entrances(x0, z0, x0 + size - 1, z0 + size - 1)) {
+            boolean sinkhole = e[7] == 1;
+            double mx = sinkhole ? e[0] : e[3];
+            double mz = sinkhole ? e[2] : e[5];
+            if (mx < x0 || mx >= x0 + size || mz < z0 || mz >= z0 + size) {
+                continue;
+            }
+            boolean atSea = false;
+            for (int k = 0; k < 9 && !atSea; k++) {
+                double a = k * Math.PI / 4.0;
+                double d = k == 8 ? 0.0 : e[6] + 2.0;
+                atSea = this.systems.hydrology().water((int) Math.floor(mx + d * Math.cos(a)), (int) Math.floor(mz + d * Math.sin(a))).kind()
+                        == WaterColumn.Kind.SEA;
+            }
+            if (atSea) {
+                int half = (int) Math.ceil(e[6]) + 14;
+                Check check = this.check((int) Math.floor(mx) - half, (int) Math.floor(mz) - half, 2 * half, 2 * half);
+                out.add(new SeaCave(mx, mz, e[6], sinkhole, check));
+            }
+        }
+        return out;
     }
 
     /** Builds the blocks of a box of columns (full height) and counts what fluids would flow. */
@@ -118,7 +153,7 @@ public final class CaveVolume {
                 }
             }
         });
-        long air = 0, water = 0, lava = 0, waterFlows = 0, lavaFlows = 0, waterOnLava = 0, leaks = 0, spills = 0;
+        long air = 0, water = 0, lava = 0, waterFlows = 0, lavaFlows = 0, waterOnLava = 0, leaks = 0, spills = 0, openings = 0;
         int[][] notches = new int[depth][width];
         for (int j = 0; j < depth; j++) {
             for (int i = 0; i < width; i++) {
@@ -148,6 +183,7 @@ public final class CaveVolume {
                     }
                     boolean flows = false;
                     boolean touchesOther = false;
+                    boolean opening = false;
                     boolean leak = false;
                     Block below = values[blocks[(j * width + i) * height + k - 1]];
                     Block above = values[blocks[(j * width + i) * height + k + 1]];
@@ -162,6 +198,10 @@ public final class CaveVolume {
                         if (isLava ? n == Block.CAVE_WATER || n == Block.SEA || n == Block.RIVER : n == Block.CAVE_LAVA) {
                             touchesOther = true;
                         }
+                        opening |= caveWater && n == Block.SEA;
+                    }
+                    if (caveWater && (opening || above == Block.SEA)) {
+                        openings++;
                     }
                     if (isLava ? above == Block.CAVE_WATER || above == Block.SEA || above == Block.RIVER || below == Block.CAVE_WATER
                             : above == Block.CAVE_LAVA || below == Block.CAVE_LAVA) {
@@ -195,6 +235,6 @@ public final class CaveVolume {
                 }
             }
         }
-        return new Check((long) width * depth * height, air, water, lava, waterFlows, lavaFlows, waterOnLava, leaks, spills, example);
+        return new Check((long) width * depth * height, air, water, lava, waterFlows, lavaFlows, waterOnLava, leaks, spills, openings, example);
     }
 }

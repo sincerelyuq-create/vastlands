@@ -412,18 +412,43 @@ final class RiverTunnels {
             // An elliptical room reaching `depth` into the cliff upstream of the face, and its mouth
             // running on downstream (same section) through the rocky rim to the plunge pool.
             double a = along > -0.5 * g.depth ? 0.0 : (along + 0.5 * g.depth) / (0.5 * g.depth + 1.0);
-            double b = across / g.halfWidth;
+            // The mouth is wider than the room: the curtain curves round the lip of a tall fall.
+            double b = across / (along > 0.0 ? 1.3 * g.halfWidth : g.halfWidth);
             double q = a * a + b * b;
             if (along > g.reach || q >= 1.0) {
                 continue;
             }
-            int top = g.floor + (int) Math.floor((g.ceiling - g.floor) * Math.pow(1.0 - q, 0.4));
+            int top = this.underWater(x, z, g.floor, g.floor + (int) Math.floor((g.ceiling - g.floor) * Math.pow(1.0 - q, 0.4)));
             if (top >= g.floor + 2) {
                 out.grottoLo = g.floor;
                 out.grottoHi = top;
                 return;
             }
         }
+    }
+
+    /**
+     * Lowers the top of a grotto interval {@code lo..hi} so that rock stays under the river water
+     * of the column (the curtain of the fall hangs over the cliff face) and beside the water of its
+     * four neighbours, with a block to spare. The plunge pool's water lies below {@code lo}.
+     *
+     * @return the new top, below {@code lo} if the column must stay closed
+     */
+    private int underWater(int x, int z, int lo, int hi) {
+        for (int k = 0; k < 5; k++) {
+            int cx = x + (k == 1 ? 1 : k == 2 ? -1 : 0);
+            int cz = z + (k == 3 ? 1 : k == 4 ? -1 : 0);
+            int top = this.waters.placedTop(cx, cz);
+            if (top == Integer.MIN_VALUE || top < lo) {
+                continue;
+            }
+            int bottom = (int) Math.ceil(this.ground.surface(cx, cz)) - (k == 0 ? 2 : 1);
+            if (bottom <= lo) {
+                return lo - 1;
+            }
+            hi = Math.min(hi, bottom - 1);
+        }
+        return hi;
     }
 
     /** A grotto behind a fall, if the fall suits one. */
@@ -470,7 +495,7 @@ final class RiverTunnels {
         for (int s = (int) Math.floor(face) + 1; s <= (int) Math.floor(face) + 14; s++) {
             int top = this.waters.placedTop((int) Math.floor(fall[0] + tx * s), (int) Math.floor(fall[1] + tz * s));
             if (top == lower) {
-                reach = s + 0.5 - face;
+                reach = s + 3.5 - face;
                 break;
             }
         }
