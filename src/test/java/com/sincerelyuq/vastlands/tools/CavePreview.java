@@ -46,6 +46,8 @@ public final class CavePreview {
         boolean stats = false;
         int tunnels = 0;
         boolean roofs = false;
+        int[] probe = null;
+        int[] order = null;
         boolean bench = false;
         int check = 0;
         int[] slices = null;
@@ -63,6 +65,8 @@ public final class CavePreview {
                 case "--stats" -> stats = true;
                 case "--tunnels" -> tunnels = Integer.parseInt(args[++i]);
                 case "--roofs" -> roofs = true;
+                case "--order" -> order = new int[] {Integer.parseInt(args[++i]), Integer.parseInt(args[++i]), Integer.parseInt(args[++i])};
+                case "--probe" -> probe = new int[] {Integer.parseInt(args[++i]), Integer.parseInt(args[++i]), Integer.parseInt(args[++i])};
                 case "--bench" -> bench = true;
                 case "--check" -> check = Integer.parseInt(args[++i]);
                 case "--slices" -> {
@@ -82,6 +86,26 @@ public final class CavePreview {
         GenerationSystems systems = GenerationSystems.create(setup);
         VastlandsCaves caves = (VastlandsCaves) systems.caves();
         CaveVolume volume = new CaveVolume(systems, caves);
+        if (order != null) {
+            // Same block from fresh systems: asked first, and after the 2048-block square around it.
+            for (int run = 0; run < 3; run++) {
+                GenerationSystems fresh = GenerationSystems.create(setup);
+                VastlandsCaves c = (VastlandsCaves) fresh.caves();
+                java.util.Random random = new java.util.Random(run);
+                for (int k = 0; k < run * 3000; k++) {
+                    int x = random.nextInt(4096) - 2048;
+                    int z = random.nextInt(4096) - 2048;
+                    c.isCave(x, -240 + random.nextInt(400), z);
+                }
+                System.out.println("run " + run + ": cave " + c.isCave(order[0], order[1], order[2]) + " fluid " + c.caveFluid(order[0], order[1], order[2])
+                        + " | " + c.describe(order[0], order[1], order[2]) + " | " + c.debug(order[0], order[2]));
+            }
+            return;
+        }
+        if (probe != null) {
+            probe(volume, caves, probe[0], probe[1], probe[2]);
+            return;
+        }
         long start = System.nanoTime();
         systems.surfaceHeight(cx, cz);
         System.out.printf(Locale.ROOT, "first column (drainage around the centre): %.2f s%n", (System.nanoTime() - start) / 1e9);
@@ -288,15 +312,78 @@ public final class CavePreview {
         System.out.printf(Locale.ROOT, "wrote %s (river tunnels)%n", file);
     }
 
+    /** Prints the blocks around a point (x and z ±2, y ±3) and the cave diagnostics of its column. */
+    private static void probe(CaveVolume volume, VastlandsCaves caves, int px, int py, int pz) {
+        System.out.println(caves.describe(px, py, pz));
+        for (int dx = -2; dx <= 2; dx++) {
+            System.out.println("  x " + (px + dx) + ": " + caves.debug(px + dx, pz));
+        }
+        for (int y = py + 3; y >= py - 3; y--) {
+            StringBuilder line = new StringBuilder(String.format(Locale.ROOT, "y %4d: ", y));
+            for (int dz = -2; dz <= 2; dz++) {
+                for (int dx = -2; dx <= 2; dx++) {
+                    CaveVolume.Block b = volume.block(px + dx, y, pz + dz);
+                    line.append(switch (b) {
+                        case SKY -> '.';
+                        case SEA -> '~';
+                        case RIVER -> 'r';
+                        case ROCK -> '#';
+                        case CAVE_AIR -> 'o';
+                        case CAVE_WATER -> 'w';
+                        case CAVE_LAVA -> 'L';
+                    });
+                }
+                line.append(' ');
+            }
+            System.out.println(line);
+        }
+        System.out.println("water tops / ground (every 2 blocks, x right, z down; G grotto, . dry):");
+        for (int dz = -24; dz <= 24; dz += 2) {
+            StringBuilder line = new StringBuilder(String.format(Locale.ROOT, "%5d ", pz + dz));
+            for (int dx = -24; dx <= 24; dx += 2) {
+                int top = volume.riverTop(px + dx, pz + dz);
+                boolean grotto = false;
+                for (int y = py - 6; y <= py + 6 && !grotto; y++) {
+                    grotto = caves.isGrotto(px + dx, y, pz + dz);
+                }
+                line.append(grotto ? "  GG" : top == Integer.MIN_VALUE ? String.format(Locale.ROOT, "%4d", (int) volume.surface(px + dx, pz + dz)).replace(' ', '.') : String.format(Locale.ROOT, "%4d", top));
+            }
+            System.out.println(line);
+        }
+        for (int dz = -2; dz <= 2; dz++) {
+            StringBuilder line = new StringBuilder("surface: ");
+            for (int dx = -2; dx <= 2; dx++) {
+                line.append(String.format(Locale.ROOT, "%7.2f/%4d ", volume.surface(px + dx, pz + dz), volume.riverTop(px + dx, pz + dz)));
+            }
+            System.out.println(line);
+        }
+    }
+
     /** Lists the river tunnels of a square: 256-block cells with roofed river columns. */
     private static void tunnels(VastlandsCaves caves, int cx, int cz, int size, int step) {
         int n = size / step;
         java.util.Map<Long, int[]> cells = new java.util.concurrent.ConcurrentHashMap<>();
+        java.util.Set<Long> swallets = java.util.concurrent.ConcurrentHashMap.newKeySet();
+        java.util.Map<Long, int[]> swalletSamples = new java.util.concurrent.ConcurrentHashMap<>();
+        java.util.Map<Long, int[]> grottoes = new java.util.concurrent.ConcurrentHashMap<>();
         IntStream.range(0, n).parallel().forEach(j -> {
             for (int i = 0; i < n; i++) {
                 int x = cx - size / 2 + i * step;
                 int z = cz - size / 2 + j * step;
                 double b = caves.roofStrength(x, z);
+                if (i % 64 == 0 && j % 64 == 0) {
+                    for (int[] g : caves.grottoesNear(x, z)) {
+                        grottoes.putIfAbsent((long) g[0] << 32 | (g[1] & 0xFFFFFFFFL), g);
+                    }
+                }
+                if (i % 4 == 0 && j % 4 == 0) {
+                    for (int[] sw : caves.swalletsNear(x, z)) {
+                        long key = (long) sw[0] << 32 | (sw[1] & 0xFFFFFFFFL);
+                        if (swallets.add(key)) {
+                            swalletSamples.put(key, sw);
+                        }
+                    }
+                }
                 if (b > 0.5) {
                     long key = (long) Math.floorDiv(x, 256) << 32 | (Math.floorDiv(z, 256) & 0xFFFFFFFFL);
                     cells.compute(key, (k, v) -> v == null ? new int[] {1, x, z} : new int[] {v[0] + 1, v[1], v[2]});
@@ -305,6 +392,10 @@ public final class CavePreview {
         });
         System.out.printf(Locale.ROOT, "%d 256-block cells with roofed river columns (b > 0.5, sampled every %d blocks) in %d x %d around %d,%d%n",
                 cells.size(), step, size, size, cx, cz);
+        System.out.printf(Locale.ROOT, "%d grottoes behind falls%n", grottoes.size());
+        grottoes.values().stream().limit(10).forEach(g -> System.out.printf(Locale.ROOT, "  grotto at %d %d, floor %d ceiling %d%n", g[0], g[1], g[2], g[3]));
+        System.out.printf(Locale.ROOT, "%d swallets%n", swallets.size());
+        swalletSamples.values().stream().limit(15).forEach(v -> System.out.printf(Locale.ROOT, "  swallet shaft at %d %d, river water top %d, shaft bottom %d%n", v[0], v[1], v[2], v[3]));
         cells.values().stream().sorted((a, b) -> b[0] - a[0]).limit(25)
                 .forEach(v -> System.out.printf(Locale.ROOT, "  %d samples, e.g. %d %d%n", v[0], v[1], v[2]));
     }

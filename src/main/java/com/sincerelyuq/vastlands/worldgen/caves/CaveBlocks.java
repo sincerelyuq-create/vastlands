@@ -6,6 +6,7 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.material.Fluids;
 
 /**
  * Block step of the caves, run by {@code VastlandsChunkGenerator} right after noise filling (before
@@ -22,8 +23,9 @@ import net.minecraft.world.level.chunk.ChunkAccess;
  *     smooth basalt (in other lava domains only a little magma at the shore). Surface rules only
  *     repaint stone, so these stay.</li>
  * </ul>
- * Every decision reads only the chunk's own blocks and the cave model for its columns, so the step
- * does not depend on generation order.
+ * After carving (after the hydrology's last water step) {@link #afterRivers} places the water of
+ * swallets. Every decision reads only the chunk's own blocks and the cave model for its columns,
+ * so the steps do not depend on generation order.
  */
 public final class CaveBlocks {
     private static final BlockState STONE = Blocks.STONE.defaultBlockState();
@@ -32,6 +34,10 @@ public final class CaveBlocks {
     private static final BlockState BASALT = Blocks.BASALT.defaultBlockState();
     private static final BlockState SMOOTH_BASALT = Blocks.SMOOTH_BASALT.defaultBlockState();
     private static final int[][] SIDES = {{1, 0, 0}, {-1, 0, 0}, {0, 0, 1}, {0, 0, -1}, {0, 1, 0}, {0, -1, 0}};
+    private static final BlockState WATER = Blocks.WATER.defaultBlockState();
+    private static final BlockState AIR = Blocks.AIR.defaultBlockState();
+    private static final BlockState LIP = Fluids.FLOWING_WATER.getFlowing(7, false).createLegacyBlock();
+    private static final BlockState FALLING = Fluids.FLOWING_WATER.getFlowing(8, true).createLegacyBlock();
 
     private CaveBlocks() {
     }
@@ -61,6 +67,55 @@ public final class CaveBlocks {
             }
         }
         return changed;
+    }
+
+    /**
+     * Swallets, run after the hydrology's last water step (which seals every opening beside river
+     * water, the notch included): the notch becomes source water at the river's water top on solid
+     * rock, and the shaft columns beside it a curtain: a flowing block (amount 7) at the water top
+     * and falling water down to the cave water. These are the states vanilla computes for them, so
+     * nothing flows when the chunk loads, and the river pours into the caves without draining.
+     *
+     * @return the number of blocks changed
+     */
+    public static int afterRivers(ChunkAccess chunk, VastlandsCaves caves) {
+        ChunkPos chunkPos = chunk.getPos();
+        int changed = 0;
+        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+        for (int dx = 0; dx < 16; dx++) {
+            for (int dz = 0; dz < 16; dz++) {
+                int x = chunkPos.getMinBlockX() + dx;
+                int z = chunkPos.getMinBlockZ() + dz;
+                CaveColumn column = caves.column(x, z);
+                RiverTunnels.SwalletPart part = column.roof.part;
+                if (part == RiverTunnels.SwalletPart.NONE || part == RiverTunnels.SwalletPart.SHAFT) {
+                    continue;
+                }
+                RiverTunnels.Swallet swallet = column.roof.swallet;
+                int water = swallet.water();
+                if (part == RiverTunnels.SwalletPart.NOTCH) {
+                    changed += set(chunk, pos.set(x, water - 1, z), STONE, true);
+                    changed += set(chunk, pos.set(x, water, z), WATER, false);
+                    changed += set(chunk, pos.set(x, water + 1, z), AIR, false);
+                } else {
+                    changed += set(chunk, pos.set(x, water, z), LIP, false);
+                    for (int y = water - 1; y > swallet.bottom() + 3; y--) {
+                        changed += set(chunk, pos.set(x, y, z), FALLING, false);
+                    }
+                }
+            }
+        }
+        return changed;
+    }
+
+    /** Sets a block (only if it is not solid already when {@code onlyIfOpen}). */
+    private static int set(ChunkAccess chunk, BlockPos pos, BlockState state, boolean onlyIfOpen) {
+        BlockState current = chunk.getBlockState(pos);
+        if (current == state || onlyIfOpen && !current.isAir() && current.getFluidState().isEmpty()) {
+            return 0;
+        }
+        chunk.setBlockState(pos, state);
+        return 1;
     }
 
     /** Volcanic lining of one column around the lava of its deep domain. */

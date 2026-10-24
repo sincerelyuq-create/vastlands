@@ -112,6 +112,10 @@ public class VastlandsChunkGenerator extends NoiseBasedChunkGenerator {
         context.ifPresent(c -> {
             OceanSurface.fillDeepWater(chunk, c.systems());
             RiverWater.place(chunk, c.systems().hydrology(), true);
+            // Rivers pouring into swallets: after the river water, which seals their notches.
+            if (c.systems().caves() instanceof VastlandsCaves caves) {
+                CaveBlocks.afterRivers(chunk, caves);
+            }
         });
     }
 

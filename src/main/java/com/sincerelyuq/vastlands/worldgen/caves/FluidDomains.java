@@ -127,8 +127,9 @@ final class FluidDomains {
         int n = 0;
         for (long j = cj - 1; j <= cj + 1; j++) {
             for (long i = ci - 1; i <= ci + 1; i++) {
-                long key = i * 0x1F1F1F1FL ^ j * 0x3C6EF372FE94F82BL ^ (deep ? 0x5DEECE66DL : 0L);
-                long h = SimplexNoise.mix(this.seed ^ key);
+                // Exact cell identity (a hash here once let two cells share a cached domain).
+                long key = i << 32 ^ (j & 0xFFFFFFFFL);
+                long h = SimplexNoise.mix(this.seed ^ SimplexNoise.mix(key) ^ (deep ? 0x5DEECE66DL : 0L));
                 sx[n] = (i + 0.25 + 0.5 * unit(h, 0)) * cell;
                 sz[n] = (j + 0.25 + 0.5 * unit(h, 1)) * cell;
                 keys[n] = key;
@@ -200,7 +201,7 @@ final class FluidDomains {
     private Domain upperDomain(long key, double x, double z) {
         GeographySample g = this.geography.sample(x, z);
         CaveGeology.Geology geo = this.geology.at(x, z, g);
-        long h = SimplexNoise.mix(this.seed ^ key ^ 0x55505045L);
+        long h = SimplexNoise.mix(this.seed ^ SimplexNoise.mix(key) ^ 0x55505045L);
         if (g.continentalness() < 0.08 || g.elevation() < this.seaTop + 4) {
             return new Domain(key, x, z, CaveFluid.WATER, this.seaTop, true);
         }
@@ -216,7 +217,7 @@ final class FluidDomains {
     private Domain deepDomain(long key, double x, double z) {
         GeographySample g = this.geography.sample(x, z);
         CaveGeology.Geology geo = this.geology.at(x, z, g);
-        long h = SimplexNoise.mix(this.seed ^ key ^ 0x44454550L);
+        long h = SimplexNoise.mix(this.seed ^ SimplexNoise.mix(key) ^ 0x44454550L);
         double u = unit(h, 2);
         if (g.continentalness() < -0.12) {
             // Under the open ocean the deep caves are part of the sea or dry behind rock.

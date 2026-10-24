@@ -69,10 +69,19 @@ public final class VastlandsCaves implements CaveSystem {
                 return terrain.surfaceHeight(x, z);
             }
         };
-        RiverTunnels.Rivers rivers = hydrology instanceof VastlandsHydrology vastlands
-                ? (x, z, reach, visitor) -> vastlands.model().channels(x, z, reach, visitor)
-                : (x, z, reach, visitor) -> {
-                };
+        RiverTunnels.Rivers rivers = new RiverTunnels.Rivers() {
+            @Override
+            public void channels(int x, int z, double reach, com.sincerelyuq.vastlands.worldgen.hydrology.HydrologyModel.ChannelVisitor visitor) {
+                if (hydrology instanceof VastlandsHydrology vastlands) {
+                    vastlands.model().channels(x, z, reach, visitor);
+                }
+            }
+
+            @Override
+            public java.util.List<double[]> falls(int x, int z) {
+                return hydrology instanceof VastlandsHydrology vastlands ? vastlands.model().falls(x, z) : java.util.List.of();
+            }
+        };
         CaveModel.Waters waters = new CaveModel.Waters() {
             @Override
             public boolean mayHoldWater(int minX, int minZ, int maxX, int maxZ) {
@@ -151,6 +160,32 @@ public final class VastlandsCaves implements CaveSystem {
         return column.roof.active ? Math.max(ground, column.roof.surface) : ground;
     }
 
+    /** Grottoes behind falls near a column: face x, z, floor and ceiling (previews and tests). */
+    public java.util.List<int[]> grottoesNear(int x, int z) {
+        return this.model.tunnels.grottoesNear(x, z);
+    }
+
+    /** True if the block lies in a grotto behind a waterfall. */
+    public boolean isGrotto(int x, int y, int z) {
+        CaveColumn column = this.column(x, z);
+        return y >= column.roof.grottoLo && y <= column.roof.grottoHi;
+    }
+
+    /** Shaft positions (x, z) and river water tops of the swallets sited near a column, for previews and tests. */
+    public java.util.List<int[]> swalletsNear(int x, int z) {
+        java.util.List<int[]> out = new java.util.ArrayList<>();
+        for (RiverTunnels.Swallet s : this.model.tunnels.swalletsNear(x, z)) {
+            long c = s.anyShaftCell();
+            out.add(new int[] {(int) (c >> 32), (int) c, s.water(), s.bottom()});
+        }
+        return out;
+    }
+
+    /** The part of a swallet a column belongs to (NONE, NOTCH, SHAFT, LIP), for previews and tests. */
+    public String swalletPart(int x, int z) {
+        return this.column(x, z).roof.part.name();
+    }
+
     /** Strength of the roof over a river gorge at a column (0 where there is none). */
     public double roofStrength(int x, int z) {
         CaveColumn column = this.column(x, z);
@@ -210,6 +245,16 @@ public final class VastlandsCaves implements CaveSystem {
     /** Fluid placed in an open cave block (below the ground), for block steps and tests. */
     public CaveFluid caveFluid(int x, int y, int z) {
         return this.column(x, z).domain(y).at(y);
+    }
+
+    /** Y of the fluid top a spillway notch lets over a dam in this column, or {@link Integer#MIN_VALUE}. */
+    public int spillway(int x, int z) {
+        return this.column(x, z).notchY;
+    }
+
+    /** Detailed diagnostics of a column (previews and tests). */
+    public String debug(int x, int z) {
+        return this.model.debug(this.column(x, z));
     }
 
     /** Diagnostics for the F3 screen. */

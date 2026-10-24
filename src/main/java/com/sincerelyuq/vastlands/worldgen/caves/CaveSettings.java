@@ -27,5 +27,5 @@ public record CaveSettings(
         double spillways,
         double lava
 ) {
-    public static final CaveSettings DEFAULT = new CaveSettings(1.0, 1.0, 0.32, 1.0, 1.0, 1.0, 0.5, 0.3, 1.0);
+    public static final CaveSettings DEFAULT = new CaveSettings(1.2, 1.0, 0.32, 1.0, 1.0, 1.0, 0.5, 0.3, 1.0);
 }

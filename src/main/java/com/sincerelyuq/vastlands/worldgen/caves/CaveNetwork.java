@@ -34,7 +34,8 @@ import java.util.function.Consumer;
  * ones a canyon slot cut into the floor by a stream. Junctions with two or more tunnels may be
  * chambers; a node may hold a shaft down to the next level below; the highest level of a node
  * near the surface may open to it: an adit into a hillside or cliff (downhill, sometimes a very
- * large mouth), a sea cave mouth on a coast or a submerged cliff, or a doline in karst.
+ * large mouth), a sea cave mouth on a coast or a submerged cliff, a doline in karst, or a blue
+ * hole (a flooded sinkhole) in the sea floor.
  *
  * <p>Everything is a pure function of the seed and lattice coordinates (nodes read the geography
  * and the generated ground at their own position), so neighbouring chunks build the same graph.
@@ -422,7 +423,7 @@ final class CaveNetwork {
             double length = depth / slope * 1.3 + 14.0;
             double chance = coastal
                     ? (underwater ? 0.35 : 0.45) * this.settings.seaCaves()
-                    : 0.18 * this.settings.entrances() * (0.6 + 0.6 * geo.karst() + 0.3 * geo.fracture()) * (slope > 0.9 ? 1.5 : 1.0);
+                    : 0.32 * this.settings.entrances() * (0.6 + 0.6 * geo.karst() + 0.3 * geo.fracture()) * (slope > 0.9 ? 1.5 : 1.0);
             if (length <= MAX_ADIT && u < chance) {
                 boolean large = unit(h, 501) < (coastal ? 0.2 : 0.12);
                 double r = large ? 7.0 + 6.0 * unit(h, 502) : (coastal ? 3.5 + 3.5 * unit(h, 502) : 2.4 + 2.2 * unit(h, 502));
@@ -434,7 +435,15 @@ final class CaveNetwork {
             }
             return;
         }
-        if (slope < 0.22 && depth <= 55.0 && geo.karst() > 0.3 && !underwater
+        if (underwater) {
+            // Blue holes: flooded sinkholes opening into the sea floor (shelf and slopes).
+            if (depth <= 50.0 && u < 0.18 * this.settings.seaCaves() * (0.5 + geo.karst())) {
+                double r = 3.0 + 4.0 * unit(h, 520);
+                out.add(CavePrimitive.funnel(n.x, y - 1.0, n.z, n.surface + 4.0, r, n.surface, 1.2 + 0.1 * r, h + 521));
+            }
+            return;
+        }
+        if (slope < 0.22 && depth <= 55.0 && geo.karst() > 0.3
                 && u < 0.08 * this.settings.entrances() * geo.karst()) {
             double r = 2.5 + 3.0 * unit(h, 510);
             out.add(CavePrimitive.funnel(n.x, y - 1.0, n.z, n.surface + 4.0, r, n.surface, 1.2 + 0.1 * r, h + 511));

@@ -58,6 +58,8 @@ def classify(entry):
     if name in WATER_PLANTS or props.get("waterlogged") == "true":
         return WATERLOGGED
     short = name.split(":", 1)[1]
+    if short.endswith("_block") or short in ("podzol", "mycelium", "dirt_path", "farmland", "moss_block", "snow_block"):
+        return SOLID
     if any(h in short for h in PLANT_HINTS):
         return PLANT
     if any(h in short for h in PASSABLE_HINTS):
@@ -93,6 +95,7 @@ def load(path):
                     top = max(top, s["Y"] * 16 + 15)
     height = top - MIN_Y + 1
     blocks = np.zeros((height, nz, nx), dtype=np.uint8)
+    levels = np.zeros((height, nz, nx), dtype=np.uint8)
     for (cx, cz), nbt in chunks.items():
         ox = (cx - lo_x) * 16
         oz = (cz - lo_z) * 16
@@ -102,15 +105,17 @@ def load(path):
             if states is None or y0 + 15 < MIN_Y or y0 > top:
                 continue
             palette = np.array([classify(e) for e in states["palette"]], dtype=np.uint8)
+            water_levels = np.array([int(e.get("Properties", {}).get("level", "0")) if e["Name"] == "minecraft:water" else 0
+                                     for e in states["palette"]], dtype=np.uint8)
             if len(palette) == 1 or "data" not in states:
-                section = np.full(4096, palette[0], dtype=np.uint8)
+                indices = np.zeros(4096, dtype=np.int32)
             else:
                 bits = max(4, math.ceil(math.log2(len(palette))))
-                section = palette[unpack(states["data"], bits)]
-            section = section.reshape(16, 16, 16)
+                indices = unpack(states["data"], bits)
             ys = slice(y0 - MIN_Y, y0 - MIN_Y + 16)
-            blocks[ys, oz:oz + 16, ox:ox + 16] = section
-    return meta, blocks, (lo_x * 16, lo_z * 16)
+            blocks[ys, oz:oz + 16, ox:ox + 16] = palette[indices].reshape(16, 16, 16)
+            levels[ys, oz:oz + 16, ox:ox + 16] = water_levels[indices].reshape(16, 16, 16)
+    return meta, blocks, levels, (lo_x * 16, lo_z * 16)
 
 
 def main():
@@ -119,7 +124,7 @@ def main():
     p.add_argument("--png", help="plan of the caves")
     p.add_argument("--section", action="append", default=[], help="vertical section: x=N or z=N (block coordinate)")
     args = p.parse_args()
-    meta, b, (x0, z0) = load(args.world)
+    meta, b, lv, (x0, z0) = load(args.world)
     height, nz, nx = b.shape
     ys = np.arange(height)[:, None, None] + MIN_Y
     solid = (b == SOLID) | (b == WATERLOGGED)
@@ -189,6 +194,54 @@ def main():
     touching = fluid_water & lava_near & interior
     print("water touching lava: %d blocks (%d in caves)" % (int(touching.sum()), int((touching & under).sum())))
     print("flowing water %d, flowing lava %d blocks (falls, springs, spillways)" % (int((b == WATER_FLOW).sum()), int((b == LAVA_FLOW).sum())))
+
+    # Flowing water: would vanilla's fluid tick change it? (port of FlowingFluid.getNewLiquid and
+    # spreading, as in RiverWaterTest). Lips and curtains of falls and swallets must be stable;
+    # vanilla springs placed by features usually are not yet (they still have pending ticks).
+    def water_level(k, j, i):
+        t = b[k, j, i]
+        if t == WATER or t == WATERLOGGED and False:
+            return 0
+        if t == WATER_FLOW:
+            return int(lv[k, j, i])
+        return -1
+
+    def solid_at(k, j, i):
+        return b[k, j, i] in (SOLID, WATERLOGGED, PLANT)
+
+    changes = {"caves": 0, "surface": 0}
+    examples = []
+    for k, j, i in np.argwhere((b == WATER_FLOW) & interior):
+        level = int(lv[k, j, i])
+        sides = [(k, j, i + 1), (k, j, i - 1), (k, j + 1, i), (k, j - 1, i)]
+        amount = 0
+        sources = 0
+        for side in sides:
+            l = water_level(*side)
+            if l >= 0:
+                amount = max(amount, 8 if l == 0 or l >= 8 else 8 - l)
+                sources += 1 if l == 0 else 0
+        below = (k - 1, j, i)
+        above = (k + 1, j, i)
+        if sources >= 2 and (solid_at(*below) or water_level(*below) == 0):
+            expected = 0
+        elif water_level(*above) >= 0:
+            expected = 8
+        else:
+            expected = -1 if amount - 1 <= 0 else 8 - (amount - 1)
+        change = expected != level
+        if not change and b[below] == AIR:
+            change = True
+        if not change and not water_level(*below) >= 0:
+            amt = 8 if level >= 8 else 8 - level
+            change = any(b[s] == AIR for s in sides) and amt - 1 > 0
+        if change:
+            zone = "caves" if under[k, j, i] else "surface"
+            changes[zone] += 1
+            if len(examples) < 5:
+                examples.append("%d %d %d (level %d)" % (x0 + i, MIN_Y + k, z0 + j, level))
+    print("flowing water that a fluid tick would change: %d in caves, %d at the surface%s" % (
+        changes["caves"], changes["surface"], (" e.g. " + ", ".join(examples)) if examples else ""))
     lava_y = np.argwhere(fluid_lava.any(axis=(1, 2)))
     if len(lava_y):
         print("lava between Y %d and %d; above Y -54: %d blocks" % (
@@ -257,10 +310,10 @@ def main():
         else:
             sl = b[:, value - z0, :].copy()
             below = under[:, value - z0, :]
-        # Cave air (below the ground) black, open sky pale.
-        sl[(sl == AIR) & below] = 8
+        # Cave air (below the ground) black, open sky pale, trees green.
+        sl[(sl == AIR) & below] = 9
         colors = np.array([[200, 220, 240], [110, 110, 110], [46, 134, 255], [120, 180, 255], [255, 122, 16],
-                           [255, 170, 80], [90, 160, 90], [60, 110, 200], [16, 16, 16]], dtype=np.uint8)
+                           [255, 170, 80], [90, 160, 90], [60, 110, 200], [60, 130, 50], [16, 16, 16]], dtype=np.uint8)
         img = colors[sl[::-1]]
         name = os.path.splitext(args.png or os.path.join(args.world, "caves"))[0] + "-%s%d.png" % (axis, value)
         Image.fromarray(img).save(name)

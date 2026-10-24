@@ -30,6 +30,8 @@ public final class CaveModel {
     static final int CLEARANCE = 4;
     /** The same next to river and lake water, deeper: beds and banks stay intact. */
     static final int RIVER_CLEARANCE = 7;
+    /** Rock kept between caves and the sea floor where the caves are part of the sea. */
+    static final int SEA_COVER = 2;
     /** No fluid level of any domain lies above this Y. */
     public static final int MAX_LEVEL = 160;
 
@@ -110,7 +112,7 @@ public final class CaveModel {
         this.network = new CaveNetwork(s, geography, this.geology, this.domains, settings, ground, this.seaTop);
         this.fractures = new Fractures(s, settings);
         this.caverns = new Caverns(s, geography, this.geology, this.domains, ground, settings);
-        this.tunnels = new RiverTunnels(s, geography, rivers, settings);
+        this.tunnels = new RiverTunnels(s, geography, ground, rivers, waters, this.domains, settings, this.seaTop);
         this.roughness = new Noise3(s + 1);
         this.detail = new Noise3(s + 2);
         this.bridges = new Noise3(s + 3);
@@ -160,6 +162,10 @@ public final class CaveModel {
         c.riverTop = riverTop;
         c.coverTop = (int) Math.floor(low) - (int) CaveNetwork.COVER;
         c.roof.active = false;
+        c.roof.swallet = RiverTunnels.Swallet.NONE;
+        c.roof.part = RiverTunnels.SwalletPart.NONE;
+        c.roof.grottoLo = 1;
+        c.roof.grottoHi = 0;
         if (this.nearRivers(scratch, x, z)) {
             this.tunnels.roof(x, z, c.surface, this.ground.terrain(x, z), c.roof);
         }
@@ -175,6 +181,11 @@ public final class CaveModel {
         this.domains.locate(x, z, true, scratch.deep);
         c.upper = scratch.upper.owner;
         c.deep = scratch.deep.owner;
+        if (low < this.seaTop - 2 && c.upper.sea) {
+            // Under the sea in a sea-connected domain the cave water is the sea's: caves may open
+            // into the sea floor, so only a thin cover of rock is kept.
+            c.coverTop = (int) Math.floor(low) - SEA_COVER;
+        }
         CaveFluid above = c.upper.at(c.bandHi + 1);
         CaveFluid below = c.deep.at(c.bandLo - 1);
         c.bandOpen = above == below && (above == CaveFluid.AIR || c.upper.level >= c.bandHi + 1 && c.deep.level >= c.bandLo - 1);
@@ -284,7 +295,7 @@ public final class CaveModel {
 
     /** Spillway windows: 3 blocks every 20 along an edge, a share of them open. */
     private boolean notched(FluidDomains.Domain a, FluidDomains.Domain b, double along) {
-        long pair = Math.min(a.key, b.key) * 0x9E3779B97F4A7C15L ^ Math.max(a.key, b.key);
+        long pair = SimplexNoise.mix(Math.min(a.key, b.key)) * 0x9E3779B97F4A7C15L ^ Math.max(a.key, b.key);
         long window = (long) Math.floor(along / 20.0);
         long h = SimplexNoise.mix(this.seed ^ pair ^ window * 0xC2B2AE3D27D4EB4FL);
         if (FluidDomains.unit(h, 0) >= this.settings.spillways()) {
@@ -299,6 +310,20 @@ public final class CaveModel {
      * column must stay solid.
      */
     double carve(CaveColumn c, int y) {
+        if (y >= c.roof.grottoLo && y <= c.roof.grottoHi) {
+            return -1.0;
+        }
+        RiverTunnels.SwalletPart part = c.roof.part;
+        if (part != RiverTunnels.SwalletPart.NONE) {
+            // Swallets are cut exactly, whatever the cover, dams or clearance say.
+            RiverTunnels.Swallet swallet = c.roof.swallet;
+            boolean open = part == RiverTunnels.SwalletPart.NOTCH
+                    ? y == swallet.water() || y == swallet.water() + 1
+                    : y >= swallet.bottom() && y <= c.surface + 2.0;
+            if (open) {
+                return -1.0;
+            }
+        }
         if (y < c.bottom || y > c.top) {
             return Double.POSITIVE_INFINITY;
         }
@@ -326,6 +351,25 @@ public final class CaveModel {
     String describe(CaveColumn c, CaveGeology.Geology geo) {
         return String.format(java.util.Locale.ROOT, "upper %s, deep %s, aquitard %d..%d %s, karst %.2f fracture %.2f volcanic %.2f abundance %.2f",
                 c.upper, c.deep, c.bandLo, c.bandHi, c.bandOpen ? "open" : "closed", geo.karst(), geo.fracture(), geo.volcanic(), geo.abundance());
+    }
+
+    /** Detailed diagnostics of a column: domains, neighbours within reach of an edge, solid intervals. */
+    String debug(CaveColumn c) {
+        StringBuilder out = new StringBuilder();
+        Scratch scratch = this.scratch.get();
+        this.domains.locate(c.x, c.z, false, scratch.upper);
+        out.append("upper ").append(scratch.upper.owner).append(" key ").append(scratch.upper.owner.key);
+        for (int k = 0; k < scratch.upper.count; k++) {
+            out.append(String.format(java.util.Locale.ROOT, " | n %s e %.2f", scratch.upper.neighbours[k], scratch.upper.edge[k]));
+        }
+        this.domains.locate(c.x, c.z, true, scratch.deep);
+        out.append(String.format(java.util.Locale.ROOT, " ; deep %s key %d site %.1f %.1f", scratch.deep.owner, scratch.deep.owner.key, scratch.deep.owner.siteX, scratch.deep.owner.siteZ));
+        out.append(" ; solids");
+        for (int i = 0; i < c.solids; i++) {
+            out.append(' ').append(c.solidLo[i]).append("..").append(c.solidHi[i]);
+        }
+        out.append(" ; low ").append(String.format(java.util.Locale.ROOT, "%.1f", c.low)).append(" coverTop ").append(c.coverTop);
+        return out.toString();
     }
 
     CaveGeology.Geology geologyAt(int x, int z) {

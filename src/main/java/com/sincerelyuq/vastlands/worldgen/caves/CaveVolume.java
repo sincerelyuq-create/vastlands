@@ -81,13 +81,13 @@ public final class CaveVolume {
 
     /** Result of {@link #check}. */
     public record Check(long blocks, long caveAir, long caveWater, long caveLava, long waterFlows, long lavaFlows,
-                        long waterOnLava, long outsideLeaks, String example) {
+                        long waterOnLava, long outsideLeaks, long spillways, String example) {
         @Override
         public String toString() {
             return String.format(Locale.ROOT,
-                    "%d blocks checked: cave air %d, cave water %d, cave lava %d; unstable: water %d, lava %d, water touching lava %d, outside water into dry caves %d%s",
-                    this.blocks, this.caveAir, this.caveWater, this.caveLava, this.waterFlows, this.lavaFlows, this.waterOnLava, this.outsideLeaks,
-                    this.example.isEmpty() ? "" : " (first at " + this.example + ")");
+                    "%d blocks checked: cave air %d, cave water %d, cave lava %d; spillway blocks %d; unstable: water %d, lava %d, water touching lava %d, outside water into dry caves %d%s",
+                    this.blocks, this.caveAir, this.caveWater, this.caveLava, this.spillways, this.waterFlows, this.lavaFlows, this.waterOnLava,
+                    this.outsideLeaks, this.example.isEmpty() ? "" : " (first at " + this.example + ")");
         }
 
         public long unstable() {
@@ -118,7 +118,13 @@ public final class CaveVolume {
                 }
             }
         });
-        long air = 0, water = 0, lava = 0, waterFlows = 0, lavaFlows = 0, waterOnLava = 0, leaks = 0;
+        long air = 0, water = 0, lava = 0, waterFlows = 0, lavaFlows = 0, waterOnLava = 0, leaks = 0, spills = 0;
+        int[][] notches = new int[depth][width];
+        for (int j = 0; j < depth; j++) {
+            for (int i = 0; i < width; i++) {
+                notches[j][i] = this.caves.spillway(x0 + i, z0 + j);
+            }
+        }
         String example = "";
         int[][] sides = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
         for (int j = 1; j < depth - 1; j++) {
@@ -165,6 +171,11 @@ public final class CaveVolume {
                         leak = flows;
                         flows = false;
                     }
+                    if (flows && !touchesOther && this.minY + k == notches[j][i]) {
+                        // A designed spillway: the higher fluid stands in a dam's notch and runs over it.
+                        spills++;
+                        continue;
+                    }
                     if (flows || touchesOther || leak) {
                         if (example.isEmpty()) {
                             example = String.format(Locale.ROOT, "%d %d %d %s", x0 + i, this.minY + k, z0 + j, b);
@@ -184,6 +195,6 @@ public final class CaveVolume {
                 }
             }
         }
-        return new Check((long) width * depth * height, air, water, lava, waterFlows, lavaFlows, waterOnLava, leaks, example);
+        return new Check((long) width * depth * height, air, water, lava, waterFlows, lavaFlows, waterOnLava, leaks, spills, example);
     }
 }
