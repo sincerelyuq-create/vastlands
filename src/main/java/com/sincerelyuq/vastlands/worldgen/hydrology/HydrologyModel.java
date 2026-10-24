@@ -63,8 +63,7 @@ public final class HydrologyModel {
     private final SimplexNoise wallNoise;
     private final SimplexNoise wallDetail;
     private final SimplexNoise meanderNoise;
-    /** Height of the bands of valley walls and gorges (blocks): steeper and gentler in turn, like ledges. */
-    private static final double LEDGE = 8.0;
+    private final SimplexNoise swellNoise;
 
     public HydrologyModel(GeographyModel geography, TerrainHeights heights, long seed) {
         this.geography = geography;
@@ -77,6 +76,7 @@ public final class HydrologyModel {
         this.wallNoise = new SimplexNoise(s + 3);
         this.wallDetail = new SimplexNoise(s + 4);
         this.meanderNoise = new SimplexNoise(s + 5);
+        this.swellNoise = new SimplexNoise(s + 6);
     }
 
     /**
@@ -278,6 +278,7 @@ public final class HydrologyModel {
         double cap = Double.POSITIVE_INFINITY;
         double bankJitter = Double.NaN;
         double wallJitter = 0.0;
+        double swell = Double.NaN;
         for (int ref : refs) {
             BasinRivers b = index.owners[ref];
             int k = index.segments[ref];
@@ -330,7 +331,10 @@ public final class HydrologyModel {
             if (!waterOnly) {
                 double wall = Math.max(0.0, d + Math.min(12.0, 2.5 + 0.08 * (b.floodplain[k] + r)) * wallJitter
                         * smoothstep(bank + 1.0, bank + 8.0, raw - r));
-                double p = profile(wall, r, top, depth, b.floodplain[k], b.wall[k], cut);
+                if (swell != swell) {
+                    swell = this.swellNoise.sample(x / 40.0, z / 40.0);
+                }
+                double p = profile(wall, r, top, depth, b.floodplain[k], b.wall[k], cut, terrainHeight, swell);
                 carve = Math.min(carve, p);
                 cap = Math.min(cap, wall <= r + 1.0 ? p : p + 3.0 * (wall - r - 1.0));
                 if (top > this.seaTop) {
@@ -343,7 +347,7 @@ public final class HydrologyModel {
             if (d <= r && top < out.channelTop) {
                 out.channelTop = top;
             }
-            if (d <= r && (b.flags[k] & BasinRivers.RIVER_BIOME) != 0) {
+            if (d <= Math.min(r, b.channel[k]) && (b.flags[k] & BasinRivers.RIVER_BIOME) != 0) {
                 out.riverBiome = true;
             }
             if (d - r < out.riverEdge) {
@@ -428,30 +432,35 @@ public final class HydrologyModel {
     }
 
     /**
-     * Cross-section of a channel and its valley: a parabolic bed below the water top inside the
-     * channel, a one-block bank, a floodplain rising one block per 20, valley walls (in bands of
-     * steeper and gentler slope where they are steep, like the ledges of a gorge), and a steep
-     * rise at the cutoff so the shape always meets the terrain before it.
+     * Cross-section of a channel and its valley at a column whose terrain lies at {@code terrain}:
+     * a parabolic bed below the water top inside the channel, a one-block bank, a floor just above
+     * the water (rising 3 blocks per 100, with gentle swells of up to 1.2 blocks away from the
+     * bank, never below the bank), and beyond the inner half of the floodplain the terrain itself, its
+     * height above the floor scaled down by an S-curve that reaches 1 where the valley side has
+     * climbed it at about {@code wall} blocks per block. The valley side keeps the terrain's shape,
+     * only lowered and flattened towards the river, and meets the terrain at the cutoff without a
+     * step. The caller takes the lower of this and the terrain.
      */
-    static double profile(double d, double r, int top, double depth, double floodplain, double wall, double cutoff) {
+    static double profile(double d, double r, int top, double depth, double floodplain, double wall, double cutoff, double terrain, double swell) {
         if (d <= r) {
             double u = r > 1e-6 ? d / r : 1.0;
             return top - depth * (1.0 - u * u);
         }
         double e = d - r;
-        double p = top + Math.min(e, 1.0);
-        if (e > 1.0) {
-            p += 0.05 * Math.min(e - 1.0, floodplain);
-            if (e > 1.0 + floodplain) {
-                double rise = wall * (e - 1.0 - floodplain);
-                double ledges = 0.55 * smoothstep(0.9, 1.6, wall);
-                p += rise + ledges * LEDGE / (2.0 * Math.PI) * Math.sin(2.0 * Math.PI * rise / LEDGE);
-            }
+        if (e <= 1.0) {
+            return top + e;
         }
+        double floor = top + 1.0 + 0.03 * Math.min(e - 1.0, floodplain) + 0.6 * (1.0 + swell) * smoothstep(1.0, 8.0, e - 1.0);
+        if (!(terrain > floor)) {
+            return floor;
+        }
+        double rise = terrain - floor;
+        double reach = (rise + 4.0) / wall;
+        double t = smoothstep(0.5 * floodplain, floodplain + 1.4 * reach, e - 1.0);
         if (d > cutoff - 16.0) {
-            p += 12.0 * (d - (cutoff - 16.0));
+            t = Math.max(t, smoothstep(cutoff - 16.0, cutoff, d));
         }
-        return p;
+        return floor + rise * t;
     }
 
     /** The river segments nearest to a point, for diagnostics. */

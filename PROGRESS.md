@@ -14,7 +14,7 @@ with vast plains provinces, hill country, mountain systems with branch ranges (p
 tablelands and basins; climate zones of thousands of blocks with temperature falling with height and
 rain shadows behind ranges; vanilla biomes chosen from landform and climate; polar seas covered by
 fractured ice fields; and river networks that drain every continent to the sea: meandering
-tributaries joining into broad rivers (up to ~100 blocks wide), lakes in deep basins, rocky ledges
+tributaries joining into broad rivers (up to ~100 blocks wide), lakes in basins and on rivers, rocky ledges
 and waterfalls (up to 50..80 blocks off escarpments and in mountains) with round plunge pools,
 boulders and rough-walled gorges below them, river and frozen river biomes, frozen rivers in polar
 climates. Caves and forests are still passthrough placeholders.
@@ -91,6 +91,26 @@ with stone pillars beside them; dripstone on gorge floors):
   floors get surface biomes instead of dripstone and lush caves.
 - The block step samples only what holds water (`HydrologyModel.sampleWater`): faster than before.
 
+Playtest Fixes (Agent 3, third pass)
+
+After the first playtest (no lakes seen; strange coasts, "walls or flooding"; pillars at falls;
+falls static):
+- Lakes: basin lakes from depressions 7+ blocks deep and 2+ cells (was 10 and 3); river lakes: in
+  long gentle pools the river widens into an irregular oval lake (up to ~840 × 400 blocks, about
+  one per 2 500 blocks of gentle river 5+ blocks wide) where the shore stands above the water.
+- Valleys follow the terrain: beyond a flat floor just above the water the valley side is the
+  terrain itself, lowered and flattened towards the river (S-curve), instead of a uniform plane
+  rising 1 block per 20 (contour rings on sand) and a cone of planar walls ending in a vertical
+  step at the valley's edge. Gentle swells on the floor; no ledge bands.
+- Coasts: a river ends where its bank first reaches the sea, instead of running on along the
+  shore behind a strip of land; meanders near coasts and lakes are held off the water on that
+  side instead of switched off (no canal-straight lower courses).
+- No pillars at falls: where a pool ends at a cliff (dry ground more than 2 blocks below the
+  water beside it), the water column becomes a rocky rim at the water top instead of the dry
+  column being raised to the water. Lip and pool boulders 1..2 blocks above the water.
+- Churning water: soul sand and a rising bubble column (vanilla's particles and sound) under every
+  curtain of 4+ blocks and under 40% of the curtain of 2-block ledges.
+
 Files and Modules Affected (Agent 3)
 
 - New: `worldgen/hydrology/{HydrologyModel,DrainageDomain,BasinRivers,WaterIndex,LruCache,
@@ -113,22 +133,33 @@ Build and Test Results (Agent 3)
   StageDensityFunctionTest 6, TerrainParameterFunctionTest 3, RandomStateBindingTest 3,
   TerrainModelTest 8, VastlandsTerrainTest 7, PresetDataTest 6, TerrainBiomeTest 2,
   GeographyModelTest 7, FrozenSeaTest 6, HydrologyModelTest 8 (new), RiverWaterTest 1 (new).
-- `HydrologyModelTest` (seed 20261018, four places and the 2 × 2 tiles around 0,0): 55 345 river
+- `HydrologyModelTest` (seed 20261018, four places and the 2 × 2 tiles around 0,0): 54 535 river
   segments, 396 level steps, 80 falls of 8+ blocks (tallest 50), widest river 97 blocks (plunge
-  pools aside); 182 river mouths and 3 rivers ending in terminal lakes; 88 041 river and lake
-  columns, 24 of 4 451 shore edges need a levee (0.5%); off the rivers 202 of 4 000 random grid
-  columns are reshaped (valleys), none raised; the quick check skips 9 358 of 10 816 boxes of
-  20 × 20 columns and never misses water.
-- `RiverWaterTest` (test server): 7 areas of 3 × 3 proto-chunks, 9 325 water blocks above sea level
-  and 1 034 curtain blocks, none changed by the ported fluid rules, also after a carver-like tunnel.
+  pools and lakes aside); 182 river mouths and 3 rivers ending in terminal lakes; 86 255 river and
+  lake columns, 64 of 4 370 shore edges (1.5%) lower than the water in the model (the block step
+  raises the shallow ones by 1..2 blocks and turns the water column beside the deeper ones into a
+  rim); off the rivers 263 of 4 000 random grid columns are reshaped (valleys), none raised; the
+  quick check skips 9 413 of 10 816 boxes of 20 × 20 columns and never misses water.
+- `RiverWaterTest` (test server): 7 areas of 3 × 3 proto-chunks, 9 292 water blocks above sea level
+  and 1 000 curtain blocks, none changed by the ported fluid rules (bubble columns count as
+  sources), also after a carver-like tunnel; every bubble column stands on soul sand in river water.
 - Test server: router weirdness, depth and initial density are the hydrology's; surface biomes:
-  river biomes in 574 of 90 000 samples, all in hydrology channels; mean biome run 541 blocks
+  river biomes in 548 of 90 000 samples, all in hydrology channels; mean biome run 539 blocks
   (vanilla 166, 593 before rivers).
 
 Verification in Game (Agent 3)
 
 Dedicated server (`tools/worldcheck/generate.py`, seed 20261018, all chunks fully generated), checked
-with `rivercheck.py --expected` against the model's water for the same square. Final shapes:
+with `rivercheck.py --expected` against the model's water for the same square. After the playtest
+fixes:
+- fall8 — the plateau fall: 0 unstable blocks from the rivers (5 from the hillside spring); water
+  tops equal the model in 90.9% of 4 404 columns, ground 97.2%: the differences are the village on
+  the river and the rocky rims, which the model's export still counts as water; bubble columns on
+  soul sand under the curtain.
+- lake3 — 24×24 chunks at -800,3330: the southern part of a river lake ~860 × 610 blocks in jungle:
+  64 104 lake and river columns, water tops 99.72%, ground 99.71%, 0 unstable at the water.
+- coast2 — 20×20 chunks at 600,1180: a broad river's mouth on a bay: 0 unstable blocks.
+Before them (second pass shapes):
 - fall6 / fall7 — 16×16 chunks at -5925,14778: a river falling 50 blocks (water top 146 → 96) off a
   plateau escarpment into a round plunge pool (the tallest fall at the test places). 15 579 source
   blocks above sea level, a curtain of 170..188 lip and 1 047..1 091 falling blocks. Unstable water
@@ -177,9 +208,16 @@ Known Issues
 - Villages and other structures can stand across rivers: their foundations fill parts of the
   channel and paths cross on the water (as vanilla villages next to water). Base height queries
   include the water, so pieces stand on its surface rather than on the channel floor.
-- The block step raises dry columns that lie lower than a neighbouring water surface up to it (a
-  levee one block wide): 0.5% of the shore edges at the four test places (24 of 4 411), at the
-  edges of a 50-block fall's lip and 1..2-block banks along a broad lowland river.
+- Where the ground beside the water lies lower than the water (1.5% of the shore edges in the
+  model at the test places), the block step raises it by 1..2 blocks (a low levee) or turns the
+  water column into a rocky rim: pools ending at cliffs get a lip of rock (andesite, cobblestone,
+  mossy cobblestone) rather than pillars.
+- Coasts away from rivers are the terrain's (Agent 2.5): flat lowland 1..4 blocks above the sea in
+  places, with small steps at the shore and few beaches. Not changed here.
+- River lakes can be large (up to ~840 × 400 blocks) and take the river biome only within the
+  river's own width; there are no small ponds or tarns off the rivers.
+- Bubble columns push swimmers up under falls, and boats over them bob (vanilla behaviour of
+  upward bubble columns).
 - Falls in cold biomes: weather can freeze the sill's water; a block update next to the curtain
   then drains it (vanilla behaviour of flowing water without a source). Frozen rivers themselves
   are vanilla's (frozen river biome, freeze_top_layer).
@@ -248,7 +286,9 @@ Instructions for Agent 4 (Caves)
 6. Biome depth is measured from the carved surface (`depth.json` is a hydrology parameter). On
    steep carved faces the density juts out above `surfaceHeight` (rough walls, never below it):
    cave entrances cut into gorge walls see that rock. Boulders are `WaterColumn.Kind.ROCK`
-   columns (andesite, cobblestone, mossy cobblestone) placed by `RiverWater`.
+   columns (andesite, cobblestone, mossy cobblestone) placed by `RiverWater`, which also turns
+   water columns beside deep drops into rock rims and puts soul sand and bubble columns under
+   falls: a cave opening under a plunge pool must keep the soul sand (or the bubbles die).
 7. Verify with `rivercheck.py` that caves did not open river water (0 unstable blocks from the
    rivers and lakes themselves in the test worlds of Agent 3; at the plateau fall a few blocks of
    a vanilla spring flowing into the river count too) and with `RiverWaterTest`. Seals over holes

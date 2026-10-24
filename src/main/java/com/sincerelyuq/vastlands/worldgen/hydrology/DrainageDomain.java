@@ -51,8 +51,8 @@ final class DrainageDomain {
     /** Discharge (runoff-weighted cells) at which a river begins. */
     static final float RIVER_DISCHARGE = 24.0F;
     /** Depressions shallower than this are breached by their river instead of holding a lake. */
-    private static final double LAKE_MIN_DEPTH = 10.0;
-    private static final int LAKE_MIN_CELLS = 3;
+    private static final double LAKE_MIN_DEPTH = 7.0;
+    private static final int LAKE_MIN_CELLS = 2;
     /** Lake surface below the spill level of its depression (more in dry climates). */
     private static final double LAKE_FREEBOARD = 6.0;
 

@@ -68,6 +68,8 @@ final class BasinRivers {
     final float[] rA, rB, dA, dB;
     final int[] waterTop;
     final float[] floodplain, wall, cutoff, bank;
+    /** Half width of the river itself at a segment (its channel may be wider: plunge pools, river lakes). */
+    final float[] channel;
     final byte[] flags;
     /**
      * Falls cut the channel across along their lip line. A segment below a fall does not reach
@@ -113,6 +115,8 @@ final class BasinRivers {
         double endLevel;
         /** Meander phase at the end of the reach (a multiple of pi: the river crosses its valley line). */
         double phaseEnd;
+        /** The reach reached the sea before its end and was cut there (it no longer joins its confluence). */
+        boolean truncated;
     }
 
     private record Fall(double x, double z, double nx, double nz, double r, double bow, double jag, long seed) {
@@ -248,7 +252,9 @@ final class BasinRivers {
                 double cap = Double.POSITIVE_INFINITY;
                 if (!reach.source) {
                     for (Reach in : incoming.getOrDefault(reach.startCell, List.of())) {
-                        cap = Math.min(cap, in.endLevel);
+                        if (!in.truncated) {
+                            cap = Math.min(cap, in.endLevel);
+                        }
                     }
                 }
                 this.levels(model, domain, reach, cap, lakeTops);
@@ -269,7 +275,9 @@ final class BasinRivers {
             }
             int mainTop = out.segTop[0];
             for (Reach in : entry.getValue()) {
-                joinAt(in, out, mainTop);
+                if (!in.truncated) {
+                    joinAt(in, out, mainTop);
+                }
             }
         }
 
@@ -292,6 +300,7 @@ final class BasinRivers {
         this.wall = new float[total];
         this.cutoff = new float[total];
         this.bank = new float[total];
+        this.channel = new float[total];
         this.flags = new byte[total];
         this.upFall = new int[total];
         this.downFall = new int[total];
@@ -299,7 +308,7 @@ final class BasinRivers {
         List<Rock> rockList = new ArrayList<>();
         int k = 0;
         for (Reach reach : reaches) {
-            k = this.emit(reach, k, fallCounts, tallest, fallLines, rockList);
+            k = this.emit(model, reach, k, fallCounts, tallest, fallLines, rockList);
         }
         int fallCount = fallLines.size();
         this.fallX = new double[fallCount];
@@ -471,6 +480,32 @@ final class BasinRivers {
             int q1 = Math.min(samples - 1, q0 + 1);
             reach.b[i] = Math.min(low[q0], low[q1]);
             reach.bHigh[i] = Math.max(high[q0], high[q1]);
+        }
+        // A river that reaches the sea ends there, a little way into the water, instead of running
+        // on along the shore behind a strip of land (the coarse cells do not see narrow bays).
+        for (int q = 0; q < samples; q++) {
+            if (low[q] >= model.seaLevel() - 1.0) {
+                continue;
+            }
+            int i = Math.min(n - 1, q * BANK_EVERY);
+            int cut = Math.max(Math.min(n - 1, 4), Math.min(n - 1, i + (int) Math.ceil((reach.r[i] + 6.0) / STEP)));
+            if (cut < n - 1) {
+                int kept = cut + 1;
+                reach.x = java.util.Arrays.copyOf(reach.x, kept);
+                reach.z = java.util.Arrays.copyOf(reach.z, kept);
+                reach.s = java.util.Arrays.copyOf(reach.s, kept);
+                reach.r = java.util.Arrays.copyOf(reach.r, kept);
+                reach.depth = java.util.Arrays.copyOf(reach.depth, kept);
+                reach.b = java.util.Arrays.copyOf(reach.b, kept);
+                reach.bHigh = java.util.Arrays.copyOf(reach.bHigh, kept);
+                reach.u = java.util.Arrays.copyOf(reach.u, kept);
+                reach.steep = java.util.Arrays.copyOf(reach.steep, kept);
+                reach.lake = java.util.Arrays.copyOf(reach.lake, kept);
+                reach.top = java.util.Arrays.copyOf(reach.top, kept);
+                reach.truncated = true;
+                reach.junctionEnd = false;
+            }
+            break;
         }
     }
 
@@ -645,10 +680,9 @@ final class BasinRivers {
     }
 
     /**
-     * How far a meander may swing from the valley line at a point: the distance to rising ground
-     * on the nearer side (probed at three distances), less the river's half width and a margin.
-     * None near a lake or the sea: rivers run straight into them instead of swinging along their
-     * shores.
+     * How far a meander may swing from the valley line at a point: the distance to rising ground,
+     * a lake or the sea on the nearer side (probed at three distances), less the river's half
+     * width and a margin. None where the valley line itself lies in a lake or the sea.
      */
     private static double room(HydrologyModel model, DrainageDomain domain, double x, double z, double nx, double nz, double amp, double halfWidth) {
         double reach = amp + halfWidth + 8.0;
@@ -665,8 +699,9 @@ final class BasinRivers {
                 double px = x + side * nx * d;
                 double pz = z + side * nz * d;
                 double h = model.terrainHeight(px, pz);
-                if (h < model.seaLevel() || model.lakeWaterAt(domain, px, pz) >= 0) {
-                    return 0.0;
+                if (h < model.seaLevel() + 1.0 || model.lakeWaterAt(domain, px, pz) >= 0) {
+                    free = previous > 0.0 ? previous : 0.3 * d;
+                    break;
                 }
                 if (h > ground + 6.0 + 0.04 * d) {
                     free = previous > 0.0 ? previous : 0.5 * d;
@@ -869,16 +904,103 @@ final class BasinRivers {
     }
 
     /**
-     * Writes the reach's segments, with sills above and plunge pools below every step, the lip
-     * lines of its falls and its boulders.
+     * River lakes: in long, gentle pools the river widens into a lake, an irregular oval up to
+     * ~800 × 400 blocks along the river (about one per 2 500 blocks of such river), where the
+     * ground around it stands above the water; deeper towards the middle. A pool's water is flat,
+     * so the lake is just a wider stretch of it.
      */
-    private int emit(Reach reach, int k, int[] fallCounts, double[] tallest, List<Fall> fallLines, List<Rock> rockList) {
+    private void riverLakes(HydrologyModel model, Reach reach, long seed, double[] startRadius, double[] endRadius,
+                            double[] startDepth, double[] endDepth) {
+        int n = reach.x.length;
+        int a = 0;
+        while (a < n - 1) {
+            int e = a;
+            while (e + 1 < n - 1 && reach.segTop[e + 1] == reach.segTop[a]) {
+                e++;
+            }
+            int top = reach.segTop[a];
+            double length = reach.s[e + 1] - reach.s[a];
+            double steep = 0.0;
+            boolean inLake = false;
+            for (int q = a; q <= e + 1; q++) {
+                steep = Math.max(steep, reach.steep[q]);
+                inLake |= reach.lake[q] >= 0;
+            }
+            int mid = (a + e + 1) / 2;
+            double width = 2.0 * reach.r[mid];
+            long lakeSeed = SimplexNoise.mix(seed + 0x5851F42D4C957F2DL * (a + 1));
+            if (top > model.seaTop() && !inLake && width >= 5.0 && steep < 0.03 && length > 300.0
+                    && unit(lakeSeed, 0) < Math.min(0.85, length / 2500.0)) {
+                double halfLength = Math.min(clamp((5.0 + 4.0 * unit(lakeSeed, 1)) * width, 60.0, 420.0), 0.5 * (length - 64.0));
+                double halfWidth = clamp((2.5 + 2.0 * unit(lakeSeed, 2)) * width, 20.0, 200.0);
+                if (halfLength >= 40.0) {
+                    double centre = reach.s[a] + 32.0 + halfLength + unit(lakeSeed, 3) * (length - 64.0 - 2.0 * halfLength);
+                    // Shrink the lake until the ground around its shore stands above the water.
+                    for (int tries = 0; tries < 4 && halfWidth > reach.r[mid] + 6.0; tries++) {
+                        if (this.shoreHolds(model, reach, centre, halfLength, halfWidth, top)) {
+                            break;
+                        }
+                        halfWidth *= 0.7;
+                    }
+                    if (halfWidth > reach.r[mid] + 6.0 && this.shoreHolds(model, reach, centre, halfLength, halfWidth, top)) {
+                        for (int q = a; q <= e + 1; q++) {
+                            double u = (reach.s[q] - centre) / halfLength;
+                            if (u * u >= 1.0) {
+                                continue;
+                            }
+                            double shape = Math.sqrt(1.0 - u * u)
+                                    * (1.0 + 0.28 * valueNoise(reach.s[q] / 40.0, lakeSeed) + 0.12 * valueNoise(reach.s[q] / 13.0, lakeSeed + 1));
+                            double radius = Math.max(reach.r[q], halfWidth * shape);
+                            double depth = (2.5 + 0.05 * radius) * Math.min(1.0, 1.5 * shape);
+                            startRadius[q] = Math.max(startRadius[q], radius);
+                            endRadius[q] = Math.max(endRadius[q], radius);
+                            startDepth[q] = Math.max(startDepth[q], depth);
+                            endDepth[q] = Math.max(endDepth[q], depth);
+                        }
+                    }
+                }
+            }
+            a = e + 1;
+        }
+    }
+
+    /** Whether the terrain a little beyond a river lake's oval stands at least 1.5 blocks above its water. */
+    private boolean shoreHolds(HydrologyModel model, Reach reach, double centre, double halfLength, double halfWidth, int top) {
+        int n = reach.x.length;
+        for (int k = 0; k < 12; k++) {
+            double angle = (k + 0.5) * Math.PI / 6.0;
+            double s = centre + Math.cos(angle) * halfLength;
+            double lateral = Math.sin(angle) * (halfWidth + 6.0);
+            int q = 0;
+            while (q < n - 2 && reach.s[q + 1] < s) {
+                q++;
+            }
+            double tx = reach.x[q + 1] - reach.x[q];
+            double tz = reach.z[q + 1] - reach.z[q];
+            double len = Math.hypot(tx, tz);
+            if (len < 1e-9) {
+                continue;
+            }
+            double h = model.terrainHeight(reach.x[q] - tz / len * lateral, reach.z[q] + tx / len * lateral);
+            if (h < top + 1.5) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Writes the reach's segments, with river lakes, sills above and plunge pools below every
+     * step, the lip lines of its falls and its boulders.
+     */
+    private int emit(HydrologyModel model, Reach reach, int k, int[] fallCounts, double[] tallest, List<Fall> fallLines, List<Rock> rockList) {
         int n = reach.x.length;
         double[] startDepth = reach.depth.clone();
         double[] endDepth = reach.depth.clone();
         double[] startRadius = reach.r.clone();
         double[] endRadius = reach.r.clone();
         long seed = SimplexNoise.mix(this.basin * 0x632BE59BD9B4E019L + reach.startCell * 0x9E3779B97F4A7C15L + 11);
+        this.riverLakes(model, reach, seed, startRadius, endRadius, startDepth, endDepth);
         // Fall lines by vertex.
         Map<Integer, Integer> lines = new HashMap<>();
         List<Double> fallAt = new ArrayList<>();
@@ -963,7 +1085,7 @@ final class BasinRivers {
                     double width = Math.max(2.0, pool * (1.0 - smoothstep(0.45, 1.0, u)));
                     double across = (2.0 * unit(rockSeed, 3) - 1.0) * 0.75 * width;
                     rockList.add(new Rock(fall.x() + tx * downstream - tz * across, fall.z() + tz * downstream + tx * across,
-                            size, lower, 1 + (int) (2.6 * unit(rockSeed, 4)), rockSeed));
+                            size, lower, 1 + (int) (1.8 * unit(rockSeed, 4)), rockSeed));
                 }
                 // Rocks on the lip that split the curtain into strands, spread across it.
                 int lipRocks = radius < 3.0 ? 0 : Math.min(4, 1 + (int) (unit(fallSeed, 4) * radius / 4.0));
@@ -974,7 +1096,7 @@ final class BasinRivers {
                     double across = (2.0 * slot - 1.0) * Math.max(0.0, radius - 1.5);
                     double along = this.lipOffset(fall, across) - 0.4 * size;
                     rockList.add(new Rock(fall.x() + tx * along - tz * across, fall.z() + tz * along + tx * across,
-                            size, upper, 2 + (unit(rockSeed, 3) < 0.4 ? 1 : 0), rockSeed));
+                            size, upper, 1 + (unit(rockSeed, 3) < 0.4 ? 1 : 0), rockSeed));
                 }
             } else {
                 // Rocks scattered along a ledge.
@@ -1096,6 +1218,7 @@ final class BasinRivers {
                 flags |= POOL;
             }
             this.flags[k] = flags;
+            this.channel[k] = (float) Math.max(reach.r[v], reach.r[v + 1]);
             k++;
         }
         return k;

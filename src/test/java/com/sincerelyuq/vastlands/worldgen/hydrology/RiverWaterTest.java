@@ -124,6 +124,14 @@ class RiverWaterTest {
                 WaterColumn column = hydrology.water(bx, bz);
                 for (int y = SEA_TOP + 1; y < 400; y++) {
                     BlockState state = get(chunks, middle, p.set(bx, y, bz));
+                    if (state.is(Blocks.BUBBLE_COLUMN)) {
+                        // Churning water under a fall: a source on soul sand or another bubble column.
+                        water++;
+                        BlockState under = get(chunks, middle, p.below());
+                        assertTrue(column.placed() && y > column.groundTop() && y <= column.waterTop(), "bubbles outside river water at " + p);
+                        assertTrue(under.is(Blocks.SOUL_SAND) || under.is(Blocks.BUBBLE_COLUMN), "bubble column without soul sand at " + p);
+                        continue;
+                    }
                     if (!state.is(Blocks.WATER)) {
                         continue;
                     }
@@ -171,16 +179,16 @@ class RiverWaterTest {
             int amount = 0;
             int sources = 0;
             for (BlockState side : sides) {
-                if (side.is(Blocks.WATER)) {
-                    int l = side.getValue(LiquidBlock.LEVEL);
+                int l = level(side);
+                if (l >= 0) {
                     amount = Math.max(amount, l == 0 || l >= 8 ? 8 : 8 - l);
                     sources += l == 0 ? 1 : 0;
                 }
             }
             int expected;
-            if (sources >= 2 && (isSolid(below) || (below.is(Blocks.WATER) && below.getValue(LiquidBlock.LEVEL) == 0))) {
+            if (sources >= 2 && (isSolid(below) || level(below) == 0)) {
                 expected = 0;
-            } else if (above.is(Blocks.WATER)) {
+            } else if (level(above) >= 0) {
                 expected = 8;
             } else {
                 int k = amount - 1;
@@ -193,7 +201,7 @@ class RiverWaterTest {
         if (below.isAir()) {
             return "flows down";
         }
-        boolean hole = below.is(Blocks.WATER);
+        boolean hole = level(below) >= 0;
         if (source || !hole) {
             int amount = source ? 8 : (level >= 8 ? 8 : 8 - level);
             for (BlockState side : sides) {
@@ -203,6 +211,17 @@ class RiverWaterTest {
             }
         }
         return null;
+    }
+
+    /**
+     * Water level of a block as vanilla's fluid rules see it (its fluid state): 0 for a source
+     * (water or a bubble column), 1..7 for flowing water, 8 for falling water, -1 for none.
+     */
+    private static int level(BlockState state) {
+        if (state.is(Blocks.WATER)) {
+            return state.getValue(LiquidBlock.LEVEL);
+        }
+        return state.is(Blocks.BUBBLE_COLUMN) ? 0 : -1;
     }
 
     private static boolean isSolid(BlockState state) {
