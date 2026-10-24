@@ -686,7 +686,9 @@ Water bodies and the block step (`VastlandsHydrology.water`, `RiverWater`):
   vanilla's underwater dirt and gravel) and again after carving (carvers cut through water and
   banks). For the chunk plus a 2-column margin it reads the water columns from the model, then
   fills water from the ground up to the water top; seals the bed and every block next to
-  neighbouring water that is not solid (cave and carver openings); raises a dry column that is
+  neighbouring water that is not solid (cave and carver openings; stone over a hole, never gravel,
+  and sand or gravel holding water back over a hole gets a stone block under it, so nothing falls
+  at the first block update); raises a dry column that is
   lower than a neighbouring water surface to it (a levee one block wide: 0.8% of the shore edges
   around the test places, about half beside the tallest fall, the rest 1..2 blocks high along a
   broad lowland river); builds a sill under the upper edge of every fall
@@ -735,14 +737,14 @@ Router and integration:
 - F3: a "Vastlands hydrology" line (water kind and top, ground, nearest river: width, top, distance).
 
 Hydrology in numbers (seed 20261018, `hydrologyPreview`; 4 vCPU container):
-- 65 536 × 65 536 blocks around 0,0: rivers and lakes above sea level cover 2.2% of the land; the
-  widest rivers are 85..91 blocks (sampled every 256 blocks; up to 110 by the formula), the tallest
-  falls 50..76 blocks (a river dropping 76 blocks off a coastal cliff at 30594,4131, mountain falls
-  of 60 blocks in series at 32013,2304). Rendering it computes 79 drainage tiles (13 s) and 965
-  basins with rivers (758 000 river segments of 4 blocks, 8.6 s).
+- 65 536 × 65 536 blocks around 0,0: rivers and lakes above sea level cover 2.3% of the land; the
+  widest rivers are 90..110 blocks (sampled every 256 blocks; plunge pools of the largest rivers
+  slightly wider), the tallest falls 72..84 blocks (mountain falls of 84 and 74 blocks at
+  32018,2298 and 31975,2351, 76 blocks at 2272,19974). Rendering it computes 42 drainage tiles
+  (9.5 s) and 687 basins with rivers (474 000 river segments of 4 blocks, 11.2 s).
 - Drainage on a 131 072-block square (prototype, before breaching): basins reach at most 15 100
   blocks from their mouth; filling every depression would have made lakes of 9% of the land.
-- Four test places (`HydrologyModelTest`): 58 200 segments, 410 steps, 83 falls of 8+ blocks,
+- Four test places (`HydrologyModelTest`): 55 345 segments, 396 steps, 80 falls of 8+ blocks,
   tallest 50; 182 river mouths and 3 rivers ending in terminal lakes in 2 × 2 tiles around 0,0.
 
 Performance:
@@ -750,11 +752,14 @@ Performance:
   dominates; samples are cached in shared 64 × 64-cell tiles, so neighbouring tiles reuse two
   thirds of theirs). The first query in a new area computes the 3 × 3 tiles around it in parallel:
   1.3..2.2 s of wall time on this machine, once per 16 384 blocks travelled.
-- Rivers of a basin: 10 ms on average (bank samples of the exact terrain every 16 blocks).
+- Rivers of a basin: 16 ms on average (bank samples of the exact terrain every 16 blocks; room
+  for meanders probed every 32 blocks).
 - Per chunk, once the area's drainage is known (`hydrologyPreview --bench`, one thread): the node
-  columns of the density 10..40 µs; the water columns of the two block steps 0.24 ms per chunk
-  around a mountain river, 1.15 ms along a broad lowland river, almost nothing for chunks with no
-  river or lake within reach (`mayHoldWater`).
+  columns of the density 26..66 µs; the water columns of the two block steps 0.22 ms per chunk
+  around a mountain river, 0.88 ms along a broad lowland river (`sampleWater` only looks at
+  segments within reach of their water), almost nothing for chunks with no river or lake within
+  reach (`mayHoldWater`). Rough walls add a few node lookups and two 3D value noises per cell
+  corner on steep carved faces only.
 - End to end (dedicated server, `generate.py`, 40 × 40 chunks around -200,2700, a
   broad river with tributaries; runs alternated with the branch before hydrology): 13.81 and
   13.81 chunks/s with hydrology, 13.73 and 13.78 without, so no measurable difference (vanilla's
@@ -766,8 +771,8 @@ Performance:
 
 Limitations (details and the full list: PROGRESS.md, Known Issues):
 - Structures (villages) can stand across rivers and fill parts of their channels.
-- Levees one block wide: rock pillars beside the tallest falls, 1..2-block banks along some
-  lowland rivers (0.8% of the shore edges at the test places).
+- Levees one block wide at the edges of a tall fall's lip and 1..2-block banks along some lowland
+  rivers (0.5% of the shore edges at the test places).
 - River valleys follow the 128-block drainage cells (meanders swing about them); no streams below the river
   threshold (vanilla springs only); no dry river beds in arid regions.
 - River biomes only in channels 6+ blocks wide; lakes keep the surrounding biome.
@@ -776,8 +781,11 @@ Limitations (details and the full list: PROGRESS.md, Known Issues):
 
 Tuning: drainage constants in `DrainageDomain` (cell size, tile and margin, river threshold, lake
 depth, size and freeboard, runoff), river shape in `BasinRivers` (`widthFor`, depth, freeboard,
-pools and falls in `levels`, sills and plunge pools in `emit`, `floodplain`, `wallSlope`, lake entry,
-cutoff), the cross-section in `HydrologyModel.profile`, the river biome width in `BasinRivers.emit`.
+meanders in `meander` and `room`, pools and falls in `levels`, lips, sills, plunge pools and
+boulders in `emit`, `floodplain`, `wallSlope`, lake entry, cutoff), meander angles in
+`HydrologyModel.meanderAngle`, bank and wall jitter in `HydrologyModel.sample`, the cross-section
+and ledges in `HydrologyModel.profile`, rough walls in `VastlandsHydrology` (`ROUGHNESS`,
+`roughSurface`), the river biome width in `BasinRivers.emit`.
 Render with `hydrologyPreview` before generating worlds; `HydrologyModelTest` guards the properties.
 
 Vanilla Isolation
@@ -825,22 +833,22 @@ JUnit (`./gradlew test`, 63 tests):
 - `PresetDataTest` (on NeoForge's `EphemeralTestServerProvider`, data loaded exactly as the game
   does) — preset listed, generator and height; router outputs the terrain does not own (aquifer and
   ore vein noises) are bit-for-bit vanilla over Y -256..511; terrain-owned outputs (including
-  temperature and vegetation) equal the terrain, weirdness and the initial density the hydrology's;
+  temperature and vegetation) equal the terrain, weirdness, depth and the initial density the hydrology's;
   final density solid at the bottom, air at the top and above the generated surface (channels
   included); the bottom slide is vanilla's under ordinary ground and the deepest trench found is
   open water down to its floor, solid below.
 - `TerrainBiomeTest` (test server) — surface biomes from vanilla's table agree with the terrain
   (ocean ⇔ under water, mountain biomes above Y 300, river biomes only in hydrology channels:
-  measured 487 of 90 000 samples) and with the climate (frozen oceans polar, deserts warm, jungles
+  measured 574 of 90 000 samples) and with the climate (frozen oceans polar, deserts warm, jungles
   humid); the mean biome run along transects is more than twice vanilla's for the same seed
-  (measured 545 vs 166 blocks; 593 before rivers).
+  (measured 541 vs 166 blocks; 593 before rivers).
 - `HydrologyModelTest` — the same water from two models whatever order and thread computes tiles
   and regions; water never rises along a reach or across a confluence, every water top is
   `seaTop + 2k` (rivers and lakes); every river cell drains into a river, the sea, a terminal lake
-  or ends in a lake; widest river 50..110 blocks, falls of 8+ blocks exist, the tallest at least
+  or ends in a lake; widest river 50..110 blocks (plunge pools aside), falls of 8+ blocks exist, the tallest at least
   30; at four places (a plateau fall, broad lowland rivers, lakes), no two water surfaces 1 block
-  apart and levees needed on under 2% of the shore edges (measured 0.8%); off the rivers the terrain
-  is unchanged (reshaped on 4.6% of random grid columns, never raised); `mayHoldWater` never says no
+  apart and levees needed on under 2% of the shore edges (measured 0.5%); off the rivers the terrain
+  is unchanged (reshaped on 5% of random grid columns, never raised); `mayHoldWater` never says no
   for a box with river or lake water and skips at least a quarter of the boxes around the test
   places; level quantization.
 - `RiverWaterTest` (test server) — 3 × 3 proto-chunks at three places and up to two falls near

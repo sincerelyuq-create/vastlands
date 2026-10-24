@@ -18,9 +18,10 @@ open oceans with shelves, abyssal plains, mid-ocean ridges, seamounts and rare d
 plains provinces and hill country, dry regions with tablelands, climate zones thousands of blocks
 across with cold mountain tops and rain shadows, vanilla biomes chosen from landform and climate,
 and polar seas covered by fractured ice fields; and rivers: networks of tributaries that drain every
-continent downhill to the sea, broad rivers up to ~100 blocks wide in valleys of their own, lakes in
-deep basins, weirs and waterfalls (tall ones off escarpments and in mountains, with a gorge below),
-frozen rivers in polar climates. Caves and forests are not implemented yet. See PROGRESS.md.
+continent downhill to the sea, meandering across floodplains, broad rivers up to ~100 blocks wide in
+valleys of their own with ragged banks, lakes in deep basins, rocky ledges and waterfalls (tall ones
+off escarpments and in mountains, with a horseshoe lip, a round plunge pool with boulders and a
+rough-walled gorge below), frozen rivers in polar climates. Caves and forests are not implemented yet. See PROGRESS.md.
 
 Using it
 

@@ -5,6 +5,7 @@ import com.sincerelyuq.vastlands.worldgen.system.HydrologySystem;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.FallingBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.material.Fluids;
@@ -143,9 +144,12 @@ public final class RiverWater {
                 for (int y = Math.max(chunk.getMinY(), from); y <= effective[c]; y++) {
                     BlockState state = chunk.getBlockState(pos.set(x, y, z));
                     if (!isSolid(state)) {
-                        chunk.setBlockState(pos, seal(finished, wet, y, effective[c], top[c]));
+                        chunk.setBlockState(pos, steady(chunk, pos, seal(finished, wet, y, effective[c], top[c])));
                         changed++;
                     }
+                }
+                if (placed[c] && finished) {
+                    changed += support(chunk, pos.set(x, effective[c], z));
                 }
                 if (placed[c]) {
                     // Water up to the top; inside a channel at the foot of a fall this cuts away the
@@ -182,8 +186,10 @@ public final class RiverWater {
                         }
                         BlockState state = chunk.getBlockState(pos.set(x, y, z));
                         if (!isSolid(state)) {
-                            chunk.setBlockState(pos, rock[c] ? rock(x, y, z, top[n]) : seal(finished, wet, y, effective[c], top[c]));
+                            chunk.setBlockState(pos, rock[c] ? rock(x, y, z, top[n]) : steady(chunk, pos, seal(finished, wet, y, effective[c], top[c])));
                             changed++;
+                        } else if (finished && y == effective[n] + 1) {
+                            changed += support(chunk, pos);
                         }
                     }
                 }
@@ -212,6 +218,33 @@ public final class RiverWater {
 
     private static boolean isSolid(BlockState state) {
         return !state.isAir() && state.getFluidState().isEmpty();
+    }
+
+    /**
+     * Sand or gravel that holds water back (a bed, a bank) over a cave would fall at the first
+     * block update and let the water out: the block under it becomes stone.
+     */
+    private static int support(ChunkAccess chunk, BlockPos.MutableBlockPos pos) {
+        if (pos.getY() <= chunk.getMinY() || !(chunk.getBlockState(pos).getBlock() instanceof FallingBlock)) {
+            return 0;
+        }
+        BlockPos below = pos.below();
+        if (!FallingBlock.isFree(chunk.getBlockState(below))) {
+            return 0;
+        }
+        chunk.setBlockState(below, STONE);
+        return 1;
+    }
+
+    /**
+     * Gravel only on solid ground: over a cave it would fall at the first block update and open
+     * the bed. Stone there instead.
+     */
+    private static BlockState steady(ChunkAccess chunk, BlockPos pos, BlockState seal) {
+        if (seal != GRAVEL || pos.getY() <= chunk.getMinY()) {
+            return seal;
+        }
+        return isSolid(chunk.getBlockState(pos.below())) ? seal : STONE;
     }
 
     /** Boulder material: mossy cobblestone (most often at the water), cobblestone and andesite. */
