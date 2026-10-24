@@ -19,9 +19,10 @@ plains provinces and hill country, dry regions with tablelands, climate zones th
 across with cold mountain tops and rain shadows, vanilla biomes chosen from landform and climate,
 and polar seas covered by fractured ice fields; and rivers: networks of tributaries that drain every
 continent downhill to the sea, meandering across floodplains, broad rivers up to ~100 blocks wide in
-valleys of their own with ragged banks, lakes in deep basins, rocky ledges and waterfalls (tall ones
-off escarpments and in mountains, with a horseshoe lip, a round plunge pool with boulders and a
-rough-walled gorge below), frozen rivers in polar climates. Caves and forests are not implemented yet. See PROGRESS.md.
+valleys of their own with ragged banks, lakes in basins and where rivers cross flat ground, rocky
+ledges and waterfalls (tall ones off escarpments and in mountains, with a horseshoe lip, a round
+plunge pool with boulders and churning water, and a rough-walled gorge below), frozen rivers in
+polar climates. Caves and forests are not implemented yet. See PROGRESS.md.
 
 Using it
 

@@ -5,6 +5,7 @@ import com.sincerelyuq.vastlands.worldgen.system.HydrologySystem;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.BubbleColumnBlock;
 import net.minecraft.world.level.block.FallingBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
@@ -24,15 +25,21 @@ import net.minecraft.world.level.material.Fluids;
  *     <li>A water column is source blocks from its ground up to its body's water top, on solid
  *     ground (beds cut by carvers are sealed).</li>
  *     <li>Next to a water block, a neighbour column is either water of a body at least as high,
- *     or solid at that height: banks cut by caves are sealed, and dry columns lower than a
- *     neighbouring water surface are raised to it (a one-block levee; rare, the density already
- *     keeps banks above the water).</li>
+ *     or solid at that height: banks cut by caves are sealed, and dry columns up to 2 blocks lower
+ *     than a neighbouring water surface are raised to it (a one-block levee; rare, the density
+ *     already keeps banks above the water). Where the ground beside the water lies lower than
+ *     that (a pool ending at a cliff), the water column itself becomes a rocky rim at the water
+ *     top instead, so no pillars rise beside falls.</li>
  *     <li>Water tops differ by 0 or by at least 2 blocks (see {@link HydrologyModel}). Where a
  *     higher body meets a lower one (a fall), the upper column is a sill one water block deep and
  *     the lower one holds a curtain: a flowing block at the upper water top and falling water
  *     down to its own surface. Vanilla computes exactly these states for them, and the air next
  *     to the curtain has no solid or source block below and next to it in the way that turns
  *     water into new sources, so the fall stays as generated.</li>
+ *     <li>Where a fall lands, the water churns: soul sand under the pool and a rising bubble
+ *     column up to the surface (vanilla's, with its particles and sound) in every column under a
+ *     curtain of 4+ blocks and in some under 2-block ledges. A bubble column is a water source
+ *     to the fluid rules, so nothing flows.</li>
  *     <li>Boulders are solid columns of andesite, cobblestone and mossy cobblestone (mossier at
  *     the water) from the ground to at least the water around them. Surface rules only repaint
  *     plain stone, so they keep these materials.</li>
@@ -49,7 +56,9 @@ public final class RiverWater {
     private static final BlockState ANDESITE = Blocks.ANDESITE.defaultBlockState();
     private static final BlockState COBBLESTONE = Blocks.COBBLESTONE.defaultBlockState();
     private static final BlockState MOSSY_COBBLESTONE = Blocks.MOSSY_COBBLESTONE.defaultBlockState();
-    private static final int MARGIN = 2;
+    private static final BlockState SOUL_SAND = Blocks.SOUL_SAND.defaultBlockState();
+    private static final BlockState BUBBLES = Blocks.BUBBLE_COLUMN.defaultBlockState().setValue(BubbleColumnBlock.DRAG_DOWN, false);
+    private static final int MARGIN = 3;
     private static final int WIDTH = 16 + 2 * MARGIN;
 
     private RiverWater() {
@@ -89,6 +98,58 @@ public final class RiverWater {
         }
         if (!any) {
             return 0;
+        }
+        // Rims: a water column beside dry ground (or a boulder) more than 2 blocks below its water
+        // becomes rock up to its water top, a rocky lip at the edge of the pool, instead of the dry
+        // column being raised to the water (a pillar where a pool ends at a cliff). Two rounds: a
+        // rim at the foot of a fall exposes the pool above it. Each round needs one more column of
+        // margin, so every chunk decides the columns it shares with its neighbours alike.
+        boolean[] rim = new boolean[WIDTH * WIDTH];
+        for (int round = 0; round < 2; round++) {
+            boolean[] next = rim.clone();
+            for (int j = 1 + round; j < WIDTH - 1 - round; j++) {
+                for (int i = 1 + round; i < WIDTH - 1 - round; i++) {
+                    int c = j * WIDTH + i;
+                    if (!placed[c] || rim[c]) {
+                        continue;
+                    }
+                    for (int n : neighbours(c)) {
+                        boolean dry = rim[n] || (!placed[n] && top[n] == Integer.MIN_VALUE);
+                        int solid = rim[n] ? top[n] : ground[n];
+                        if (dry && solid < top[c] - 2) {
+                            next[c] = true;
+                        }
+                    }
+                }
+            }
+            rim = next;
+        }
+        for (int c = 0; c < WIDTH * WIDTH; c++) {
+            if (rim[c]) {
+                rock[c] = true;
+                rockWater[c] = top[c];
+                ground[c] = top[c];
+                top[c] = Integer.MIN_VALUE;
+                placed[c] = false;
+            }
+        }
+        // Foam: water under a curtain (an upper water surface next to it at least 2 blocks higher).
+        boolean[] foam = new boolean[WIDTH * WIDTH];
+        for (int j = 1; j < WIDTH - 1; j++) {
+            for (int i = 1; i < WIDTH - 1; i++) {
+                int c = j * WIDTH + i;
+                if (!placed[c]) {
+                    continue;
+                }
+                int drop = 0;
+                for (int n : neighbours(c)) {
+                    if (placed[n] && top[n] >= top[c] + 2) {
+                        drop = Math.max(drop, top[n] - top[c]);
+                    }
+                }
+                long h = SimplexNoise.mix((minX + i) * 0x9E3779B97F4A7C15L ^ (minZ + j) * 0xC2B2AE3D27D4EB4FL ^ 0x464F414DL);
+                foam[c] = drop >= 4 || (drop >= 2 && (h >>> 11) * 0x1.0p-53 < 0.4);
+            }
         }
         // Effective ground: sills under the upper edge of a fall, levees beside dry ground.
         int[] effective = ground.clone();
@@ -153,11 +214,20 @@ public final class RiverWater {
                 }
                 if (placed[c]) {
                     // Water up to the top; inside a channel at the foot of a fall this cuts away the
-                    // ramp the density interpolates between the sill and the plunge pool.
+                    // ramp the density interpolates between the sill and the plunge pool. Under a
+                    // curtain, soul sand and a rising bubble column.
+                    BlockState fill = WATER;
+                    if (foam[c] && effective[c] >= chunk.getMinY()) {
+                        fill = BUBBLES;
+                        if (chunk.getBlockState(pos.set(x, effective[c], z)) != SOUL_SAND) {
+                            chunk.setBlockState(pos, SOUL_SAND);
+                            changed++;
+                        }
+                    }
                     for (int y = effective[c] + 1; y <= top[c]; y++) {
                         BlockState state = chunk.getBlockState(pos.set(x, y, z));
-                        if (state != WATER) {
-                            chunk.setBlockState(pos, WATER);
+                        if (state != fill) {
+                            chunk.setBlockState(pos, fill);
                             changed++;
                         }
                     }

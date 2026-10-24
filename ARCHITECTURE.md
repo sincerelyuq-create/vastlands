@@ -592,8 +592,8 @@ Layers, coarse to fine:
    - routing: a priority flood from the sea and the square's border (Barnes et al. 2014) in which
      each cell is processed in the order of its own elevation ("breaching"): water runs down into a
      depression and leaves it over its lowest pass, so every land cell drains to the sea;
-   - lakes: a second, filling flood gives each depression's spill level; depressions at least 10
-     blocks deep and 3 cells large hold a lake 6 blocks below the spill level, lower in dry
+   - lakes: a second, filling flood gives each depression's spill level; depressions at least 7
+     blocks deep and 2 cells large hold a lake 6 blocks below the spill level, lower in dry
      climates (half the depth times the aridity); very dry lakes are terminal (no outflow);
      shallower depressions are breached by their river;
    - discharge: runoff (0.25..1.2 from the climate's moisture, up to ×1.9 in mountains above Y 90)
@@ -612,7 +612,9 @@ Layers, coarse to fine:
      apart), so rivers find the valley floors of the gully erosion;
    - reaches (source or confluence to the next confluence, lake or mouth): a valley line through
      the node points (centripetal Catmull-Rom curve); a reach into the sea ends at the centre of
-     the first sea cell;
+     the first sea cell, and a reach whose bank reaches the sea earlier (the coarse cells miss
+     narrow bays) ends there, a little way into the water, instead of running on along the shore
+     (it then no longer joins its confluence);
    - meanders on the valley line: a sine-generated curve (the shape of real meanders: the river's
      direction swings by up to ω about the valley line, ω 0.35..1.45 from a 2 600-block noise),
      to first order a lateral offset `A (sin φ + c3 sin 3φ)` and a shift along the valley
@@ -622,8 +624,8 @@ Layers, coarse to fine:
      confluence continuing the phase of the largest river above it, wavelength and strength
      varying along the river (stretches of deep loops and of gentle bends). The amplitude is held
      to the flat ground beside the valley line (probed every 32 blocks: no swing into ground
-     rising more than 6 blocks plus 4%), to the valley line's curvature, and to 0 near lakes and
-     the sea. Resampled every 4 blocks;
+     rising more than 6 blocks plus 4%, a lake or the sea), to the valley line's curvature, and to
+     0 where the valley line itself lies in a lake or the sea. Resampled every 4 blocks;
    - width `3 + 0.8 × discharge^0.6` (about 8 blocks at a source, 25-30 after a few hundred cells,
      50 at a thousand, 90-110 for the largest rivers of a continent), ±10% wider in bends and
      ±8% along the river (noise), depth `1.5 + 0.075 × width` (2..10); sources taper in over 64
@@ -647,10 +649,20 @@ Layers, coarse to fine:
      (sill), below it a plunge pool `2 + 0.4 × drop` deep (3..14). Below falls of 6+ blocks the
      pool is round and wider than the river: radius `(r + bank + 2) × 1.05..1.35`, narrowing back
      to the river over `max(8 + 0.5 × drop, 1.5 × radius)` blocks;
-   - valley: a one-block bank, a floodplain rising 1 block per 20 (`2 + 0.8 × width`, up to 80
-     blocks, in gentle terrain only), valley walls of slope 0.7 (gentle) to 2.0 (steep), and a steep
-     rise at a per-segment cutoff (at most 320 blocks) so the valley always meets the terrain. The
-     valley shape is smoothed along the river over ±48 blocks;
+   - river lakes: in long gentle pools (steepness < 0.03, river 5+ blocks wide, above sea level)
+     the river widens into a lake, an irregular oval of half length 5..9 river widths (60..420
+     blocks) and half width 2.5..4.5 widths (20..200), about one per 2 500 blocks of such river,
+     where the terrain 6 blocks beyond its shore stands 1.5 blocks above the water (else it
+     shrinks, or there is none); deeper towards the middle (2.5 + 0.05 × radius). The pool's water
+     is flat, so the lake is a wider stretch of it;
+   - valley (`HydrologyModel.profile`): a one-block bank, a floor just above the water (rising 3
+     blocks per 100, gentle swells up to 1.2 blocks), flat over the inner half of the floodplain
+     (`2 + 0.8 × width`, up to 80 blocks, in gentle terrain only); beyond, the terrain itself,
+     its height above the floor scaled by an S-curve that reaches 1 where the valley side has
+     climbed it at about the wall slope (0.7 gentle .. 2.0 steep): valley sides keep the
+     terrain's shape, lowered and flattened towards the river, and meet the terrain at the
+     per-segment cutoff (at most 320 blocks) without a step. The valley shape is smoothed along
+     the river over ±48 blocks;
    - fall lips (`BasinRivers.fallSide`): a fall cuts the channel across along its lip, a line
      through the fall bowed upstream in the middle (a horseshoe: 0.2..0.5 × the half width of
      channel and bank at falls of 6+ blocks; ±0.25 at ledges) and ragged (two octaves of value
@@ -659,17 +671,16 @@ Layers, coarse to fine:
      beside a ledge, not a straight cut across the valley. Segments below a fall do not reach
      upstream of its lip, segments above it not downstream (within 330 blocks along the river,
      and only segments wholly on their side, so a meander swinging back keeps its channel);
-   - boulders: 2..6 in the plunge pool of every fall of 6+ blocks (clear of the curtain), 0..2 on
-     its lip (they split the curtain), a few along ledges (on and below the step) and in steep
-     narrow streams (every 12 blocks with a chance rising with the slope). Radius 0.8..2.6 blocks,
-     an irregular outline, 1..3 blocks above the water they stand in.
+   - boulders: 2..6 in the plunge pool of every fall of 6+ blocks (clear of the curtain), 1..4 on
+     its lip (they split the curtain into strands), a few along ledges (on and below the step) and
+     in steep narrow streams (every 12 blocks with a chance rising with the slope). Radius
+     0.8..2.6 blocks, an irregular outline, 1..2 blocks above the water they stand in.
 3. Index (`WaterIndex`): the segments and lake cells that can affect a 512-block region, from every
    tile that may own a basin reaching it (the 3 × 3 tiles around), bucketed by 32 blocks.
 4. Column (`HydrologyModel.sample`): for each segment within reach, the channel profile at the
    distance from its centre line, jittered by noise of the column (ragged banks: up to 0.8..3
    blocks at the water's edge, 16- and 6-block noise; ragged valley walls: up to 2.5..12 blocks
-   beyond the bank, 56- and 20-block noise); steep valley walls rise in bands of steeper and
-   gentler slope every 8 blocks of height (ledges). The carved height is
+   beyond the bank, 56- and 20-block noise). The carved height is
    `max(min(terrain, min profile), min(levee, cap))`: carving takes the lowest profile, levees raise
    ground beside a channel above sea level to one block above its water (rare: banks are measured),
    capped by every channel bed so no levee closes another channel. Boulders covering the column
@@ -684,18 +695,25 @@ Water bodies and the block step (`VastlandsHydrology.water`, `RiverWater`):
   water top and the kind (DRY, SEA, RIVER, LAKE, ROCK).
 - `RiverWater.place` runs after noise filling (so surface rules see the water: channel floors get
   vanilla's underwater dirt and gravel) and again after carving (carvers cut through water and
-  banks). For the chunk plus a 2-column margin it reads the water columns from the model, then
-  fills water from the ground up to the water top; seals the bed and every block next to
+  banks). For the chunk plus a 3-column margin it reads the water columns from the model, then
+  turns water columns beside dry ground more than 2 blocks below their water into rocky rims at
+  the water top (a pool ending at a cliff gets a lip of rock instead of a pillar of raised ground
+  beside it; two rounds, as a rim at the foot of a fall exposes the pool above; each round takes
+  one column of margin so neighbouring chunks agree), fills water from the ground up to the water
+  top; seals the bed and every block next to
   neighbouring water that is not solid (cave and carver openings; stone over a hole, never gravel,
   and sand or gravel holding water back over a hole gets a stone block under it, so nothing falls
-  at the first block update); raises a dry column that is
-  lower than a neighbouring water surface to it (a levee one block wide: 0.8% of the shore edges
-  around the test places, about half beside the tallest fall, the rest 1..2 blocks high along a
-  broad lowland river); builds a sill under the upper edge of every fall
+  at the first block update); raises a dry column up to 2 blocks lower than a neighbouring water
+  surface to it (a low levee one block wide; in the model 1.5% of the shore edges around the test
+  places are lower than the water, the deeper ones become rims); builds a sill under the upper
+  edge of every fall
   (one water block deep); cuts away the bilinear ramp of the density inside a channel at the foot
   of a fall; hangs a curtain in the lower column: a flowing block (amount 7) at the upper water
-  top and falling water down to the lower water, through any rock the rough walls put there; and
-  builds boulders from the ground up (andesite, cobblestone and mossy cobblestone, mossier at the
+  top and falling water down to the lower water, through any rock the rough walls put there;
+  makes the water churn where a fall lands: soul sand under the pool and a rising bubble column
+  (vanilla's, with its particles and sound) up to the surface in every column under a curtain of
+  4+ blocks and in 40% of those under 2-block ledges (a bubble column is a water source to the
+  fluid rules); and builds boulders from the ground up (andesite, cobblestone and mossy cobblestone, mossier at the
   water: surface rules only repaint plain stone, so they keep these materials).
 - Stability: these are the states vanilla computes for those blocks (`FlowingFluid.getNewLiquid`):
   no fluid ticks are scheduled and nothing changes when a chunk loads or a block next to the
@@ -744,7 +762,7 @@ Hydrology in numbers (seed 20261018, `hydrologyPreview`; 4 vCPU container):
   (9.5 s) and 687 basins with rivers (474 000 river segments of 4 blocks, 11.2 s).
 - Drainage on a 131 072-block square (prototype, before breaching): basins reach at most 15 100
   blocks from their mouth; filling every depression would have made lakes of 9% of the land.
-- Four test places (`HydrologyModelTest`): 55 345 segments, 396 steps, 80 falls of 8+ blocks,
+- Four test places (`HydrologyModelTest`): 54 535 segments, 396 steps, 80 falls of 8+ blocks,
   tallest 50; 182 river mouths and 3 rivers ending in terminal lakes in 2 × 2 tiles around 0,0.
 
 Performance:
@@ -771,8 +789,8 @@ Performance:
 
 Limitations (details and the full list: PROGRESS.md, Known Issues):
 - Structures (villages) can stand across rivers and fill parts of their channels.
-- Levees one block wide at the edges of a tall fall's lip and 1..2-block banks along some lowland
-  rivers (0.5% of the shore edges at the test places).
+- Ground lower than the water beside 1.5% of the shore edges (model, test places): low levees of
+  1..2 blocks or rocky rims in the block step.
 - River valleys follow the 128-block drainage cells (meanders swing about them); no streams below the river
   threshold (vanilla springs only); no dry river beds in arid regions.
 - River biomes only in channels 6+ blocks wide; lakes keep the surrounding biome.
@@ -781,11 +799,12 @@ Limitations (details and the full list: PROGRESS.md, Known Issues):
 
 Tuning: drainage constants in `DrainageDomain` (cell size, tile and margin, river threshold, lake
 depth, size and freeboard, runoff), river shape in `BasinRivers` (`widthFor`, depth, freeboard,
-meanders in `meander` and `room`, pools and falls in `levels`, lips, sills, plunge pools and
-boulders in `emit`, `floodplain`, `wallSlope`, lake entry, cutoff), meander angles in
+meanders in `meander` and `room`, the sea cut in `shape`, pools and falls in `levels`, river
+lakes in `riverLakes`, lips, sills, plunge pools and boulders in `emit`, `floodplain`,
+`wallSlope`, lake entry, cutoff), meander angles in
 `HydrologyModel.meanderAngle`, bank and wall jitter in `HydrologyModel.sample`, the cross-section
-and ledges in `HydrologyModel.profile`, rough walls in `VastlandsHydrology` (`ROUGHNESS`,
-`roughSurface`), the river biome width in `BasinRivers.emit`.
+in `HydrologyModel.profile`, rough walls in `VastlandsHydrology` (`ROUGHNESS`, `roughSurface`),
+rims and foam in `RiverWater`, the river biome width in `BasinRivers.emit`.
 Render with `hydrologyPreview` before generating worlds; `HydrologyModelTest` guards the properties.
 
 Vanilla Isolation
@@ -839,16 +858,16 @@ JUnit (`./gradlew test`, 63 tests):
   open water down to its floor, solid below.
 - `TerrainBiomeTest` (test server) — surface biomes from vanilla's table agree with the terrain
   (ocean ⇔ under water, mountain biomes above Y 300, river biomes only in hydrology channels:
-  measured 574 of 90 000 samples) and with the climate (frozen oceans polar, deserts warm, jungles
+  measured 548 of 90 000 samples) and with the climate (frozen oceans polar, deserts warm, jungles
   humid); the mean biome run along transects is more than twice vanilla's for the same seed
-  (measured 541 vs 166 blocks; 593 before rivers).
+  (measured 539 vs 166 blocks; 593 before rivers).
 - `HydrologyModelTest` — the same water from two models whatever order and thread computes tiles
   and regions; water never rises along a reach or across a confluence, every water top is
   `seaTop + 2k` (rivers and lakes); every river cell drains into a river, the sea, a terminal lake
   or ends in a lake; widest river 50..110 blocks (plunge pools aside), falls of 8+ blocks exist, the tallest at least
   30; at four places (a plateau fall, broad lowland rivers, lakes), no two water surfaces 1 block
-  apart and levees needed on under 2% of the shore edges (measured 0.5%); off the rivers the terrain
-  is unchanged (reshaped on 5% of random grid columns, never raised); `mayHoldWater` never says no
+  apart and ground below the water beside under 2% of the shore edges (measured 1.5%); off the rivers the terrain
+  is unchanged (reshaped on 6.6% of random grid columns, never raised); `mayHoldWater` never says no
   for a box with river or lake water and skips at least a quarter of the boxes around the test
   places; level quantization.
 - `RiverWaterTest` (test server) — 3 × 3 proto-chunks at three places and up to two falls near
