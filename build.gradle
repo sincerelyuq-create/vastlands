@@ -132,3 +132,14 @@ tasks.register('terrainPreview', JavaExec) {
     workingDir = layout.projectDirectory.asFile
     jvmArgs '-Djava.awt.headless=true'
 }
+
+// Renders the rivers and lakes of a seed over the carved terrain. Arguments: see
+// com.sincerelyuq.vastlands.tools.HydrologyPreview.
+tasks.register('hydrologyPreview', JavaExec) {
+    group = 'vastlands'
+    description = 'Renders Vastlands river and lake previews (PNG)'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.sincerelyuq.vastlands.tools.HydrologyPreview'
+    workingDir = layout.projectDirectory.asFile
+    jvmArgs '-Djava.awt.headless=true', '-Xmx4G'
+}

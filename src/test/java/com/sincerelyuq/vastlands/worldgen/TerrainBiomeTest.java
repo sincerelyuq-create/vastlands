@@ -25,6 +25,7 @@ import net.minecraft.world.level.levelgen.RandomState;
 import net.minecraft.world.level.levelgen.presets.WorldPreset;
 import net.minecraft.world.level.levelgen.presets.WorldPresets;
 import com.sincerelyuq.vastlands.worldgen.geography.GeographySample;
+import com.sincerelyuq.vastlands.worldgen.hydrology.VastlandsHydrology;
 import com.sincerelyuq.vastlands.worldgen.terrain.TerrainColumn;
 import java.util.Locale;
 import net.neoforged.testframework.junit.EphemeralTestServerProvider;
@@ -34,8 +35,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 /**
  * Biomes are chosen by vanilla's overworld biome table from climate parameters the terrain
  * computes, so they must agree with the terrain: oceans under water, land biomes on land, mountain
- * biomes on high mountains, and no river biomes until Hydrology makes rivers. They must also agree
- * with the geography's climate, and form much larger regions than vanilla's.
+ * biomes on high mountains, and river biomes only in the channels of the hydrology's rivers. They
+ * must also agree with the geography's climate, and form much larger regions than vanilla's.
  */
 @ExtendWith(EphemeralTestServerProvider.class)
 class TerrainBiomeTest {
@@ -48,6 +49,7 @@ class TerrainBiomeTest {
                 .getOrThrow(PRESET).value().overworld().orElseThrow().generator();
         RandomState state = RandomState.create(generator.generatorSettings().value(), registries.lookupOrThrow(Registries.NOISE), 20261018L);
         TerrainSystem terrain = GenerationContext.of(state).orElseThrow().systems().terrain();
+        VastlandsHydrology hydrology = (VastlandsHydrology) GenerationContext.of(state).orElseThrow().systems().hydrology();
         BiomeSource biomes = generator.getBiomeSource();
         Climate.Sampler sampler = state.sampler();
 
@@ -55,13 +57,17 @@ class TerrainBiomeTest {
         int dry = 0, oceanOnLand = 0;
         int high = 0, highland = 0;
         int rivers = 0;
+        int riversOffChannel = 0;
         for (int x = -60000; x <= 60000; x += 400) {
             for (int z = -60000; z <= 60000; z += 400) {
                 double height = terrain.column(x, z).height();
                 int y = (int) Math.floor(height);
                 Holder<Biome> biome = biomes.getNoiseBiome(QuartPos.fromBlock(x), QuartPos.fromBlock(y), QuartPos.fromBlock(z), sampler);
                 boolean ocean = biome.is(BiomeTags.IS_OCEAN);
-                rivers += biome.is(BiomeTags.IS_RIVER) ? 1 : 0;
+                if (biome.is(BiomeTags.IS_RIVER)) {
+                    rivers++;
+                    riversOffChannel += hydrology.riverBiome(x, z) ? 0 : 1;
+                }
                 if (height < 58.0) {
                     underwater++;
                     oceanUnderwater += ocean ? 1 : 0;
@@ -78,7 +84,7 @@ class TerrainBiomeTest {
         }
         Vastlands.LOGGER.info("TerrainBiomeTest: underwater {} (ocean {}), dry {} (ocean {}), above 300 {} (highland {}), rivers {}",
                 underwater, oceanUnderwater, dry, oceanOnLand, high, highland, rivers);
-        assertEquals(0, rivers, "river biomes without rivers");
+        assertEquals(0, riversOffChannel, "river biomes outside river channels");
         assertTrue(oceanUnderwater > 0.97 * underwater, "ocean biomes under water: " + oceanUnderwater + " of " + underwater);
         assertTrue(oceanOnLand < 0.005 * dry, "ocean biomes on land: " + oceanOnLand + " of " + dry);
         assertTrue(high > 50, "too few high columns to judge: " + high);

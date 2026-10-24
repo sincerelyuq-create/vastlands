@@ -3,6 +3,7 @@ package com.sincerelyuq.vastlands.registry;
 import com.mojang.serialization.MapCodec;
 import com.sincerelyuq.vastlands.Vastlands;
 import com.sincerelyuq.vastlands.worldgen.VastlandsChunkGenerator;
+import com.sincerelyuq.vastlands.worldgen.density.HydrologyParameterFunction;
 import com.sincerelyuq.vastlands.worldgen.density.StageDensityFunction;
 import com.sincerelyuq.vastlands.worldgen.density.TerrainParameterFunction;
 import net.minecraft.core.registries.Registries;
@@ -32,6 +33,7 @@ public final class VastlandsRegistries {
             DENSITY_FUNCTION_TYPES.register(stage.getSerializedName(), () -> stage.codec().codec());
         }
         DENSITY_FUNCTION_TYPES.register("terrain_parameter", () -> TerrainParameterFunction.CODEC.codec());
+        DENSITY_FUNCTION_TYPES.register("hydrology_parameter", () -> HydrologyParameterFunction.CODEC.codec());
     }
 
     private VastlandsRegistries() {

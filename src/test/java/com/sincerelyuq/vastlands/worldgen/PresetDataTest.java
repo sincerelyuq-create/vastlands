@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.sincerelyuq.vastlands.Vastlands;
 import com.sincerelyuq.vastlands.worldgen.context.GenerationContext;
+import com.sincerelyuq.vastlands.worldgen.system.HydrologySystem;
+import com.sincerelyuq.vastlands.worldgen.system.TerrainParameter;
 import com.sincerelyuq.vastlands.worldgen.system.TerrainSystem;
 import com.sincerelyuq.vastlands.worldgen.terrain.TerrainColumn;
 import com.sincerelyuq.vastlands.worldgen.terrain.VastlandsTerrain;
@@ -85,11 +87,15 @@ class PresetDataTest {
         }
     }
 
-    /** The terrain-owned router outputs read the terrain system of the world. */
+    /**
+     * The terrain-owned router outputs read the terrain system of the world; weirdness and the
+     * initial density come through the hydrology (river biomes, channel floors).
+     */
     @Test
     void terrainOwnedOutputsFollowTheTerrain(MinecraftServer server) {
         RandomState state = vastlandsState(server);
         TerrainSystem terrain = GenerationContext.of(state).orElseThrow().systems().terrain();
+        HydrologySystem hydrology = GenerationContext.of(state).orElseThrow().systems().hydrology();
         NoiseRouter router = state.router();
         for (int x = -6000; x <= 6000; x += 999) {
             for (int z = -6000; z <= 6000; z += 1013) {
@@ -97,12 +103,13 @@ class PresetDataTest {
                 DensityFunction.SinglePointContext pos = new DensityFunction.SinglePointContext(x, 70, z);
                 assertEquals(column.climateContinentalness(), router.continents().compute(pos));
                 assertEquals(column.climateErosion(), router.erosion().compute(pos));
-                assertEquals(column.climateWeirdness(), router.ridges().compute(pos));
+                assertEquals(hydrology.parameter(TerrainParameter.WEIRDNESS, x, 70, z), router.ridges().compute(pos));
                 assertEquals(column.climateTemperature(), router.temperature().compute(pos));
                 assertEquals(column.climateHumidity(), router.vegetation().compute(pos));
                 assertEquals(VastlandsTerrain.depth(column.height(), 70), router.depth().compute(pos));
-                // The preliminary surface (initial density threshold 0.390625) never lies above the surface.
-                int above = (int) Math.ceil(column.height());
+                // The preliminary surface (initial density threshold 0.390625) never lies above the
+                // generated surface, channels included.
+                int above = (int) Math.ceil(hydrology.surfaceHeight(x & ~3, z & ~3));
                 assertTrue(router.initialDensityWithoutJaggedness().compute(new DensityFunction.SinglePointContext(x & ~3, above, z & ~3)) <= 0.390625);
             }
         }
@@ -115,14 +122,14 @@ class PresetDataTest {
     @Test
     void finalDensityMatchesTheTerrainSurface(MinecraftServer server) {
         RandomState state = vastlandsState(server);
-        TerrainSystem terrain = GenerationContext.of(state).orElseThrow().systems().terrain();
+        HydrologySystem hydrology = GenerationContext.of(state).orElseThrow().systems().hydrology();
         DensityFunction finalDensity = state.router().finalDensity();
         int checked = 0;
         for (int x = -12000; x <= 12000; x += 1204) {
             for (int z = -12000; z <= 12000; z += 1416) {
                 int bx = x & ~3;
                 int bz = z & ~3;
-                double surface = terrain.column(bx, bz).height();
+                double surface = hydrology.surfaceHeight(bx, bz);
                 assertTrue(finalDensity.compute(new DensityFunction.SinglePointContext(bx, WorldHeight.MIN_Y, bz)) > 0.0, "bottom must be solid");
                 assertTrue(finalDensity.compute(new DensityFunction.SinglePointContext(bx, WorldHeight.MAX_Y, bz)) < 0.0, "top must be air");
                 assertTrue(finalDensity.compute(new DensityFunction.SinglePointContext(bx, (int) Math.ceil(surface) + 4, bz)) < 0.0,

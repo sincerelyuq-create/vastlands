@@ -284,7 +284,7 @@ public final class TerrainPreview {
         System.out.println(text);
     }
 
-    private static final Climate.ParameterList<ResourceKey<Biome>> BIOME_TABLE = overworldBiomeTable();
+    static final Climate.ParameterList<ResourceKey<Biome>> BIOME_TABLE = overworldBiomeTable();
 
     /** Vanilla's overworld biome table keyed by biome; the generating method is package-private. */
     @SuppressWarnings("unchecked")

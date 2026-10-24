@@ -41,6 +41,12 @@ public interface TerrainSystem extends DensityStage {
     double parameter(TerrainParameter parameter, int blockX, int blockY, int blockZ);
 
     /**
+     * Exact model column at any point, uncached: for coarse planning (river paths and banks) that
+     * should not evict the per-thread cache of the chunk being generated.
+     */
+    TerrainColumn sample(double x, double z);
+
+    /**
      * The macro geography the terrain is built on: regional elevation, landforms, ocean floor,
      * climate. Uncached, so it suits coarse sampling (drainage planning on a grid) without evicting
      * the column cache; {@code column(x, z).geography()} returns the same values for grid columns.
