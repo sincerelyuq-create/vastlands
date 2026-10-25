@@ -81,15 +81,19 @@ class CaveModelTest {
 
     /**
      * No cave fluid that vanilla would move: no water or lava beside or above open air, no water
-     * touching lava, no sea or river water touching dry cave space. On land, at sea, in a lava
-     * region, on a coast, at a natural bridge, at a swallet and at a natural tunnel.
+     * touching lava, no sea or river water touching dry cave space (designed spillways aside). On
+     * land, at sea, in a lava region, on a coast, at a natural bridge, at a swallet and at a natural
+     * tunnel; and (Agent 4.5) at megacaves holding lakes with cenotes open to the sky, a flooded
+     * one under the coast, a lava megacave, a dry canyon, and underground rivers falling over dams.
      */
     @Test
     void cavesHoldTheirFluids() {
-        int[][] places = {{0, 0}, {330, -210}, {250, 450}, {430, 120}, {-300, 70}, {-319, 3106}, {-6584, 608}};
+        int[][] places = {{0, 0}, {330, -210}, {250, 450}, {430, 120}, {-300, 70}, {-319, 3106}, {-6584, 608},
+                {-2314, -2353}, {716, 448}, {-1794, 1648}, {-464, -1541}, {-236, -1832}, {-1343, -680}, {-704, 224}, {-500, 330}};
         long water = 0;
         long lava = 0;
         long air = 0;
+        long spills = 0;
         for (int[] place : places) {
             CaveVolume.Check check = volume.check(place[0] - 48, place[1] - 48, 96, 96);
             Vastlands.LOGGER.info("CaveModelTest: {} at {},{}", check, place[0], place[1]);
@@ -97,8 +101,10 @@ class CaveModelTest {
             water += check.caveWater();
             lava += check.caveLava();
             air += check.caveAir();
+            spills += check.spillways();
         }
-        assertTrue(water > 10000 && lava > 1000 && air > 50000, "too little cave space to judge: water " + water + " lava " + lava + " air " + air);
+        assertTrue(water > 100000 && lava > 10000 && air > 1000000, "too little cave space to judge: water " + water + " lava " + lava + " air " + air);
+        assertTrue(spills > 20, "underground rivers should fall over spillways: " + spills);
     }
 
     /** No cave space under the water of a river or lake within its clearance (swallets aside). */
@@ -157,8 +163,8 @@ class CaveModelTest {
     }
 
     /**
-     * Caves fill a small share of the rock (with solid regions between), large chambers are rare
-     * and enormous caverns rarer, and every kind of piece exists.
+     * Caves fill a share of the rock several times Agent 4's (with solid regions between), large
+     * chambers are uncommon and megacaves rarer, galleries are wide, and every kind of piece exists.
      */
     @Test
     void volumeAndRarity() {
@@ -191,8 +197,9 @@ class CaveModelTest {
         }
         double share = (double) counts[0] / counts[1];
         Vastlands.LOGGER.info("CaveModelTest: cave share {} of the rock, {} of {} columns without caves", share, quietRegions[0], columns);
-        assertTrue(share > 0.012 && share < 0.08, "cave share " + share);
-        assertTrue(quietRegions[0] > columns / 5, "too few columns of solid rock: " + quietRegions[0]);
+        // Agent 4 measured 1.56% here; the overhaul aims at several times that, with solid regions left.
+        assertTrue(share > 0.04 && share < 0.16, "cave share " + share);
+        assertTrue(quietRegions[0] > columns / 10, "too few columns of solid rock: " + quietRegions[0]);
 
         // Pieces of the network over 8 x 8 cells of 64 blocks around several places.
         int chambers = 0;
@@ -220,26 +227,28 @@ class CaveModelTest {
             }
         }
         Vastlands.LOGGER.info("CaveModelTest: 256 cells: {} tunnel pieces, {} chambers ({} of radius 30+), {} adits, {} dolines", segments, chambers, large, adits, funnels);
-        assertTrue(segments > 500, "too few tunnels: " + segments);
-        assertTrue(chambers > 10 && large * 5 < chambers, "chambers " + chambers + ", large " + large);
+        assertTrue(segments > 1000, "too few tunnels: " + segments);
+        assertTrue(chambers > 30 && large * 3 < chambers && large > 0, "chambers " + chambers + ", large " + large);
         assertTrue(adits > 0, "no entrances");
-        // Enormous caverns: some, but in under half of the 640-block cells.
-        int caverns = 0;
-        int cells = 0;
-        Caverns.Section section = new Caverns.Section();
-        for (int i = -10; i < 10; i++) {
-            for (int j = -10; j < 10; j++) {
-                cells++;
-                boolean found = false;
-                for (int k = 0; k < 9 && !found; k++) {
-                    caves.model().caverns.section(i * 640 + 320 + (k % 3 - 1) * 60, j * 640 + 320 + (k / 3 - 1) * 60, section);
-                    found = section.present();
-                }
-                caverns += found ? 1 : 0;
-            }
+        // Megacaves: some in each zone, but in under two thirds of the 1 024-block cells.
+        int[] perZone = new int[2];
+        int cells = 400;
+        for (Megacaves.Megacave m : caves.model().megacaves.near(-10 * 1024, -10 * 1024, 10 * 1024 - 1, 10 * 1024 - 1)) {
+            perZone[m.zone]++;
         }
-        Vastlands.LOGGER.info("CaveModelTest: enormous caverns found in {} of {} cells", caverns, cells);
-        assertTrue(caverns > 0 && caverns < cells / 2, "caverns " + caverns + " of " + cells);
+        Vastlands.LOGGER.info("CaveModelTest: megacaves around 20 x 20 cells of 1 024 blocks: {} upper, {} deep", perZone[0], perZone[1]);
+        assertTrue(perZone[0] > 20 && perZone[0] < cells * 2 / 3 + 40, "upper megacaves " + perZone[0]);
+        assertTrue(perZone[1] > 20 && perZone[1] < cells * 2 / 3 + 40, "deep megacaves " + perZone[1]);
+        // Galleries: large passages, major corridors and some colossal ones.
+        java.util.Map<String, Integer> census = new java.util.TreeMap<>();
+        for (int[] place : new int[][] {{0, 0}, {8000, -3000}, {-6000, 9000}, {15000, 15000}}) {
+            caves.census(place[0] - 1536, place[1] - 1536, place[0] + 1535, place[1] + 1535).forEach((k, v) -> census.merge(k, v, Integer::sum));
+        }
+        Vastlands.LOGGER.info("CaveModelTest: pieces over four 3 072-block squares: {}", census);
+        assertTrue(census.getOrDefault("gallery pieces r<30", 0) > 200, "large galleries: " + census);
+        assertTrue(census.getOrDefault("gallery pieces r30-55", 0) > 50, "major corridors: " + census);
+        assertTrue(census.getOrDefault("gallery pieces r55+", 0) > 0, "colossal galleries: " + census);
+        assertTrue(census.getOrDefault("river gallery pieces", 0) > 10, "underground rivers: " + census);
     }
 
     /** River connections exist near the origin's region and keep the river water untouched. */

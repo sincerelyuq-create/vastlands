@@ -60,6 +60,11 @@ public final class VastlandsCaves implements CaveSystem {
             }
 
             @Override
+            public double estimate(double x, double z) {
+                return terrain.sample(x, z).height();
+            }
+
+            @Override
             public GeographySample geography(int x, int z) {
                 return terrain.column(x & ~3, z & ~3).geography();
             }
@@ -190,6 +195,63 @@ public final class VastlandsCaves implements CaveSystem {
         return out;
     }
 
+    /** The megacaves (both zones) whose bounds meet a square: for natural wonders, previews and tests. */
+    public java.util.List<MegacaveInfo> megacaves(int minX, int minZ, int maxX, int maxZ) {
+        return this.model.megacaves.near(minX, minZ, maxX, maxZ).stream().map(MegacaveInfo::of).toList();
+    }
+
+    /** Middle points (x, y, z) of the underground river galleries over a square (previews and tests). */
+    public java.util.List<double[]> riverGalleries(int minX, int minZ, int maxX, int maxZ) {
+        java.util.List<double[]> out = new java.util.ArrayList<>();
+        for (long i = Math.floorDiv(minX, (int) Galleries.CELL); i <= Math.floorDiv(maxX, (int) Galleries.CELL); i++) {
+            for (long j = Math.floorDiv(minZ, (int) Galleries.CELL); j <= Math.floorDiv(maxZ, (int) Galleries.CELL); j++) {
+                for (CavePrimitive p : this.model.galleries.cell(i, j).primitives) {
+                    if (p.river && p.type == CavePrimitive.SEGMENT) {
+                        out.add(new double[] {0.5 * (p.ax + p.bx), 0.5 * (p.ay + p.by), 0.5 * (p.az + p.bz)});
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Counts of the cave pieces built in the cells over a square (diagnostics): network tunnel
+     * pieces, chambers, entrances, galleries by size class (radius under 30, 30..55, over 55) and
+     * river gallery pieces.
+     */
+    public java.util.Map<String, Integer> census(int minX, int minZ, int maxX, int maxZ) {
+        java.util.Map<String, Integer> out = new java.util.TreeMap<>();
+        for (long i = Math.floorDiv(minX, (int) CaveNetwork.CELL); i <= Math.floorDiv(maxX, (int) CaveNetwork.CELL); i++) {
+            for (long j = Math.floorDiv(minZ, (int) CaveNetwork.CELL); j <= Math.floorDiv(maxZ, (int) CaveNetwork.CELL); j++) {
+                for (CavePrimitive p : this.model.network.cell(i, j).primitives) {
+                    String kind = p.type == CavePrimitive.CHAMBER ? "chambers" : p.ignoresCover ? "entrances" : "tunnel pieces";
+                    out.merge(kind, 1, Integer::sum);
+                }
+            }
+        }
+        for (long i = Math.floorDiv(minX, (int) Galleries.CELL); i <= Math.floorDiv(maxX, (int) Galleries.CELL); i++) {
+            for (long j = Math.floorDiv(minZ, (int) Galleries.CELL); j <= Math.floorDiv(maxZ, (int) Galleries.CELL); j++) {
+                for (CavePrimitive p : this.model.galleries.cell(i, j).primitives) {
+                    String kind;
+                    if (p.type == CavePrimitive.CHAMBER) {
+                        kind = "gallery halls";
+                    } else if (p.ignoresCover) {
+                        kind = "gallery mouths";
+                    } else {
+                        double r = Math.max(p.ra, p.rb);
+                        kind = r < 30.0 ? "gallery pieces r<30" : (r < 55.0 ? "gallery pieces r30-55" : "gallery pieces r55+");
+                    }
+                    out.merge(kind, 1, Integer::sum);
+                    if (p.river) {
+                        out.merge("river gallery pieces", 1, Integer::sum);
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
     /** Shaft positions (x, z) and river water tops of the swallets sited near a column, for previews and tests. */
     public java.util.List<int[]> swalletsNear(int x, int z) {
         java.util.List<int[]> out = new java.util.ArrayList<>();
@@ -261,6 +323,15 @@ public final class VastlandsCaves implements CaveSystem {
         return Math.max(0, domain.level - this.minY) << 1 | (domain.fluid == CaveFluid.LAVA ? 1 : 0);
     }
 
+    /**
+     * The cave biome slot of a block (see {@link CaveBiomes}): {@link CaveBiome#SURFACE} near the
+     * ground, {@link CaveBiome#NONE} for plain rock caves under the surface biome, else the cave
+     * biome of the block's province or megacave. The biome source maps slots to biomes.
+     */
+    public CaveBiome caveBiome(int x, int y, int z) {
+        return this.model.caveBiome(x, y, z);
+    }
+
     /** Fluid placed in an open cave block (below the ground), for block steps and tests. */
     public CaveFluid caveFluid(int x, int y, int z) {
         return this.column(x, z).domain(y).at(y);
@@ -269,6 +340,34 @@ public final class VastlandsCaves implements CaveSystem {
     /** Y of the fluid top a spillway notch lets over a dam in this column, or {@link Integer#MIN_VALUE}. */
     public int spillway(int x, int z) {
         return this.column(x, z).notchY;
+    }
+
+    /** What decides a block: the signed distance of every piece reaching it, the cracks, the megacave sections and the result (diagnostics). */
+    public String explain(int x, int y, int z) {
+        CaveColumn c = this.column(x, z);
+        StringBuilder out = new StringBuilder(String.format(Locale.ROOT, "block %d %d %d: carve %.2f, sdf %.2f (rough %.2f), coverTop %d, solid %s, range %d..%d%n",
+                x, y, z, this.model.carve(c, y), c.sdf(y), c.roughness, c.coverTop, c.solid(y), c.bottom, c.top));
+        for (Megacaves.Section section : new Megacaves.Section[] {c.upperCave, c.deepCave}) {
+            if (section.present()) {
+                out.append(String.format(Locale.ROOT, "  megacave %s at %.0f %.0f: q %.3f, floor %.1f, ceiling %.1f, sdf %.2f, scales %.2f %.2f, blocks/q %.1f%n",
+                        section.cave.kind, section.cave.x, section.cave.z, section.q, section.floor, section.ceiling, section.sdf(y), section.floorScale,
+                        section.ceilingScale, section.blocksPerQ));
+            }
+        }
+        if (c.upperCrack.open()) {
+            out.append(String.format(Locale.ROOT, "  upper crack: distance %.2f width %.2f, sdf %.2f%n", c.upperCrack.distance, c.upperCrack.width, c.upperCrack.sdf(y)));
+        }
+        if (c.deepCrack.open()) {
+            out.append(String.format(Locale.ROOT, "  deep crack: distance %.2f width %.2f, sdf %.2f%n", c.deepCrack.distance, c.deepCrack.width, c.deepCrack.sdf(y)));
+        }
+        for (int i = 0; i < c.count; i++) {
+            CavePrimitive p = c.pieces[i];
+            if (y >= p.minY && y <= p.maxY) {
+                out.append(String.format(Locale.ROOT, "  piece %s r %.1f..%.1f shape %.2f rough %.2f river %s y %.0f..%.0f%n", p.type == CavePrimitive.CHAMBER ? "chamber" : "segment",
+                        p.ra, p.rb, p.shape, p.roughness, p.river, p.minY, p.maxY));
+            }
+        }
+        return out.toString();
     }
 
     /** Detailed diagnostics of a column (previews and tests). */

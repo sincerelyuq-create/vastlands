@@ -2,12 +2,12 @@ Vastlands — Development Progress
 
 Current Status
 
-Phase: Terrain, geography, hydrology and caves complete, ready for Agent 5 (Forests)
+Phase: Terrain, geography, hydrology and caves complete (caves overhauled by Agent 4.5), ready for Agent 5 (Forests)
 Project: Vastlands
 Minecraft: 1.21.8
 Loader: NeoForge 21.8.57
 
-The project builds and all 69 tests pass. The "Vastlands" world type generates a
+The project builds and all 70 tests pass. The "Vastlands" world type generates a
 continent-scale geography in a world of Y -256..511: open oceans with shelves, continental slopes,
 abyssal plains (Y -22..-30), mid-ocean ridges, seamounts and rare trenches (to Y ~-160); continents
 with vast plains provinces, hill country, mountain systems with branch ranges (peaks up to Y ~450),
@@ -17,12 +17,16 @@ fractured ice fields; and river networks that drain every continent to the sea: 
 tributaries joining into broad rivers (up to ~100 blocks wide), lakes in basins and on rivers, rocky ledges
 and waterfalls (up to 50..80 blocks off escarpments and in mountains) with round plunge pools,
 boulders and rough-walled gorges below them, river and frozen river biomes, frozen rivers in polar
-climates; and caves through the whole depth: multi-level networks shaped by the rock (karst,
-fractured mountains, quiet plains, coasts), chambers, halls, chasms, shafts and rare enormous
-caverns, entrances in hillsides, cliffs, dolines and the sea floor, level underground lakes and
-flooded networks, underground falls, deep lava lakes with volcanic rock below the aquitard (no
-lava in every cave below Y -54 any more), natural river tunnels and bridges, swallets, grottoes
-behind falls, sea caves and blue holes. Forests are still a passthrough placeholder.
+climates; and an underground world through the whole depth: multi-level networks of tunnels
+mostly 6..16 blocks wide shaped by the rock and by regional cave regimes (labyrinths, quiet and
+nearly solid regions), ramps, shafts and pits between levels, galleries 25..60 blocks wide, major
+corridors 60..110 and colossal ones, megacaves hundreds of blocks across (halls, lake caverns,
+canyons, abysses, two-floor complexes, pillar forests) with connectors and cenotes, cave biomes in
+provinces (lush caves, dripstone, the deep dark; other mods' cave biomes through biome tags),
+entrances in hillsides, cliffs, dolines and the sea floor, level underground lakes, flooded
+networks and megacave lakes, underground rivers falling over dams, deep lava lakes with volcanic
+rock below the aquitard, natural river tunnels and bridges, swallets, grottoes behind falls, sea
+caves and blue holes. Forests are still a passthrough placeholder.
 
 Development Roadmap
 
@@ -31,9 +35,295 @@ Development Roadmap
 - [x] Agent 2.5 — Geography: Continent-scale regions, climate, climate-aware biomes, oceans, trenches and frozen seas.
 - [x] Agent 3 — Hydrology: Implement large rivers, tributaries, downhill drainage, and waterfalls.
 - [x] Agent 4 — Caves: Implement diverse cave systems and underground formations.
+- [x] Agent 4.5 — Underground overhaul: wider passages, density, galleries, megacaves, cave biomes, verticality, underground water.
 - [ ] Agent 5 — Forests: Implement large forests, giant trees, and tree variations.
 
-Latest Completed Work (Agent 4 — Caves)
+Latest Completed Work (Agent 4.5 — Underground Overhaul)
+
+Root causes of Agent 4's problems (found by reading the code and measuring it with the new
+`caveSurvey`, baseline in a worktree of `main`):
+- Narrow passages: network tunnels had a radius of (2.5 + 2.2 karst + 0.8 fracture) × 0.7..1.3, one
+  in seven halved, on a single 64-block lattice: the volume-weighted median width was 7..10 blocks
+  in every square measured, and no passage class existed above it. Wide spaces came only from
+  junction chambers (radius 8..29, mostly near 8) and deep "enormous caverns".
+- Too few caves: thin tunnels × presence 0.3 + 0.62 abundance × link 0.26 + 0.5 abundance, with
+  plains provinces (× 0.55) and a quiet field (× 0.25..1.1) on top: 1.1..3.5% of the rock open,
+  0.7% under plains; 24% of plains columns had any cave at all.
+- No megacaves: "enormous caverns" were radius 45..110 (u², mostly ~50), 20..52 high, 70% of them
+  centred at Y -200..-130 below the aquitard, the upper ones capped at radius 80; on horizontal
+  slices no space reached 120 blocks anywhere (0 in all 10 squares).
+- Biome diversity: the overworld kept `minecraft:multi_noise`; underground biomes came from
+  vanilla's table on the depth parameter, which Agent 2 holds at 0.95 below ~120 blocks (to stop
+  the deep dark filling everything). Dripstone needs continentalness ≥ 0.8, so far inland it took
+  88..99% of all cave blocks at every depth; elsewhere none; lush caves only where humidity ≥ 0.7;
+  deep dark only in vanilla's Y -64..0 band under low erosion (≤ 0.8% of cave blocks); everything
+  else below ~120 blocks had the surface biome (dark forest at Y -150, river and beach biomes deep
+  underground).
+- Repetition: one tunnel recipe on one lattice, 7 levels relative to the base level (plains: one
+  to three, none between Y -52 and +10), and caverns that were all flattened domes.
+- Chasms broke up far from the origin: the joint sets rotated a stretched noise about the world's
+  origin by a slowly turning strike, which shifts it by |r| × the turn per block (~8 blocks per
+  block at r ≈ 17 000), so beyond a few thousand blocks the cracks became clouds of isolated
+  single-block holes (found in a slice at -12 750,-11 030).
+- Performance trap found on the way: the per-thread caches were direct-mapped; two keys sharing a
+  slot rebuild each other on every query (harmless for cheap network cells, fatal for anything
+  expensive: an early megacave version was rebuilt 3 072 times on one thread).
+
+Work done (code: `worldgen/caves`, `worldgen/biome`; algorithm, constants and contracts:
+ARCHITECTURE.md, "Caves"):
+- `CaveSettings` (rewritten): frequency, density, passageWidth, largePassages, chambers,
+  megacaves, megacaveScale, vertical, regionVariation, water, spillways, lava, entrances, seaCaves,
+  riverTunnels, caveBiomes (Agent 4's abundance, giantCaverns and fractures are folded into them).
+- `CaveGeology`: regional cave regimes: `density` (labyrinths 1.5, quiet regions 0.25), `scale`
+  (regions of large and of narrow passages), `vertical`.
+- `CaveNetwork`: log-normal tunnel radii (most tunnels 6..16 wide, a tail to ~30, one in eight a
+  squeeze), presence and links from the density, nine upper levels (two new ones at -116 and -88
+  below the base level), ramps between levels, pits and longer shafts, widened junction rooms, more
+  and larger entrances (adits up to radius 18, sea-cave mouths up to 17, dolines up to 8).
+- `Galleries` (new): a second lattice (288 blocks) of trunk passages in two levels: large passages
+  25..60 wide, major corridors 60..110, colossal ones, canyons in fractured rock, meanders and
+  constrictions, vaulted junction halls, very large mouths, and underground rivers that fall over
+  every dam they cross.
+- `Megacaves` (new, replaces `Caverns`): six kinds hundreds of blocks across in two stacked zones,
+  vaults checked ring by ring against the ground (tall under peaks, low where valleys cross the
+  rim: abysses ~175 and complexes ~135 blocks tall under mountains), abysses with a bell-shaped
+  vault, their own fluid domain (lakes with islands, submerged caverns, lava lakes, dry), pillars,
+  partitions, shelves (two floors), natural bridges, terraced walls with alcoves and overhangs,
+  connectors and cenotes.
+- `FluidDomains`: megacave domains with dams and spillways on their footprint; `water` setting.
+- `Fractures`: joint frames anchored on a 2 400-block grid and blended (fixes the broken cracks far
+  from the origin), wider chasms (up to ~12 blocks), more open joints where `vertical` is high.
+- `CaveColumn`/`CaveModel`/`CavePrimitive`: up to 64 pieces pruned by their horizontal reach and
+  indexed by 16-block slabs, terrace caches, no wall noise deep inside caves, river notches.
+- `KeyedCache` (new): open-addressing per-thread cache for lattice cells, nodes, megacaves and
+  provinces.
+- Cave biomes: `CaveBiomes` and `CaveBiome` (new): provinces in three layers, megacave themes, the
+  deep dark kept to Y -150..0 and out of flooded rock, lush caves checked against the column's own
+  climate; `VastlandsBiomeSource` (new, `vastlands:caves`): the delegate's surface biomes and the
+  slots' biomes below, slots from the biome tags
+  `#vastlands:cave/{lush,dripstone,deep_dark,crystal,volcanic,other}`; Sincerelyuq's Biomes as
+  optional tag entries (ids unverified, see Known Issues).
+- `GenerationContext`, `RandomStateMixin`, `NoiseChunkMixin` (new): climate samplers (the
+  `RandomState`'s and every chunk's cached one) lead the biome source to its world's caves.
+- API for later systems: `VastlandsCaves.caveBiome`, `megacaves` (`MegacaveInfo`),
+  `riverGalleries`, `census`.
+- Tools: `./gradlew caveSurvey` (new, `CaveSurvey`, `CaveSurveyBiomes`), `cavePreview --places`,
+  `tools/worldcheck/biomecheck.py` (new).
+
+Files and Modules Affected (Agent 4.5)
+
+- New: `worldgen/caves/{Galleries,Megacaves,MegacaveInfo,CaveBiomes,CaveBiome,KeyedCache}`,
+  `worldgen/biome/VastlandsBiomeSource`, `mixin/NoiseChunkMixin`,
+  `data/vastlands/tags/worldgen/biome/cave/*.json` (6 tags).
+- Changed: `worldgen/caves/{CaveSettings,CaveGeology,CaveNetwork,CavePrimitive,CaveColumn,CaveModel,
+  FluidDomains,Fractures,VastlandsCaves}`, `worldgen/context/GenerationContext`,
+  `mixin/RandomStateMixin`, `registry/VastlandsRegistries` (biome source type),
+  `vastlands.mixins.json`, `world_preset/vastlands.json` (biome source).
+- Removed: `worldgen/caves/Caverns` (replaced by `Megacaves`).
+- Tests: `caves/CaveModelTest` (new places, thresholds, galleries and megacaves),
+  `CaveBiomeTest` (new); tools `CaveSurvey`, `CaveSurveyBiomes` (new), `CavePreview` (`--places`).
+- Build: `build.gradle` (`caveSurvey` task). Tools and docs: `tools/worldcheck/biomecheck.py`
+  (new), ARCHITECTURE.md (Caves rewritten, layout, preset, pipeline, contracts, isolation, testing),
+  PROGRESS.md, README.md, `docs/caves/` (new previews).
+
+Build and Test Results (Agent 4.5)
+
+- `./gradlew build`: success, 70 tests pass (69 before + `CaveBiomeTest`): WorldHeightDataTest 3,
+  GenerationSetupTest 3, StageDensityFunctionTest 6, TerrainParameterFunctionTest 3,
+  RandomStateBindingTest 3, PresetDataTest 6, TerrainBiomeTest 2, CaveBiomeTest 1, TerrainModelTest 8,
+  VastlandsTerrainTest 7, GeographyModelTest 7, FrozenSeaTest 6, HydrologyModelTest 8,
+  RiverWaterTest 1, CaveModelTest 6.
+- `CaveModelTest` (seed 20261018): same blocks from any thread and order; 0 unstable fluid blocks
+  at 15 places (Agent 4's seven, megacaves with lakes and cenotes at -2314,-2353, 716,448 and
+  -1794,1648, a flooded one at -464,-1541, a lava one at -236,-1832, a dry canyon at -1343,-680,
+  river galleries at -704,224 and -500,330), 97 designed spillway blocks among them; river and lake
+  beds intact; 31 sea caves with a mouth at the sea (13 blue holes), all 31 open to the sea and
+  stable; 0 cave lava above Y -54; cave share 6.20% of the rock between Y -240 and the ground over
+  4 000 random columns of a 32 768-block square (Agent 4: 1.56%), 1 867 of them without caves
+  (Agent 4: 2 747); 256 network cells: 4 669 tunnel pieces, 371 chambers (81 of radius 30+);
+  megacaves in 20 × 20 cells of 1 024 blocks: 180 upper, 173 deep; galleries of all classes and
+  river galleries over four 3 072-block squares.
+- `CaveBiomeTest` (test server): the preset resolves `vastlands:caves`; without other mods the slots
+  are `lush [minecraft:lush_caves], dripstone [minecraft:dripstone_caves], deep_dark
+  [minecraft:deep_dark]`, crystal falls back to dripstone, volcanic and other to plain rock; a
+  chunk's cached sampler gives the same biomes as the `RandomState`'s; surface biomes unchanged
+  (0 of 6 561 differ); over 81 643 underground samples of 48 000² blocks: lush caves
+  5.6%, dripstone (with crystal) 40.4%, the deep dark 2.1%, present at Y -27 in 232 of 5 372 land
+  columns (4.3%: ancient cities can start there); no lush caves under frozen climates; mean cave
+  biome run along rows 120 blocks deep ~400 blocks.
+- `TerrainBiomeTest`, `PresetDataTest`: unchanged results through the new biome source (mean biome
+  run 539 blocks against vanilla's 166; ocean biomes exactly under water; 548 river samples, all in
+  channels).
+
+Before and after (`./gradlew caveSurvey --args="--seed S --center X Z --size 768"`, every block of
+768 × 768 columns from Y -251 to the ground; widths are the volume-weighted local thickness on
+horizontal slices; "spaces" are 3D connected components of blocks at least that wide; Agent 4's
+code from a worktree of `main`, same seeds and squares):
+
+| Square (seed: centre) | ground | cave share | median / p90 width | volume ≥25 wide (all, above Y -60) | ≥60 wide | spaces 60+ / 120+ wide | open cave water surface | entrance columns |
+|---|---|---|---|---|---|---|---|---|
+| 1: -768,-768 | plains, Y 100 | 0.7% → 2.0% | 7 / 30 → 9 / 49 | 14%, 4% → 26%, 18% | 0% → 5% | 0 / 0 → 1 / 0 | 1025 → 17502 | 0 → 0 |
+| 1: 0,0 | foothills, Y 138 | 2.2% → 11.8% | 7 / 27 → 28 / 97 | 12%, 9% → 54%, 50% | 0% → 26% | 0 / 0 → 22 / 1 | 26887 → 141930 | 337 → 4611 |
+| 20261018: -11520,-10752 | high mountains, Y 274 | 2.6% → 10.5% | 7 / 40 → 17 / 56 | 21%, 12% → 38%, 38% | 2% → 9% | 2 / 0 → 18 / 0 | 11008 → 68165 | 5534 → 16135 |
+| 20261018: -2304,0 | foothills, Y 151 | 3.5% → 20.9% | 7 / 36 → 27 / 77 | 18%, 10% → 54%, 50% | 1% → 20% | 1 / 0 → 42 / 1 | 16929 → 171241 | 7059 → 20324 |
+| 20261018: -4608,-3072 | plateau, Y 146 | 2.9% → 5.0% | 9 / 51 → 14 / 47 | 25%, 14% → 31%, 26% | 8% → 4% | 5 / 0 → 5 / 0 | 9428 → 23013 | 4765 → 11705 |
+| 20261018: 0,0 | foothills, Y 93 | 2.9% → 4.8% | 9 / 51 → 13 / 67 | 28%, 12% → 35%, 24% | 8% → 14% | 3 / 0 → 7 / 0 | 26858 → 48948 | 5147 → 11433 |
+| 20261018: 0,1536 | plains, Y 96 | 1.1% → 3.2% | 7 / 23 → 11 / 147 | 9%, 10% → 38%, 9% | 0% → 31% | 0 / 0 → 1 / 1 | 895 → 4270 | 0 → 0 |
+| 20261018: 1536,-768 | shelf, Y 59 | 2.1% → 6.6% | 10 / 48 → 19 / 59 | 28%, 17% → 42%, 36% | 7% → 10% | 2 / 0 → 9 / 0 | 5923 → 20313 | 9358 → 19075 |
+| 42: -1536,-1536 | foothills, Y 109 | 1.4% → 4.4% | 7 / 31 → 9 / 73 | 15%, 14% → 29%, 20% | 0% → 13% | 0 / 0 → 4 / 0 | 4786 → 32042 | 3918 → 12120 |
+| 42: 1536,-1536 | hills, Y 84 | 1.7% → 4.5% | 7 / 28 → 10 / 39 | 13%, 5% → 25%, 25% | 1% → 1% | 0 / 0 → 2 / 0 | 10271 → 33038 | 1037 → 3645 |
+| mean of the 10 | | 2.1% → 7.4% | 7.7 / 36.5 → 15.7 / 71.1 | 18%, 11% → 37%, 30% | 2.7% → 13.4% | | | |
+
+Cave biomes of 40 000 random cave blocks per square (Agent 4: vanilla's table on the held depth;
+now the slots, no other mods installed, so crystal is dripstone and volcanic and other are plain
+rock under the surface biome):
+- Agent 4: dripstone 99% (1: -768,-768), 88% (1: 0,0), 98% (plateau), 63% and 52% (mountains),
+  0..5% elsewhere; lush caves 0..19%; deep dark at most 0.8%; the rest the surface biome at any
+  depth (dark forest 74% at 0,1536, ocean 59% under the shelf).
+- Agent 4.5: every square holds two to four cave biomes: dripstone (with crystal) 9..60%, lush
+  caves up to 17% where the climate is moist and mild (none under the high cold mountains), the deep
+  dark 0..8% (8.4% under the high mountains at -11520,-10752), plain rock 25..73%.
+
+Verification in Game (Agent 4.5)
+
+Dedicated dev server (`tools/worldcheck/generate.py`, all chunks fully generated, 24 × 24 chunks
+each), checked with `cavecheck.py` (every block from Y -256 up), the new `biomecheck.py` and
+`blockprobe.py`; the same squares generated with Agent 4's code from a worktree of `main`:
+- mega1 — seed 20261018, 716,448 (lowland, an upper pillar megacave 236 × 152 with a lake at Y -21
+  and a cenote): cave space 3.81% of the underground (Agent 4: 1.76%), 14.3% at Y -32..-1;
+  457 464 water and 58 962 lava sources in caves, 0 that vanilla's fluid tick would change, water
+  never touches lava; open/solid changes across chunk borders 0.0092 / 0.0081 against 0.0083 /
+  0.0082 inside chunks (no seams); the cenote is a shaft open from the sky down to the megacave's
+  lake (`blockprobe.py` at 716,448: air from Y 99 to -11, source water at -21); 2 589 columns of
+  cave mouths (Agent 4: 2 625 in the first run of this square). Biomes of the cave space: lush
+  caves 41.2% (Y -56..59: the megacave and its province; Agent 4: 10.7%), dripstone 14.6%, the
+  rest the surface biome (dark forest, swamp); 182 790 blocks of lush features (moss, clay,
+  dripleaf, azalea, vines) and 36 398 of dripstone. 1 unstable water source at the surface
+  (864 62 367, sea-level water at a shore flowing into a dip of the terrain; no cave there) and 91
+  flowing cave blocks a tick would change (vanilla water springs, e.g. 673 -210 370).
+- s1m — seed 1, 0,0 (foothills and mountains): cave space 8.33% (Agent 4: 2.46%; 24.5% at
+  Y -160..-129 where a deep megacave and galleries run); 1 973 552 water and 1 792 lava sources in
+  caves, 2 unstable water sources (24 -24 186 and -190 5 -160: amethyst geodes cut into cave water;
+  Agent 4's code in the same square: 31, in an ancient city), water never touches lava, no seams
+  (0.0098 / 0.0082 across borders, 0.0101 / 0.0083 inside). A first run of this square, before two
+  fixes, had 57 unstable sources in an ancient city standing in a flooded domain (the deep dark is
+  now kept out of flooded rock) and the cave biomes of vanilla's table in every chunk (chunk biome
+  filling uses a cached climate sampler: fixed by `NoiseChunkMixin`, now covered by
+  `CaveBiomeTest`). Biomes of the cave space now: dripstone 42.0% (Agent 4: 79.1%), the deep dark
+  0.2% at Y -72..3 (Agent 4: 12.3% at Y -64..3), lush caves 0.3% (cold mountains: the column's own
+  climate excludes them), the rest the surface biome; feature blocks: dripstone 216 846, sculk
+  2 394, lush 35 277.
+- Both worlds were generated again with the final code (after the fracture frames, the ring
+  vault, the abysses' bell vaults and the wall recesses): 11.21 and 11.14 chunks/s, no exception
+  in either log.
+- The log of every world shows `Vastlands cave biomes: lush [minecraft:lush_caves], dripstone
+  [minecraft:dripstone_caves], deep_dark [minecraft:deep_dark], crystal [minecraft:dripstone_caves],
+  volcanic [], other []` and no exception. The server never loaded neighbouring chunks for the caves
+  (everything is a function of the model).
+- Not verified in game: Sincerelyuq's Biomes installed (not available); screenshots of the new caves
+  (none taken this session: the dev client under Xvfb was not started); multiplayer; long play.
+
+Performance (Agent 4.5)
+
+- Per chunk (`cavePreview --bench`, one thread, warm caches, Agent 4's code alternated in a
+  worktree): near 0,0 (64 chunks from x 1 536, lowland and sea) columns 2.5 ms (Agent 4: 4.3),
+  density 8.1 ms (3.2), fluid picker 1.7 ms (1.4); in mountains (from x -2 816) 3.5 (4.5), 4.5
+  (5.7), 1.7 (1.2). About 3 ms more per chunk where Agent 4's caves were sparse, less in the
+  mountains, for 3.5 times the cave volume on average.
+- End to end (dedicated server, `generate.py`, 24 × 24 chunks): seed 1 at 0,0 (mountains) Agent 4's
+  code 9.35 chunks/s, the overhaul 11.18, 11.16 and 11.18 chunks/s; seed 20261018 at 716,448:
+  Agent 4's code 9.37 and 9.38, the overhaul 11.14, 11.18, 9.38 and 11.18 chunks/s (runs vary by up
+  to ~20%). The overhaul is not slower end to end: 1.21.8 generates surface rules
+  and features on one consecutive executor, the caves stage runs in the noise workers, and the
+  cache fix and slab index save more than the larger caves cost.
+- Fixes on the way: `KeyedCache` instead of direct-mapped caches; terrain `sample` instead of the
+  hydrology's surface for far planning (an early version computed the drainage of distant regions
+  for every megacave and was 20 times slower); pieces pruned by horizontal reach; slab index;
+  terrace caches; the biome slot without cave columns (the first version built a cave column per
+  biome query, which made `TerrainBiomeTest`'s 90 000 random queries crawl).
+- Memory: per worldgen thread the caches above (a few MB), nothing grows with the explored area.
+
+Known Issues
+
+- Sincerelyuq's Biomes: its jar and source were not available here (Modrinth lists no such
+  project; the `sincerelyuq-s-Projects` repository is empty), so the biome ids in
+  `data/vastlands/tags/worldgen/biome/cave/crystal.json` and `volcanic.json`
+  (`sincerelyuqs_biomes:amethyst_caves`, `...:smoldering_cave` and spelling variants) are guesses
+  written as optional entries. With the mod installed, check the line `Vastlands cave biomes: ...`
+  in the log: if `crystal` still shows dripstone, replace the ids with the mod's real ones. Not
+  tested with the mod. MCreator mods also inject their surface rules only into dimensions of the
+  vanilla overworld type, so the mod's own floor and wall blocks may be missing in Vastlands worlds
+  (its features come with the biome); not verified.
+- Structures (ancient cities, mineshafts, trial chambers) and some vanilla features (amethyst
+  geodes, dripstone clusters, springs) still ignore the cave fluids: where one cuts flooded rock,
+  cave water flows into it (57 sources in an ancient city in a first run at seed 1, 0,0; after the
+  deep dark was kept out of flooded rock, 3 sources in geodes and a dripstone cluster). Vanilla
+  features place lava lakes and lava above Y -54 as before.
+- Underground rivers are still water: level stretches under an open vault with falls over the
+  dams between domains, not flowing water; the falls are where a river gallery crosses a dam.
+- No river rises from a cave (resurgence) and none is rerouted underground: that would change
+  Agent 3's drainage. Rivers enter the caves through swallets only.
+- The network still follows the 64-block lattice (a plan view shows its polygons); galleries and
+  megacaves hide it at large scale.
+- Megacaves under lowlands are wide and low (60..80 blocks): the upper zone there is only ~100
+  blocks thick above the aquitard; tall ones (abysses, canyons) need high ground or the deep zone.
+  The vault of a megacave under a deep river valley can be flattened by the 6-block cover.
+- Wet upper domains flood every cave below their water table (Agent 4's hydrogeology), so under
+  wet mountains whole cave levels are under water.
+- Changing any cave constant changes generation (seams against existing chunks); worlds created
+  before Agent 4.5 keep `minecraft:multi_noise` in their saved settings and get the new caves
+  without the cave biomes. Changing the slot tags changes which biome a province gets.
+- Not verified: real GPU rendering and screenshots of the new caves (no screenshots were taken in
+  this session); multiplayer; long play (spillway falls after many ticks).
+- Unchanged from Agent 4: natural bridges with low vaults over wide valleys, one-block swallet
+  notches, river biomes over natural tunnels, uneven sea-cave density along coasts.
+- Unchanged from earlier agents: see "Known Issues at the end of Agent 4" below.
+
+Architectural Decisions (Agent 4.5)
+
+- Kept Agent 4's architecture (an analytic model of signed-distance pieces, per-column solids,
+  fluid domains, no carvers, no aquifers) and its safety rules unchanged; every new piece goes
+  through the same column (cover, dams, clearance), so the new caves inherit the fluid guarantees.
+- Multi-scale instead of scaling: a second lattice for galleries and a 1 024-block grid for
+  megacaves rather than bigger radii on the 64-block lattice, which would have merged into
+  Swiss cheese.
+- Megacaves as their own fluid domains (a footprint edge is a domain edge): one lake level per
+  cavern instead of Voronoi dams cutting through it.
+- A biome source of our own instead of router tricks: the router's climate parameters cannot carry
+  other mods' biomes, and structures and `/locate` query the biome source directly, so only a
+  biome source keeps chunk biomes and structure checks consistent. Slots are biome tags, so other
+  mods and datapacks join without code and without a dependency.
+- The cave system is found from the climate sampler through weak identity maps (the `RandomState`'s
+  sampler and router, and each chunk's cached sampler), not from a global: several worlds and
+  test servers can run side by side.
+
+Instructions for Agent 5 (Forests)
+
+1. The ground still keeps 6 blocks of rock over caves except at entrances; new openings are gallery
+   mouths (radius 8..22) and megacave cenotes (radius 7..22, round shafts from the sky down into a
+   megacave): skip tree placement over them (`VastlandsCaves.isCave` below the root, or
+   `megacaves(...)` for cenote centres).
+2. Biomes underground are now cave biomes; above 16 blocks under the ground they are the surface
+   biomes as before, so forest placement by surface biome is unchanged.
+
+Instructions for Agent 6 (Natural Wonders)
+
+1. Read ARCHITECTURE.md, Caves: "Spaces for natural wonders" and the contract. `megacaves(minX,
+   minZ, maxX, maxZ)` lists every megacave (kind, centre, size, floor and vault heights, fluid and
+   its top, pillars, bridges, shelf, cenote); `isCave` and `caveFluid` give the exact space.
+2. Tall vaults: halls and pillar caverns (up to ~150 blocks under high ground), canyons (up to 220)
+   and abysses (110..300) for giant stalactites and columns; their ceilings already hang in lobes
+   and ribs to start from. Broad floors: halls, lakes and the lower floor of complexes. Deep water:
+   lake megacaves (basins 0.25 h deep with islands), submerged ones, the sea-flooded ones under the
+   shelf. Sculk: the deep dark megacaves of the deep zone and the deep dark provinces at Y -150..0.
+3. Place formations as features scoped to Vastlands worlds (placement filter on
+   `VastlandsChunkGenerator`), never as changes to the cave model, and keep fluids level: check
+   `tools/worldcheck/cavecheck.py` stays at 0 unstable cave water.
+
+
+Agent 4 — Caves (completed earlier)
+
+Completed Work (Agent 4 — Caves)
 
 - `worldgen/caves` (new): the underground of Vastlands worlds: a pure-Java cave model on top of the
   geography, terrain and hydrology, a cave system for the router and the fluids of noise filling,
@@ -200,7 +490,7 @@ Performance (Agent 4)
 - Fluids: no fluid ticks are scheduled by the caves except the spillway notches (a handful of
   blocks per spillway); cave water and lava are in the states vanilla leaves as they are.
 
-Known Issues
+Known Issues at the end of Agent 4 (current list: see Agent 4.5 above)
 
 - Network tunnels follow the 64-block lattice: long cave systems are chains of short curved
   tunnels between nodes, not single long passages, and a plan of the caves (`cavePreview --plan`,
@@ -264,7 +554,7 @@ Architectural Decisions (Agent 4)
 - Code constants (`CaveSettings.DEFAULT`), not a config file, like the geography's settings: a
   world's caves must not depend on a mutable file.
 
-Instructions for Agent 5 (Forests)
+Instructions for Agent 5 (Forests), from Agent 4 (still valid; see Agent 4.5's additions above)
 
 1. Read ARCHITECTURE.md: "Caves" (contract, entrances), "System Contracts" (CaveSystem,
    HydrologySystem), "Generation Pipeline", "Vanilla Isolation".

@@ -3,8 +3,8 @@ package com.sincerelyuq.vastlands.worldgen.caves;
 /**
  * One analytic piece of cave space: a tunnel segment (a capsule with an elliptical cross-section,
  * optionally with a canyon slot cut into its floor, a flat sediment floor or a funnel mouth) or a
- * chamber (an elongated, lobed dome over a flattened floor, with terraced walls). Immutable once its cell is built;
- * shared by the threads that read the cell.
+ * chamber (an elongated, lobed dome over a flattened floor, with terraced walls). Immutable once its cell is built
+ * (cells are cached per thread).
  */
 final class CavePrimitive {
     static final int SEGMENT = 0;
@@ -34,6 +34,12 @@ final class CavePrimitive {
     final double angle, elongation;
     final long seed;
     final double minX, maxX, minY, maxY, minZ, maxZ;
+    /**
+     * Part of an underground river (a gallery or hall whose floor lies just under a water table):
+     * where it crosses a dam into a domain of another level, the dam is notched across its whole
+     * width, so the river falls over it. Set once while its cell is built.
+     */
+    boolean river;
 
     private CavePrimitive(int type, double ax, double ay, double az, double bx, double by, double bz, double ra, double rb, double shape,
                           double slotDepth, double slotWidth, double floorCut, double funnelTop, boolean ignoresCover, double roughness, long seed,
@@ -100,6 +106,49 @@ final class CavePrimitive {
     static CavePrimitive chamber(double x, double y, double z, double rh, double rv, double floorDepth, double angle, double elongation,
                                  double roughness, long seed) {
         return new CavePrimitive(CHAMBER, x, y, z, x, y, z, rh, rv, floorDepth, 0.0, 0.0, 1.0, Double.NaN, false, roughness, seed, angle, elongation);
+    }
+
+    /** Marks the piece as part of an underground river (see {@link #river}); returns it. */
+    CavePrimitive withRiver(boolean river) {
+        this.river = river;
+        return this;
+    }
+
+    /** True if the column lies within the piece's horizontal reach (its radius from the axis or centre). */
+    boolean inside(double x, double z) {
+        if (this.type == CHAMBER) {
+            return Math.hypot(x - this.ax, z - this.az) <= this.ra * (1.0 + this.elongation);
+        }
+        double dx = this.bx - this.ax;
+        double dz = this.bz - this.az;
+        double len2 = dx * dx + dz * dz;
+        double t = len2 > 1e-9 ? ((x - this.ax) * dx + (z - this.az) * dz) / len2 : 0.0;
+        t = t < 0.0 ? 0.0 : (t > 1.0 ? 1.0 : t);
+        double r = this.ra + t * (this.rb - this.ra);
+        return Math.hypot(x - this.ax - t * dx, z - this.az - t * dz) <= r;
+    }
+
+    /**
+     * True if the piece can open blocks of the column at all: its axis (or centre) lies within its
+     * widest radius plus the reach of the wall noise. Pieces beyond are left out of the column.
+     */
+    boolean reaches(double x, double z) {
+        double reach = 1.45 * this.roughness + 2.0;
+        if (this.type == CHAMBER) {
+            double r = this.ra * (1.0 + this.elongation) * 1.25 + reach;
+            double dx = x - this.ax;
+            double dz = z - this.az;
+            return dx * dx + dz * dz <= r * r;
+        }
+        double r = Math.max(this.ra, this.rb) * (this.funnelTop == this.funnelTop ? 3.0 : 1.0) + this.slotWidth + reach;
+        double dx = this.bx - this.ax;
+        double dz = this.bz - this.az;
+        double len2 = dx * dx + dz * dz;
+        double t = len2 > 1e-9 ? ((x - this.ax) * dx + (z - this.az) * dz) / len2 : 0.0;
+        t = t < 0.0 ? 0.0 : (t > 1.0 ? 1.0 : t);
+        double ex = x - this.ax - t * dx;
+        double ez = z - this.az - t * dz;
+        return ex * ex + ez * ez <= r * r;
     }
 
     boolean covers(double x, double z) {

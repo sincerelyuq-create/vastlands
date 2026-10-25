@@ -22,14 +22,21 @@ continent downhill to the sea, meandering across floodplains, broad rivers up to
 valleys of their own with ragged banks, lakes in basins and where rivers cross flat ground, rocky
 ledges and waterfalls (tall ones off escarpments and in mountains, with a horseshoe lip, a round
 plunge pool with boulders and churning water, and a rough-walled gorge below), frozen rivers in
-polar climates; and caves: multi-level cave networks shaped by the rock (dense winding karst,
-chasms and shafts in mountains, quiet plains, sea caves on coasts), chambers, halls and rare
-enormous caverns with pillars, entrances in hillsides, cliffs, sinkholes and the sea floor,
-underground lakes and flooded passages that always stand level, underground falls between water
-levels, deep lava lakes below the aquitard with basalt and magma in volcanic regions (no more lava
-in every cave below Y -54), and designed connections to the surface water: rivers flowing through
-natural tunnels and under natural bridges, rivers pouring into the caves through swallets, dry
-grottoes behind tall waterfalls, sea caves and blue holes open to the sea. Forests are not
+polar climates; and caves: an underground world through the whole depth: multi-level cave
+networks of tunnels mostly 6..16 blocks wide shaped by the rock (dense labyrinths in karst, chasms,
+shafts, pits and ramps in mountains, quieter regions and nearly solid ones), galleries 25..60 blocks
+wide, major corridors 60..110 and rare colossal ones meandering between narrow connections and vast
+halls, megacaves hundreds of blocks across (vaulted halls with pillars and partitions, lake caverns
+with islands, underground canyons with natural bridges, abysses up to 300 blocks deep, two-floor
+complexes, pillar forests), several exits each and cenotes open to the sky; cave biomes in
+provinces hundreds of blocks across (lush caves under moist climates, dripstone, a rarer deep dark,
+plus the cave biomes of other mods through biome tags, such as the amethyst and smoldering caves of
+Sincerelyuq's Biomes when it is installed); entrances in hillsides, cliffs, sinkholes and the sea
+floor; underground lakes and flooded passages that always stand level, lakes and seas in megacaves,
+underground rivers falling over dams between water levels, deep lava lakes below the aquitard with
+basalt and magma in volcanic regions; and designed connections to the surface water: rivers flowing
+through natural tunnels and under natural bridges, rivers pouring into the caves through swallets,
+dry grottoes behind tall waterfalls, sea caves and blue holes open to the sea. Forests are not
 implemented yet. See PROGRESS.md.
 
 Using it
@@ -37,9 +44,12 @@ Using it
 - Singleplayer: Create New World → World → World Type: Vastlands.
 - Dedicated server: `level-type=vastlands\:vastlands` in `server.properties` before the world is created.
 - The default world types are not changed by the mod.
-- F3 shows "Vastlands terrain", "Vastlands geography", "Vastlands hydrology" and "Vastlands caves"
-  lines for the column you stand on (surface, landform, climate, ice, water, the nearest river, and
-  the rock and cave water domains).
+- F3 shows "Vastlands terrain", "Vastlands geography", "Vastlands hydrology", "Vastlands caves" and
+  "Vastlands cave biome" lines for the column you stand on (surface, landform, climate, ice, water,
+  the nearest river, the rock and cave water domains, and the cave biome slot).
+- Other mods' cave biomes: add them to the biome tags `vastlands:cave/lush`, `dripstone`,
+  `deep_dark`, `crystal`, `volcanic` or `other` (a datapack, optional entries); see ARCHITECTURE.md,
+  Caves.
 
 Building
 
@@ -53,4 +63,6 @@ rivers, lakes and waterfalls over the carved relief and lists the tallest falls 
 `./gradlew cavePreview --args="--seed 1 --center 0 0 --size 1024 --out build/caves/s"` draws
 sections through the caves of a square (`--plan 2`, `--slices -150,40`, `--stats`, `--sea` and more:
 see ARCHITECTURE.md, Testing).
+`./gradlew caveSurvey --args="--seed 1 --center 0 0 --size 768"` measures the caves of a square
+(passage widths, cave share by depth, wide spaces and megacaves, connectivity, water, cave biomes).
 Architecture and contribution notes: ARCHITECTURE.md.

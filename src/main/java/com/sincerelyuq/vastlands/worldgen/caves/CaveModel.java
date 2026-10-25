@@ -3,6 +3,7 @@ package com.sincerelyuq.vastlands.worldgen.caves;
 import com.sincerelyuq.vastlands.worldgen.geography.GeographyModel;
 import com.sincerelyuq.vastlands.worldgen.geography.GeographySample;
 import com.sincerelyuq.vastlands.worldgen.noise.SimplexNoise;
+import java.util.function.Consumer;
 
 /**
  * The Vastlands caves: a pure function from (seed, x, y, z) to cave space and the fluid in it.
@@ -11,8 +12,10 @@ import com.sincerelyuq.vastlands.worldgen.noise.SimplexNoise;
  * <ol>
  *     <li>{@link CaveGeology}: karst, fractured, volcanic and coastal rock from the geography.</li>
  *     <li>{@link FluidDomains}: dry, flooded and lava domains above and below the aquitard.</li>
- *     <li>Cave space: the {@link CaveNetwork} (multi-level tunnels, chambers, shafts, entrances),
- *     {@link Fractures} (chasms, ravines) and {@link Caverns} (enormous caverns).</li>
+ *     <li>Cave space: the {@link CaveNetwork} (multi-level tunnels, chambers, shafts, ramps,
+ *     entrances), {@link Galleries} (trunk passages and underground rivers), {@link Fractures}
+ *     (chasms, ravines) and {@link Megacaves} (underground landscapes hundreds of blocks
+ *     across).</li>
  *     <li>Per column ({@link #column}): the pieces reaching the column and the heights where cave
  *     space must stay rock: dams between domains that differ, the aquitard where the zones above
  *     and below it differ, and a skin of rock wherever the cave fluid would meet a different fluid
@@ -63,9 +66,11 @@ public final class CaveModel {
     final CaveGeology geology;
     final FluidDomains domains;
     final CaveNetwork network;
+    final Galleries galleries;
     final Fractures fractures;
-    final Caverns caverns;
+    final Megacaves megacaves;
     final RiverTunnels tunnels;
+    final CaveBiomes biomes;
     private final Noise3 roughness;
     private final Noise3 detail;
     private final Noise3 bridges;
@@ -109,15 +114,23 @@ public final class CaveModel {
         this.seed = s;
         this.geology = new CaveGeology(s, settings);
         this.domains = new FluidDomains(s, geography, this.geology, settings, this.seaTop);
+        this.megacaves = new Megacaves(s, geography, this.geology, this.domains, ground, settings);
+        this.domains.attach(this.megacaves);
         this.network = new CaveNetwork(s, geography, this.geology, this.domains, settings, ground, this.seaTop);
+        this.galleries = new Galleries(s, geography, this.geology, this.domains, settings, ground);
         this.fractures = new Fractures(s, settings);
-        this.caverns = new Caverns(s, geography, this.geology, this.domains, ground, settings);
         this.tunnels = new RiverTunnels(s, geography, ground, rivers, waters, this.domains, settings, this.seaTop);
+        this.biomes = new CaveBiomes(s, geography, this.geology, this.domains, this.megacaves, ground, this.seaTop, settings);
         this.roughness = new Noise3(s + 1);
         this.detail = new Noise3(s + 2);
         this.bridges = new Noise3(s + 3);
         this.damNoise = new SimplexNoise(s + 4);
         this.bandNoise = new SimplexNoise(s + 5);
+    }
+
+    /** The cave biome slot of a block (see {@link CaveBiomes}). */
+    CaveBiome caveBiome(int x, int y, int z) {
+        return this.biomes.at(x, y, z, this.ground.surface(x, z));
     }
 
     public int seaTop() {
@@ -140,6 +153,7 @@ public final class CaveModel {
         c.valid = true;
         c.ledges = this.damNoise;
         c.count = 0;
+        java.util.Arrays.fill(c.slabs, 0L);
         c.solids = 0;
         c.notchY = Integer.MIN_VALUE;
         c.notchFluid = CaveFluid.AIR;
@@ -187,6 +201,38 @@ public final class CaveModel {
             // into the sea floor, so only a thin cover of rock is kept.
             c.coverTop = (int) Math.floor(low) - SEA_COVER;
         }
+        // Cave space: the pieces reaching the column.
+        c.riverPiece = false;
+        Consumer<CavePrimitive> sink = piece -> {
+            if (c.count == CaveColumn.MAX_PIECES) {
+                return;
+            }
+            int i = c.count++;
+            c.pieces[i] = piece;
+            c.index(i);
+            c.terraceBand[i] = Long.MIN_VALUE;
+            if (piece.river && !c.riverPiece) {
+                c.riverPiece = piece.inside(x, z);
+            }
+            if (piece.type == CavePrimitive.CHAMBER) {
+                // Distance in the chamber's frame: stretched along its axis, lobed by noise.
+                double ex = x - piece.ax;
+                double ez = z - piece.az;
+                double cos = Math.cos(piece.angle);
+                double sin = Math.sin(piece.angle);
+                double u = (ex * cos + ez * sin) / (1.0 + piece.elongation);
+                double v = (-ex * sin + ez * cos) / (1.0 - piece.elongation);
+                double lobes = 0.8 + 0.2 * (1.0 + this.damNoise.sample(x / (0.6 * piece.ra + 6.0) + piece.seed % 89, z / (0.6 * piece.ra + 6.0)));
+                c.dh2[i] = (u * u + v * v) / (lobes * lobes);
+                c.rubble[i] = 0.1 * piece.rb * this.damNoise.sample(x / 9.0 + piece.seed % 61, z / 9.0);
+                c.breakdown[i] = 0.12 * piece.rb * (0.5 + 0.5 * this.damNoise.sample(x / 11.0 + piece.seed % 71 + 200.0, z / 11.0));
+                c.phase[i] = 4.0 * this.damNoise.sample(x / 31.0 + piece.seed % 53 - 100.0, z / 31.0);
+            }
+        };
+        this.network.gather(x, z, sink);
+        this.galleries.gather(x, z, sink);
+        this.megacaves.gather(x, z, sink);
+
         CaveFluid above = c.upper.at(c.bandHi + 1);
         CaveFluid below = c.deep.at(c.bandLo - 1);
         c.bandOpen = above == below && (above == CaveFluid.AIR || c.upper.level >= c.bandHi + 1 && c.deep.level >= c.bandLo - 1);
@@ -216,31 +262,10 @@ public final class CaveModel {
             c.addSolid(runStart, top);
         }
 
-        // Cave space.
-        this.network.gather(x, z, piece -> {
-            if (c.count == CaveColumn.MAX_PIECES) {
-                return;
-            }
-            int i = c.count++;
-            c.pieces[i] = piece;
-            if (piece.type == CavePrimitive.CHAMBER) {
-                // Distance in the chamber's frame: stretched along its axis, lobed by noise.
-                double ex = x - piece.ax;
-                double ez = z - piece.az;
-                double cos = Math.cos(piece.angle);
-                double sin = Math.sin(piece.angle);
-                double u = (ex * cos + ez * sin) / (1.0 + piece.elongation);
-                double v = (-ex * sin + ez * cos) / (1.0 - piece.elongation);
-                double lobes = 0.8 + 0.2 * (1.0 + this.damNoise.sample(x / (0.6 * piece.ra + 6.0) + piece.seed % 89, z / (0.6 * piece.ra + 6.0)));
-                c.dh2[i] = (u * u + v * v) / (lobes * lobes);
-                c.rubble[i] = 0.1 * piece.rb * this.damNoise.sample(x / 9.0 + piece.seed % 61, z / 9.0);
-                c.breakdown[i] = 0.12 * piece.rb * (0.5 + 0.5 * this.damNoise.sample(x / 11.0 + piece.seed % 71 + 200.0, z / 11.0));
-                c.phase[i] = 4.0 * this.damNoise.sample(x / 31.0 + piece.seed % 53 - 100.0, z / 31.0);
-            }
-        });
         this.fractures.upper(x, z, c.surface, c.bandHi + 6, geo, this.seaTop, c.upperCrack);
         this.fractures.deep(x, z, c.bandLo - 6, geo, c.deepCrack);
-        this.caverns.section(x, z, c.cavern);
+        this.megacaves.section(x, z, Megacaves.UPPER, c.upperCave);
+        this.megacaves.section(x, z, Megacaves.DEEP, c.deepCave);
 
         int bottom = Integer.MAX_VALUE;
         int high = Integer.MIN_VALUE;
@@ -256,9 +281,11 @@ public final class CaveModel {
             bottom = Math.min(bottom, (int) Math.floor(c.deepCrack.low()));
             high = Math.max(high, (int) Math.ceil(c.deepCrack.high()));
         }
-        if (c.cavern.present()) {
-            bottom = Math.min(bottom, (int) Math.floor(c.cavern.low()));
-            high = Math.max(high, (int) Math.ceil(c.cavern.high()));
+        for (Megacaves.Section section : new Megacaves.Section[] {c.upperCave, c.deepCave}) {
+            if (section.present()) {
+                bottom = Math.min(bottom, (int) Math.floor(section.low()));
+                high = Math.max(high, (int) Math.ceil(section.high()));
+            }
         }
         c.bottom = Math.max(bottom - 3, this.minY + 7);
         c.top = Math.min(high + 3, top);
@@ -287,7 +314,8 @@ public final class CaveModel {
             int lowLevel = Math.min(a.level, b.level);
             int from = a.fluid != b.fluid ? zoneLo : lowLevel + 1;
             int crest = high + 2 + (int) Math.floor(1.0 + this.damNoise.sample(c.x / 11.0 + 30.0, c.z / 11.0));
-            if (a.fluid == b.fluid && high - lowLevel >= 3 && this.notched(a, b, hit.along[k])) {
+            boolean river = c.riverPiece && a.fluid == CaveFluid.WATER;
+            if (a.fluid == b.fluid && high - lowLevel >= 3 && (river || this.notched(a, b, hit.along[k]))) {
                 crest = high - 1;
                 c.notchY = high;
                 c.notchFluid = a.fluid;
@@ -335,6 +363,10 @@ public final class CaveModel {
         if (d > rough * 1.45) {
             return d;
         }
+        if (d < -rough * 1.45 - 0.31 && rough >= 0.9) {
+            // Deep inside the cave: no wall noise can close it.
+            return c.solid(y) ? 1.0 : d;
+        }
         // Wall roughness: its wavelength grows with its amplitude, so walls bulge and recede
         // instead of shedding detached pockets; a small fine octave for texture.
         double scale = 3.0 + 3.5 * rough;
@@ -352,8 +384,8 @@ public final class CaveModel {
 
     /** Domain description of a column, for diagnostics. */
     String describe(CaveColumn c, CaveGeology.Geology geo) {
-        return String.format(java.util.Locale.ROOT, "upper %s, deep %s, aquitard %d..%d %s, karst %.2f fracture %.2f volcanic %.2f abundance %.2f",
-                c.upper, c.deep, c.bandLo, c.bandHi, c.bandOpen ? "open" : "closed", geo.karst(), geo.fracture(), geo.volcanic(), geo.abundance());
+        return String.format(java.util.Locale.ROOT, "upper %s, deep %s, aquitard %d..%d %s, karst %.2f fracture %.2f volcanic %.2f density %.2f",
+                c.upper, c.deep, c.bandLo, c.bandHi, c.bandOpen ? "open" : "closed", geo.karst(), geo.fracture(), geo.volcanic(), geo.density());
     }
 
     /** Detailed diagnostics of a column: domains, neighbours within reach of an edge, solid intervals. */

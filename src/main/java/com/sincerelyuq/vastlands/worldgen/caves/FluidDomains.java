@@ -27,6 +27,10 @@ import com.sincerelyuq.vastlands.worldgen.noise.SimplexNoise;
  * never touch, and a dam crest stands flush with or above the higher water. The aquitard band
  * closes the same way where the zones above and below it differ.
  *
+ * <p>Megacaves (see {@link Megacaves}) are domains of their own: inside a megacave's footprint the
+ * megacave's domain owns the point, and the edge of the footprint is a domain edge like the
+ * Voronoi edges (dams, spillways), so a megacave holds one lake, lava lake or dry floor.
+ *
  * <p>Pure function of the seed and the position; domain properties come from the geography at the
  * domain's site, so every chunk sees the same domains.
  */
@@ -90,6 +94,9 @@ final class FluidDomains {
     private final SimplexNoise aquitardBroad, aquitardFine;
     private final ThreadLocal<Domain[]> upperCache = ThreadLocal.withInitial(() -> new Domain[256]);
     private final ThreadLocal<Domain[]> deepCache = ThreadLocal.withInitial(() -> new Domain[256]);
+    private final ThreadLocal<double[]> scratch = ThreadLocal.withInitial(() -> new double[2]);
+    /** Megacaves, attached once after construction (they read the Voronoi domains themselves). */
+    private Megacaves megacaves;
 
     FluidDomains(long seed, GeographyModel geography, CaveGeology geology, CaveSettings settings, int seaTop) {
         this.geography = geography;
@@ -110,7 +117,78 @@ final class FluidDomains {
         return AQUITARD_Y + 9.0 * this.aquitardBroad.sample(x / 800.0, z / 800.0) + 3.0 * this.aquitardFine.sample(x / 170.0, z / 170.0);
     }
 
+    void attach(Megacaves megacaves) {
+        this.megacaves = megacaves;
+    }
+
+    /** The Voronoi domain owning a point, megacaves aside. */
+    Domain voronoi(double x, double z, boolean deep) {
+        Hit hit = new Hit();
+        this.locateVoronoi(x, z, deep, hit);
+        return hit.owner;
+    }
+
+    /** The domain owning a point (a megacave's inside its footprint). */
+    Domain owner(double x, double z, boolean deep) {
+        Hit hit = new Hit();
+        this.locate(x, z, deep, hit);
+        return hit.owner;
+    }
+
+    /**
+     * The domain owning a point and the neighbours whose edge lies within {@link #EDGE_REACH}:
+     * Voronoi cells, and the footprint of a megacave of the zone.
+     */
     void locate(double x, double z, boolean deep, Hit out) {
+        this.locateVoronoi(x, z, deep, out);
+        if (this.megacaves == null) {
+            return;
+        }
+        double[] q = this.scratch.get();
+        Megacaves.Megacave m = this.megacaves.covering(x, z, deep ? Megacaves.DEEP : Megacaves.UPPER, q);
+        if (m == null) {
+            return;
+        }
+        double edge = (q[0] - Megacaves.FOOTPRINT) * q[1];
+        double along = Math.atan2(z - m.z, x - m.x) * m.radius;
+        if (q[0] < Megacaves.FOOTPRINT) {
+            // Inside: the megacave owns the point; the Voronoi domain around it is a neighbour across
+            // the footprint's edge, the Voronoi cells beyond at least as far.
+            Domain voronoi = out.owner;
+            out.owner = m.domain;
+            for (int k = 0; k < out.count; k++) {
+                out.edge[k] = Math.max(out.edge[k], -edge);
+            }
+            this.addNeighbour(out, voronoi, -edge, along);
+        } else {
+            this.addNeighbour(out, m.domain, edge, along);
+        }
+    }
+
+    private void addNeighbour(Hit out, Domain domain, double edge, double along) {
+        if (edge >= EDGE_REACH) {
+            return;
+        }
+        int slot = out.count;
+        if (slot == out.neighbours.length) {
+            slot = 0;
+            for (int q = 1; q < out.count; q++) {
+                if (out.edge[q] > out.edge[slot]) {
+                    slot = q;
+                }
+            }
+            if (out.edge[slot] <= edge) {
+                return;
+            }
+        } else {
+            out.count++;
+        }
+        out.neighbours[slot] = domain;
+        out.edge[slot] = edge;
+        out.along[slot] = along;
+    }
+
+    private void locateVoronoi(double x, double z, boolean deep, Hit out) {
         double cell = deep ? DEEP_CELL : UPPER_CELL;
         SimplexNoise warpX = deep ? this.deepWarpX : this.upperWarpX;
         SimplexNoise warpZ = deep ? this.deepWarpZ : this.upperWarpZ;
@@ -205,7 +283,7 @@ final class FluidDomains {
         if (g.continentalness() < 0.08 || g.elevation() < this.seaTop + 4) {
             return new Domain(key, x, z, CaveFluid.WATER, this.seaTop, true);
         }
-        double wet = Math.max(0.05, Math.min(0.85, 0.15 + 0.6 * geo.wetness() + 0.12 * geo.karst()));
+        double wet = Math.max(0.05, Math.min(0.9, (0.15 + 0.6 * geo.wetness() + 0.12 * geo.karst()) * this.settings.water()));
         if (unit(h, 2) < wet) {
             int level = (int) Math.floor(g.baseHeight() - 8.0 - 30.0 * unit(h, 3));
             level = Math.min(Math.max(level, (int) AQUITARD_Y + 30), CaveModel.MAX_LEVEL);
@@ -226,7 +304,7 @@ final class FluidDomains {
                     : new Domain(key, x, z, CaveFluid.AIR, NO_LEVEL, false);
         }
         double lava = (0.32 + 0.45 * geo.volcanic()) * this.settings.lava();
-        double water = 0.16 * (1.0 - geo.volcanic());
+        double water = 0.2 * (1.0 - geo.volcanic()) * this.settings.water();
         if (u < lava) {
             int level = (int) Math.floor(-236.0 + 30.0 * unit(h, 3) + 80.0 * geo.volcanic());
             return new Domain(key, x, z, CaveFluid.LAVA, Math.min(level, -150), false);
