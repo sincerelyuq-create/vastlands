@@ -53,6 +53,7 @@ public final class CavePreview {
         int check = 0;
         boolean sea = false;
         int[] slices = null;
+        int places = 0;
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
                 case "--seed" -> seed = Long.parseLong(args[++i]);
@@ -72,6 +73,7 @@ public final class CavePreview {
                 case "--bench" -> bench = true;
                 case "--check" -> check = Integer.parseInt(args[++i]);
                 case "--sea" -> sea = true;
+                case "--places" -> places = Integer.parseInt(args[++i]);
                 case "--slices" -> {
                     String[] parts = args[++i].split(",");
                     slices = new int[parts.length];
@@ -89,6 +91,10 @@ public final class CavePreview {
         GenerationSystems systems = GenerationSystems.create(setup);
         VastlandsCaves caves = (VastlandsCaves) systems.caves();
         CaveVolume volume = new CaveVolume(systems, caves);
+        if (places > 0) {
+            places(caves, cx, cz, places);
+            return;
+        }
         if (order != null) {
             // Same block from fresh systems: asked first, and after the 2048-block square around it.
             for (int run = 0; run < 3; run++) {
@@ -143,6 +149,34 @@ public final class CavePreview {
         if (roofs) {
             roofs(volume, caves, cx, cz, size, out + "-roofs.png");
         }
+    }
+
+    /** Megacaves (with lakes, lava, cenotes) and underground river galleries within a radius of the centre. */
+    private static void places(VastlandsCaves caves, int cx, int cz, int radius) {
+        for (com.sincerelyuq.vastlands.worldgen.caves.MegacaveInfo m : caves.megacaves(cx - radius, cz - radius, cx + radius - 1, cz + radius - 1)) {
+            System.out.printf(Locale.ROOT, "megacave %s %s at %.0f %.0f: %.0f x %.0f, floor %.0f, vault %.0f, %s %s%s%n", m.zone(), m.kind(), m.x(), m.z(),
+                    2 * m.lengthRadius(), 2 * m.widthRadius(), m.floorY(), m.ceilingY(), m.fluid(), m.fluidTop() == Integer.MIN_VALUE ? "" : m.fluidTop(),
+                    m.cenoteX() == m.cenoteX() ? String.format(Locale.ROOT, ", cenote at %.0f %.0f", m.cenoteX(), m.cenoteZ()) : "");
+        }
+        java.util.List<double[]> rivers = caves.riverGalleries(cx - radius, cz - radius, cx + radius - 1, cz + radius - 1);
+        System.out.printf(Locale.ROOT, "%d river gallery pieces%n", rivers.size());
+        rivers.stream().limit(20).forEach(r -> System.out.printf(Locale.ROOT, "  river gallery at %.0f %.0f %.0f%n", r[0], r[1], r[2]));
+        // Spillway notches near the river galleries: underground falls.
+        java.util.Map<Long, int[]> falls = new java.util.concurrent.ConcurrentHashMap<>();
+        rivers.parallelStream().forEach(r -> {
+            for (int dx = -40; dx <= 40; dx++) {
+                for (int dz = -40; dz <= 40; dz++) {
+                    int x = (int) r[0] + dx;
+                    int z = (int) r[2] + dz;
+                    int notch = caves.spillway(x, z);
+                    if (notch != Integer.MIN_VALUE) {
+                        falls.putIfAbsent((long) Math.floorDiv(x, 32) << 32 | (Math.floorDiv(z, 32) & 0xFFFFFFFFL), new int[] {x, notch, z});
+                    }
+                }
+            }
+        });
+        System.out.printf(Locale.ROOT, "%d 32-block cells with spillway notches near river galleries%n", falls.size());
+        falls.values().stream().limit(12).forEach(f -> System.out.printf(Locale.ROOT, "  notch at %d %d %d%n", f[0], f[1], f[2]));
     }
 
     private static void section(CaveVolume volume, int cx, int cz, int size, boolean alongX, String path) throws IOException {

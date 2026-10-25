@@ -5,8 +5,17 @@
       "generator": {
         "type": "vastlands:noise",
         "biome_source": {
-          "type": "minecraft:multi_noise",
-          "preset": "minecraft:overworld"
+          "type": "vastlands:caves",
+          "surface": {
+            "type": "minecraft:multi_noise",
+            "preset": "minecraft:overworld"
+          },
+          "lush": "#vastlands:cave/lush",
+          "dripstone": "#vastlands:cave/dripstone",
+          "deep_dark": "#vastlands:cave/deep_dark",
+          "crystal": "#vastlands:cave/crystal",
+          "volcanic": "#vastlands:cave/volcanic",
+          "other": "#vastlands:cave/other"
         },
         "settings": "vastlands:overworld"
       }

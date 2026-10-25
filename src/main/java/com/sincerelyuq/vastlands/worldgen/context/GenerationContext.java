@@ -2,8 +2,12 @@ package com.sincerelyuq.vastlands.worldgen.context;
 
 import com.sincerelyuq.vastlands.worldgen.system.GenerationSetup;
 import com.sincerelyuq.vastlands.worldgen.system.GenerationSystems;
+import com.google.common.collect.MapMaker;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentMap;
+import javax.annotation.Nullable;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.biome.Climate;
 import net.minecraft.world.level.levelgen.RandomState;
 
 /**
@@ -15,6 +19,12 @@ import net.minecraft.world.level.levelgen.RandomState;
  * {@code StageDensityFunction}). Dimensions without Vastlands stages have no context.
  */
 public final class GenerationContext {
+    /**
+     * The context of each climate sampler a Vastlands {@code RandomState} built, so biome sources
+     * (which only get the sampler) find their world's systems. Weak, identity-keyed keys.
+     */
+    private static final ConcurrentMap<Climate.Sampler, GenerationContext> SAMPLERS = new MapMaker().weakKeys().makeMap();
+
     private final GenerationSetup setup;
     private final GenerationSystems systems;
 
@@ -25,6 +35,17 @@ public final class GenerationContext {
 
     public static Optional<GenerationContext> of(RandomState randomState) {
         return Optional.ofNullable(((RandomStateExtension) (Object) randomState).vastlands$generationContext());
+    }
+
+    /** Called by {@code RandomStateMixin} once the sampler of a Vastlands {@code RandomState} exists. */
+    public static void bind(Climate.Sampler sampler, GenerationContext context) {
+        SAMPLERS.put(sampler, context);
+    }
+
+    /** The context of the {@code RandomState} that built a climate sampler, or null (vanilla worlds, other dimensions). */
+    @Nullable
+    public static GenerationContext of(Climate.Sampler sampler) {
+        return SAMPLERS.get(sampler);
     }
 
     /** For code running inside a level, e.g. a feature: {@code GenerationContext.of(featureContext.level().getLevel())}. */

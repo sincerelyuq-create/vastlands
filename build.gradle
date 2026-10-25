@@ -162,3 +162,20 @@ tasks.register('cavePreview', JavaExec) {
         jvmArgs project.property('previewJvmArgs').toString().split(' ').toList()
     }
 }
+
+// Measures the caves of a square: cave share by height and depth, passage widths (local thickness),
+// cave heights, wide spaces and megacaves, connectivity, water bodies, entrances and cave biomes.
+// Arguments: see com.sincerelyuq.vastlands.tools.CaveSurvey.
+tasks.register('caveSurvey', JavaExec) {
+    group = 'vastlands'
+    description = 'Prints quantitative statistics of the Vastlands caves of a square'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.sincerelyuq.vastlands.tools.CaveSurvey'
+    workingDir = layout.projectDirectory.asFile
+    jvmArgs '-Djava.awt.headless=true', '-Xmx8G'
+}
+tasks.named('caveSurvey', JavaExec).configure {
+    if (project.hasProperty('previewJvmArgs')) {
+        jvmArgs project.property('previewJvmArgs').toString().split(' ').toList()
+    }
+}

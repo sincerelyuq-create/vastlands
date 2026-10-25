@@ -14,7 +14,11 @@ import static com.sincerelyuq.vastlands.worldgen.noise.NoiseMath.smoothstep;
  * <p>Mutable and reused by the per-thread column cache; never shared between threads.
  */
 final class CaveColumn {
-    static final int MAX_PIECES = 48;
+    /** At most 64 pieces: their indices fit the bit masks of {@link #slabs}. */
+    static final int MAX_PIECES = 64;
+    /** Slabs of 16 blocks from Y -512 up: enough for any world height Vastlands supports. */
+    private static final int SLAB_OFFSET = 512;
+    private static final int SLABS = 128;
     static final int MAX_SOLIDS = 24;
 
     int x;
@@ -41,6 +45,8 @@ final class CaveColumn {
     final int[] solidHi = new int[MAX_SOLIDS];
     int solids;
     final CavePrimitive[] pieces = new CavePrimitive[MAX_PIECES];
+    /** For each 16-block slab, the pieces whose height range meets it (bit i: piece i). */
+    final long[] slabs = new long[SLABS];
     /**
      * Chambers: squared horizontal distance to the centre, the rubble of the floor, how far the
      * ceiling's breakdown hangs below the dome and the height offset of the terrace edges here.
@@ -49,12 +55,19 @@ final class CaveColumn {
     final double[] rubble = new double[MAX_PIECES];
     final double[] breakdown = new double[MAX_PIECES];
     final double[] phase = new double[MAX_PIECES];
+    /** Chambers: the terrace band last evaluated and its wall factor (heights come in runs). */
+    final long[] terraceBand = new long[MAX_PIECES];
+    final double[] terraceFactor = new double[MAX_PIECES];
     /** Noise for the ledges of chamber walls (set by the model). */
     SimplexNoise ledges;
     int count;
     final Fractures.Crack upperCrack = new Fractures.Crack();
     final Fractures.Crack deepCrack = new Fractures.Crack();
-    final Caverns.Section cavern = new Caverns.Section();
+    /** Sections of the upper and deep zone's megacaves at this column. */
+    final Megacaves.Section upperCave = new Megacaves.Section();
+    final Megacaves.Section deepCave = new Megacaves.Section();
+    /** True if a piece of an underground river reaches the column (its dams are notched). */
+    boolean riverPiece;
     /** Spillway: a dam notched at this water (or lava) top, else {@link Integer#MIN_VALUE}. */
     int notchY;
     CaveFluid notchFluid;
@@ -72,6 +85,16 @@ final class CaveColumn {
     /** The ground surface as generated, roofs over gorges included. */
     double groundSurface() {
         return this.roof.active ? Math.max(this.surface, this.roof.surface) : this.surface;
+    }
+
+    /** Registers piece {@code i} in the slabs its height range meets. */
+    void index(int i) {
+        CavePrimitive p = this.pieces[i];
+        int lo = Math.max(0, ((int) Math.floor(p.minY) + SLAB_OFFSET) >> 4);
+        int hi = Math.min(SLABS - 1, ((int) Math.ceil(p.maxY) + SLAB_OFFSET) >> 4);
+        for (int k = lo; k <= hi; k++) {
+            this.slabs[k] |= 1L << i;
+        }
     }
 
     void addSolid(int lo, int hi) {
@@ -120,7 +143,11 @@ final class CaveColumn {
         double rough = 1.0;
         boolean covered = y <= this.coverTop;
         double fade = Math.max(0.0, y - (this.coverTop - 4.0));
-        for (int i = 0; i < this.count; i++) {
+        int slab = (y + SLAB_OFFSET) >> 4;
+        long mask = slab >= 0 && slab < SLABS ? this.slabs[slab] : 0L;
+        while (mask != 0L) {
+            int i = Long.numberOfTrailingZeros(mask);
+            mask &= mask - 1;
             CavePrimitive p = this.pieces[i];
             if (y < p.minY || y > p.maxY || !covered && !p.ignoresCover) {
                 continue;
@@ -148,11 +175,20 @@ final class CaveColumn {
                 rough = 0.8;
             }
         }
-        if (this.cavern.present() && y >= this.cavern.low() && y <= this.cavern.high() && covered) {
-            double d = this.cavern.sdf(y) + fade;
-            if (d < best) {
-                best = d;
-                rough = 2.6;
+        if (covered) {
+            if (this.upperCave.present() && y >= this.upperCave.low() && y <= this.upperCave.high()) {
+                double d = this.upperCave.sdf(y) + fade;
+                if (d < best) {
+                    best = d;
+                    rough = 2.8 + 0.008 * this.upperCave.cave.radius;
+                }
+            }
+            if (this.deepCave.present() && y >= this.deepCave.low() && y <= this.deepCave.high()) {
+                double d = this.deepCave.sdf(y) + fade;
+                if (d < best) {
+                    best = d;
+                    rough = 2.8 + 0.008 * this.deepCave.cave.radius;
+                }
             }
         }
         this.roughness = rough;
@@ -198,11 +234,20 @@ final class CaveColumn {
     }
 
     private double chamber(CavePrimitive p, int i, int y) {
+        // Far outside the widest the terraces make it: solid whatever the wall noise (see carve).
+        double far = 1.07 * p.ra + 1.45 * p.roughness + 0.5;
+        if (this.dh2[i] > far * far) {
+            return Math.sqrt(this.dh2[i]) - 1.065 * p.ra;
+        }
         // Terraces: bands about 5 blocks high whose edges wander up and down along the wall and
         // whose step differs around it, so ledges come and go instead of forming rings.
         long band = (long) Math.floor((y + this.phase[i] + 1000.0) / 5.0);
-        double wobble = this.ledges.sample(this.x / 19.0 + band * 3.7, this.z / 19.0 - band * 1.9);
-        double rh = p.ra * (1.0 + 0.05 * (FluidDomains.unit(p.seed ^ band, 5) - 0.5) + 0.04 * wobble);
+        if (this.terraceBand[i] != band) {
+            double wobble = this.ledges.sample(this.x / 19.0 + band * 3.7, this.z / 19.0 - band * 1.9);
+            this.terraceBand[i] = band;
+            this.terraceFactor[i] = 1.0 + 0.05 * (FluidDomains.unit(p.seed ^ band, 5) - 0.5) + 0.04 * wobble;
+        }
+        double rh = p.ra * this.terraceFactor[i];
         double q2 = this.dh2[i] / (rh * rh);
         if (q2 >= 1.0) {
             return (Math.sqrt(q2) - 1.0) * rh;

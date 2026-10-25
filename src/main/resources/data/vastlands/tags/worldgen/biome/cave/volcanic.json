@@ -1,0 +1,28 @@
+{
+  "values": [
+    {
+      "id": "sincerelyuqs_biomes:smoldering_cave",
+      "required": false
+    },
+    {
+      "id": "sincerelyuqs_biomes:smoldering_caves",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq_biomes:smoldering_cave",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq_biomes:smoldering_caves",
+      "required": false
+    },
+    {
+      "id": "sincerelyuqsbiomes:smoldering_cave",
+      "required": false
+    },
+    {
+      "id": "sincerelyuqsbiomes:smoldering_caves",
+      "required": false
+    }
+  ]
+}
