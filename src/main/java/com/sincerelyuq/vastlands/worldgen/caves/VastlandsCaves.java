@@ -342,6 +342,34 @@ public final class VastlandsCaves implements CaveSystem {
         return this.column(x, z).notchY;
     }
 
+    /** What decides a block: the signed distance of every piece reaching it, the cracks, the megacave sections and the result (diagnostics). */
+    public String explain(int x, int y, int z) {
+        CaveColumn c = this.column(x, z);
+        StringBuilder out = new StringBuilder(String.format(Locale.ROOT, "block %d %d %d: carve %.2f, sdf %.2f (rough %.2f), coverTop %d, solid %s, range %d..%d%n",
+                x, y, z, this.model.carve(c, y), c.sdf(y), c.roughness, c.coverTop, c.solid(y), c.bottom, c.top));
+        for (Megacaves.Section section : new Megacaves.Section[] {c.upperCave, c.deepCave}) {
+            if (section.present()) {
+                out.append(String.format(Locale.ROOT, "  megacave %s at %.0f %.0f: q %.3f, floor %.1f, ceiling %.1f, sdf %.2f, scales %.2f %.2f, blocks/q %.1f%n",
+                        section.cave.kind, section.cave.x, section.cave.z, section.q, section.floor, section.ceiling, section.sdf(y), section.floorScale,
+                        section.ceilingScale, section.blocksPerQ));
+            }
+        }
+        if (c.upperCrack.open()) {
+            out.append(String.format(Locale.ROOT, "  upper crack: distance %.2f width %.2f, sdf %.2f%n", c.upperCrack.distance, c.upperCrack.width, c.upperCrack.sdf(y)));
+        }
+        if (c.deepCrack.open()) {
+            out.append(String.format(Locale.ROOT, "  deep crack: distance %.2f width %.2f, sdf %.2f%n", c.deepCrack.distance, c.deepCrack.width, c.deepCrack.sdf(y)));
+        }
+        for (int i = 0; i < c.count; i++) {
+            CavePrimitive p = c.pieces[i];
+            if (y >= p.minY && y <= p.maxY) {
+                out.append(String.format(Locale.ROOT, "  piece %s r %.1f..%.1f shape %.2f rough %.2f river %s y %.0f..%.0f%n", p.type == CavePrimitive.CHAMBER ? "chamber" : "segment",
+                        p.ra, p.rb, p.shape, p.roughness, p.river, p.minY, p.maxY));
+            }
+        }
+        return out.toString();
+    }
+
     /** Detailed diagnostics of a column (previews and tests). */
     public String debug(int x, int z) {
         return this.model.debug(this.column(x, z));

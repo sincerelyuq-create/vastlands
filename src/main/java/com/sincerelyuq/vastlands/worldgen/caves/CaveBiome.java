@@ -16,7 +16,7 @@ public enum CaveBiome {
     DRIPSTONE,
     /** The deep dark: rare, deep (around Y -27, where ancient cities start, and below the aquitard), under mountains. */
     DEEP_DARK,
-    /** Crystal caves of other mods (amethyst caves of Sincerelyuq's Biomes); plain rock without them. */
+    /** Crystal caves of other mods (amethyst caves of Sincerelyuq's Biomes); dripstone without them. */
     CRYSTAL,
     /** Hot caves of other mods (the smoldering cave of Sincerelyuq's Biomes), deep and in volcanic rock; plain rock without them. */
     VOLCANIC,
@@ -26,7 +26,8 @@ public enum CaveBiome {
     /** The slot taking this one's place when its tag holds no biome. */
     public CaveBiome fallback() {
         return switch (this) {
-            case CRYSTAL, VOLCANIC, OTHER, LUSH, DRIPSTONE, DEEP_DARK -> NONE;
+            case CRYSTAL -> DRIPSTONE;
+            case VOLCANIC, OTHER, LUSH, DRIPSTONE, DEEP_DARK -> NONE;
             default -> this;
         };
     }

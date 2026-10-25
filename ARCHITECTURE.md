@@ -887,8 +887,8 @@ Integration:
   the tags `#vastlands:cave/<slot>` (`data/vastlands/tags/worldgen/biome/cave/`). Within 16 blocks
   of the ground the delegate decides as before; below, `VastlandsCaves.caveBiome(x, y, z)` gives
   the slot; a slot with biomes returns one of them (several share a slot by 512-block regions), an
-  empty slot falls back to plain rock, and plain rock returns the delegate's biome at the surface
-  above (vanilla's own underground choice is no longer used). The cave system is found through the
+  empty slot falls back (crystal to dripstone, the others to plain rock), and plain rock returns the
+  delegate's biome at the surface above (vanilla's own underground choice is no longer used). The cave system is found through the
   climate sampler: `RandomStateMixin` registers each Vastlands `RandomState`'s sampler with its
   context (`GenerationContext.bind`, a weak identity map); `GenerationContext.of(Climate.Sampler)`
   looks it up. A sampler without a context (another world using the source) gets the delegate.
@@ -980,7 +980,12 @@ Layers, coarse to fine (`CaveModel`):
    - Fractures (`Fractures`): joint sets along a strike that turns over ~7 000 blocks, cracks ~75
      blocks apart opened by a gate noise (more of them where `vertical` is high); lens-shaped
      sections up to ~6 blocks either side (Agent 4: 4) and ~120 blocks tall in mountains; a rare
-     ravine set reaching the surface (V-shaped); a second set in the deep zone.
+     ravine set reaching the surface (V-shaped); a second set in the deep zone. Since Agent 4.5
+     each joint frame is anchored at a corner of a 2 400-block grid (its own strike and line
+     pattern; the four frames around a column blended by distance weights, so sets fade into each
+     other and cross where they meet): Agent 4 rotated the stretched noise about the world's
+     origin, which shifted it by |r| × the strike's turn per block, so far from the origin
+     (r ≳ 5 000) the cracks broke up into clouds of single-block holes.
    - Megacaves (`Megacaves`, new; replaces Agent 4's `Caverns`): at most one per 1 024-block cell
      in each zone (the deep grid offset by 512, so megacaves stack in places), chance (75% upper,
      55% deep) × `megacaves` × (0.35 + 0.95 × a 4 200-block cluster field) × (0.55 + 0.35 density).
@@ -991,8 +996,12 @@ Layers, coarse to fine (`CaveModel`):
      bridges), abyss (radius 50..120, 110..300 tall, sheer walls, shelf, bridges), complex (a ragged
      shelf with holes halfway up: two floors; partitions) and pillars (a forest of columns, stubs and
      pendants), chosen from the room above and below and the rock. Height = a share of the radius
-     (halls 0.32..0.52) within the room between the aquitard (+18) or Y -236 and the rough ground's
-     minimum over the footprint (−24) or the aquitard (−26). Per column (`Megacaves.Section`): a
+     (halls 0.32..0.52, canyons 1.0, abysses 2.5) within the room between the aquitard (+18) or
+     Y -236 and the rough ground at the centre (−24) or the aquitard (−26); then, ring by ring
+     (0.35, 0.7, 0.95 of the outline, 12 directions each), the vault's dome profile there (plus 20%
+     for cupolas) must stay under that ring's lowest rough ground (−24): tall vaults under peaks,
+     low ones where valleys cross the rim (abysses up to ~150 and complexes ~135 blocks tall under
+     mountains in the measured seeds). Per column (`Megacaves.Section`): a
      lobed, elongated outline (q = 1 at the wall) whose walls step back in uneven 6-block
      terraces; a floor (superellipse of power 2.6..4: flat, with talus rising to the walls; hills of
      0.15 h, a basin and islands in lakes, soft 5-block benches, rubble and boulders) and a vault
@@ -1129,7 +1138,8 @@ overhaul): columns 2.5 / 3.5 ms (Agent 4: 4.3 / 4.5), density of all 768 × 256 
 times the cave volume. What keeps it there: `KeyedCache` instead of direct-mapped caches, rough
 terrain for far planning, pieces pruned by their horizontal reach and indexed by 16-block slabs,
 chamber and megacave terraces cached per 5..6-block band, no wall noise deep inside caves, cave
-biome slots without cave columns. End to end: see PROGRESS.md.
+biome slots without cave columns. End to end (dedicated server, 24 × 24 chunks, two squares,
+alternated with Agent 4's code): 9.4..11.2 chunks/s against Agent 4's 9.35..9.38: not slower.
 
 Tuning: `CaveSettings.DEFAULT` (frequency, density, passageWidth, largePassages, chambers,
 megacaves, megacaveScale, vertical, regionVariation, water, spillways, lava, entrances, seaCaves,

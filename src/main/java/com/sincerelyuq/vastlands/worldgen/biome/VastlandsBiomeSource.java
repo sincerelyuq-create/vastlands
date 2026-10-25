@@ -27,8 +27,9 @@ import net.minecraft.world.level.biome.Climate;
  *
  * <p>Each cave slot is a biome list, normally a tag ({@code #vastlands:cave/lush} and so on), so a
  * slot can hold biomes of other mods as optional tag entries: present when the mod is installed,
- * silently absent otherwise. A slot whose list is empty falls back to plain rock. Several biomes in
- * one slot share its provinces by regions of about 512 blocks.
+ * silently absent otherwise. A slot whose list is empty falls back to another (crystal to dripstone,
+ * the others to plain rock). Several biomes in one slot share its provinces by regions of about
+ * 512 blocks.
  *
  * <p>Underground, vanilla's own cave biomes of the delegate (which follow its depth parameter and
  * climate) are replaced: plain rock takes the biome of the surface above, cave biomes come only

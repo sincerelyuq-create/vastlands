@@ -120,7 +120,7 @@ public final class CaveModel {
         this.galleries = new Galleries(s, geography, this.geology, this.domains, settings, ground);
         this.fractures = new Fractures(s, settings);
         this.tunnels = new RiverTunnels(s, geography, ground, rivers, waters, this.domains, settings, this.seaTop);
-        this.biomes = new CaveBiomes(s, geography, this.geology, this.domains, this.megacaves, settings);
+        this.biomes = new CaveBiomes(s, geography, this.geology, this.domains, this.megacaves, ground, this.seaTop, settings);
         this.roughness = new Noise3(s + 1);
         this.detail = new Noise3(s + 2);
         this.bridges = new Noise3(s + 3);

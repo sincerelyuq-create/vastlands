@@ -25,14 +25,19 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * Gives density functions access to the world seed. Vanilla passes the seed to its own functions
  * through hardcoded {@code instanceof} checks in {@code RandomState}'s wiring visitor; this wraps
  * that visitor so Vastlands functions can bind to a per-world {@link GenerationContext} instead,
- * and registers the finished climate sampler with the context, so the Vastlands biome source finds
- * the caves from the sampler it is given.
+ * and registers the finished climate sampler and router with the context, so the Vastlands biome
+ * source finds the caves from the sampler it is given (chunks build their own from the router, see
+ * {@code NoiseChunkMixin}).
  */
 @Mixin(RandomState.class)
 public abstract class RandomStateMixin implements RandomStateExtension {
     @Shadow
     @Final
     private Climate.Sampler sampler;
+
+    @Shadow
+    @Final
+    private NoiseRouter router;
 
     @Unique
     @Nullable
@@ -43,6 +48,7 @@ public abstract class RandomStateMixin implements RandomStateExtension {
         GenerationContext context = this.vastlands$generationContext;
         if (context != null) {
             GenerationContext.bind(this.sampler, context);
+            GenerationContext.bind(this.router, context);
         }
     }
 

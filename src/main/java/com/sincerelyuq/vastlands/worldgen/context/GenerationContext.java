@@ -8,6 +8,7 @@ import java.util.concurrent.ConcurrentMap;
 import javax.annotation.Nullable;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.biome.Climate;
+import net.minecraft.world.level.levelgen.NoiseRouter;
 import net.minecraft.world.level.levelgen.RandomState;
 
 /**
@@ -24,6 +25,8 @@ public final class GenerationContext {
      * (which only get the sampler) find their world's systems. Weak, identity-keyed keys.
      */
     private static final ConcurrentMap<Climate.Sampler, GenerationContext> SAMPLERS = new MapMaker().weakKeys().makeMap();
+    /** The same for the wired noise router of each Vastlands {@code RandomState}: per-chunk samplers are built from it. */
+    private static final ConcurrentMap<NoiseRouter, GenerationContext> ROUTERS = new MapMaker().weakKeys().makeMap();
 
     private final GenerationSetup setup;
     private final GenerationSystems systems;
@@ -42,7 +45,22 @@ public final class GenerationContext {
         SAMPLERS.put(sampler, context);
     }
 
-    /** The context of the {@code RandomState} that built a climate sampler, or null (vanilla worlds, other dimensions). */
+    /** Called by {@code RandomStateMixin} with the wired router of a Vastlands {@code RandomState}. */
+    public static void bind(NoiseRouter router, GenerationContext context) {
+        ROUTERS.put(router, context);
+    }
+
+    /** The context whose {@code RandomState} wired a noise router, or null. */
+    @Nullable
+    public static GenerationContext of(NoiseRouter router) {
+        return ROUTERS.get(router);
+    }
+
+    /**
+     * The context of the {@code RandomState} that built a climate sampler (directly, or a chunk's
+     * cached sampler from its router, see {@code NoiseChunkMixin}), or null (vanilla worlds, other
+     * dimensions).
+     */
     @Nullable
     public static GenerationContext of(Climate.Sampler sampler) {
         return SAMPLERS.get(sampler);

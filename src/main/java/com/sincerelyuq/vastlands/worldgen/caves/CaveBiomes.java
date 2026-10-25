@@ -20,7 +20,9 @@ import com.sincerelyuq.vastlands.worldgen.noise.SimplexNoise;
  *     deep dark, hot caves in volcanic rock.</li>
  * </ul>
  * The deep dark of provinces keeps to Y {@value #DEEP_DARK_BOTTOM}..{@value #DEEP_DARK_TOP}: at most
- * ~150 blocks thick, however high the ground (megacaves of the deep dark fill their whole vault).
+ * ~150 blocks thick, however high the ground (megacaves of the deep dark fill their whole vault),
+ * and stays out of flooded rock (ancient cities start in it at Y -27 and would stand in cave
+ * water); deep dark megacaves are dry ones.
  * A province's slot comes from the climate and rock at its site, a share of the provinces
  * ({@code CaveSettings.caveBiomes}) holds no cave biome (plain rock under the surface biome), and
  * the layer boundaries wander by ±15 blocks. Megacaves carry a theme of their own over their whole
@@ -46,17 +48,22 @@ final class CaveBiomes {
     private final CaveGeology geology;
     private final FluidDomains domains;
     private final Megacaves megacaves;
+    private final CaveModel.Ground ground;
+    private final int seaTop;
     private final CaveSettings settings;
     private final ThreadLocal<double[]> scratch = ThreadLocal.withInitial(() -> new double[2]);
     private final SimplexNoise warpX, warpZ, layers;
     private final ThreadLocal<KeyedCache<CaveBiome>> provinces = ThreadLocal.withInitial(() -> new KeyedCache<>(512));
 
-    CaveBiomes(long seed, GeographyModel geography, CaveGeology geology, FluidDomains domains, Megacaves megacaves, CaveSettings settings) {
+    CaveBiomes(long seed, GeographyModel geography, CaveGeology geology, FluidDomains domains, Megacaves megacaves, CaveModel.Ground ground,
+               int seaTop, CaveSettings settings) {
         this.seed = SimplexNoise.mix(seed ^ 0x42494F4D4553L);
         this.geography = geography;
         this.geology = geology;
         this.domains = domains;
         this.megacaves = megacaves;
+        this.ground = ground;
+        this.seaTop = seaTop;
         this.settings = settings;
         this.warpX = new SimplexNoise(seed + 901);
         this.warpZ = new SimplexNoise(seed + 902);
@@ -76,6 +83,9 @@ final class CaveBiomes {
         Megacaves.Megacave m = this.megacaves.covering(x, z, deep ? Megacaves.DEEP : Megacaves.UPPER, q);
         if (m != null && q[0] < 1.0 && y >= m.bottom() - 10.0 && y <= m.top() + 10.0) {
             CaveBiome theme = this.theme(m);
+            if (theme == CaveBiome.LUSH) {
+                return this.plausible(theme, x, y, z, surface, deep);
+            }
             if (theme != null) {
                 return theme;
             }
@@ -88,11 +98,30 @@ final class CaveBiomes {
             layer = y > shallow ? 0 : 1;
         }
         CaveBiome slot = this.province(x, z, layer);
-        if (slot == CaveBiome.DEEP_DARK && (y > DEEP_DARK_TOP || y < DEEP_DARK_BOTTOM)) {
-            // The deep dark keeps to a band (vanilla's own is Y -64..0): its sculk features cost
-            // generation time in proportion to its volume, and under high ground a province would
-            // otherwise be hundreds of blocks thick.
-            return CaveBiome.NONE;
+        return this.plausible(slot, x, y, z, surface, deep);
+    }
+
+    /** Checks a slot against the column itself: no lush caves under cold ground or the sea, no deep dark out of its band or in flooded rock. */
+    private CaveBiome plausible(CaveBiome slot, int x, int y, int z, double surface, boolean deep) {
+        if (slot == CaveBiome.LUSH) {
+            // Provinces and megacaves take the climate of their site; the column's own decides too.
+            if (surface < this.seaTop - 2 || this.ground.geography(x, z).temperature() < -0.3) {
+                return CaveBiome.NONE;
+            }
+        }
+        if (slot == CaveBiome.DEEP_DARK) {
+            if (y > DEEP_DARK_TOP || y < DEEP_DARK_BOTTOM) {
+                // The deep dark keeps to a band (vanilla's own is Y -64..0): its sculk features cost
+                // generation time in proportion to its volume, and under high ground a province
+                // would otherwise be hundreds of blocks thick.
+                return CaveBiome.NONE;
+            }
+            FluidDomains.Domain domain = this.domains.owner(x, z, deep);
+            if (domain.fluid != CaveFluid.AIR && domain.level >= y) {
+                // Not in flooded rock: ancient cities (which start in the deep dark at Y -27) would
+                // stand in the water of the caves around them.
+                return CaveBiome.NONE;
+            }
         }
         return slot;
     }
@@ -113,7 +142,7 @@ final class CaveBiomes {
         if (m.domain.fluid == CaveFluid.LAVA || m.volcanic > 0.5 && t < 0.5) {
             return CaveBiome.VOLCANIC;
         }
-        if (t < 0.22 && m.volcanic < 0.3 && !sea) {
+        if (t < 0.22 && m.volcanic < 0.3 && m.domain.fluid == CaveFluid.AIR) {
             return CaveBiome.DEEP_DARK;
         }
         if (t < 0.45) {
@@ -169,22 +198,22 @@ final class CaveBiomes {
                 w[CaveBiome.LUSH.ordinal()] = land ? mild * (0.25 + 2.0 * geo.wetness()) : 0.0;
                 w[CaveBiome.DRIPSTONE.ordinal()] = 0.35 + 0.4 * geo.karst() + 0.2 * geo.fracture();
                 w[CaveBiome.CRYSTAL.ordinal()] = 0.2 + 0.15 * geo.fracture();
-                w[CaveBiome.OTHER.ordinal()] = 0.15;
+                w[CaveBiome.OTHER.ordinal()] = 0.05;
             }
             case 1 -> {
                 w[CaveBiome.LUSH.ordinal()] = land ? mild * (0.1 + 1.2 * geo.wetness()) : 0.0;
                 w[CaveBiome.DRIPSTONE.ordinal()] = 0.45 + 0.4 * geo.karst();
-                w[CaveBiome.DEEP_DARK.ordinal()] = land ? (0.12 + 0.5 * mountains) * (1.0 - geo.volcanic()) : 0.0;
+                w[CaveBiome.DEEP_DARK.ordinal()] = land ? (0.25 + 0.8 * mountains) * (1.0 - geo.volcanic()) : 0.0;
                 w[CaveBiome.CRYSTAL.ordinal()] = 0.25;
                 w[CaveBiome.VOLCANIC.ordinal()] = 0.5 * geo.volcanic();
-                w[CaveBiome.OTHER.ordinal()] = 0.15;
+                w[CaveBiome.OTHER.ordinal()] = 0.05;
             }
             default -> {
                 w[CaveBiome.DRIPSTONE.ordinal()] = 0.35 + 0.2 * geo.karst();
                 w[CaveBiome.DEEP_DARK.ordinal()] = (0.1 + 0.25 * mountains) * (1.0 - geo.volcanic());
                 w[CaveBiome.CRYSTAL.ordinal()] = 0.35;
                 w[CaveBiome.VOLCANIC.ordinal()] = 0.12 + 1.4 * geo.volcanic();
-                w[CaveBiome.OTHER.ordinal()] = 0.15;
+                w[CaveBiome.OTHER.ordinal()] = 0.05;
             }
         }
         double total = 0.0;

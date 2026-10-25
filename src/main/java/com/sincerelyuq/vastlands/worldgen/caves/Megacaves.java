@@ -628,42 +628,60 @@ final class Megacaves {
         if (radius < 45.0) {
             return new Megacave(key, zone);
         }
-        // The lowest ground over the footprint, and the room it leaves under its cover of rock.
+        // The ground over the footprint, ring by ring: the vault is a dome, highest at the centre
+        // and low near the walls, so each ring only needs room for the vault's height there (with
+        // its cupolas) under the lowest ground of the ring and its cover of rock.
         double cos = Math.cos(angle);
         double sin = Math.sin(angle);
-        double minGround = surface;
-        for (int k = 0; k < 12; k++) {
-            double a = k * Math.PI / 6.0;
-            for (double f : new double[] {0.55, 1.0}) {
-                double uu = Math.cos(a) * radius * f * (1.0 + elongation);
-                double vv = Math.sin(a) * radius * f * (1.0 - elongation);
-                minGround = Math.min(minGround, this.ground.estimate(x + uu * cos - vv * sin, z + uu * sin + vv * cos) - 12.0);
+        double[] rings = {0.0, 0.35, 0.7, 0.95};
+        double[] grounds = new double[rings.length];
+        grounds[0] = surface;
+        for (int r = 1; r < rings.length; r++) {
+            double lowestHere = Double.POSITIVE_INFINITY;
+            for (int k = 0; k < 12; k++) {
+                double a = (k + 0.5 * r) * Math.PI / 6.0;
+                double uu = Math.cos(a) * radius * rings[r] * (1.0 + elongation);
+                double vv = Math.sin(a) * radius * rings[r] * (1.0 - elongation);
+                lowestHere = Math.min(lowestHere, this.ground.estimate(x + uu * cos - vv * sin, z + uu * sin + vv * cos) - 12.0);
             }
+            grounds[r] = lowestHere;
         }
-        double top = Math.min(minGround - CaveNetwork.COVER - 6.0, ceilingCap);
+        double top = Math.min(grounds[0] - CaveNetwork.COVER - 6.0, ceilingCap);
         double room = top - lowest;
         double height = Math.min(heightShare * radius, kind == Kind.ABYSS ? 300.0 : 220.0);
         height = Math.max(height, 36.0);
         double basin = kind == Kind.LAKE ? 0.25 * height : 0.0;
-        // floor - 0.14 h - basin - 5 >= lowest and floor + 1.2 h <= top.
+        // floor - 0.14 h - basin - 5 >= lowest and floor + 1.2 h <= top (at the centre).
         double fits = (room - 5.0) / (1.34 + basin / height);
         if (fits < 30.0) {
             return new Megacave(key, zone);
         }
         if (height > fits) {
-            double ratio = fits / height;
+            basin *= fits / height;
             height = fits;
-            basin *= ratio;
-            if (kind == Kind.ABYSS && height < 110.0) {
-                kind = Kind.HALL;
-                power = 3.0;
-                dome = 2.0;
-                vault = 0.6;
-            }
         }
         double floorLo = lowest + 0.14 * height + basin + 5.0;
         double floorHi = top - 1.2 * height;
         double floor = floorLo + (floorHi - floorLo) * Math.pow(FluidDomains.unit(h, 10), 1.6);
+        for (int r = 1; r < rings.length; r++) {
+            double profile = Math.pow(Math.max(1e-6, 1.0 - Math.pow(rings[r], dome)), vault / dome);
+            double allowed = Math.min(grounds[r] - CaveNetwork.COVER - 6.0, ceilingCap) - floor;
+            if (profile > 0.05) {
+                height = Math.min(height, allowed / (1.2 * profile));
+            }
+        }
+        if (height < 30.0) {
+            return new Megacave(key, zone);
+        }
+        if (kind == Kind.LAKE) {
+            basin = Math.min(basin, 0.25 * height);
+        }
+        if (kind == Kind.ABYSS && height < 110.0) {
+            kind = Kind.HALL;
+            power = 3.0;
+            dome = 2.0;
+            vault = 0.6;
+        }
         double rise = (kind == Kind.CANYON ? 0.55 : 0.3) * height;
         double bound = radius * (1.0 + elongation) * 1.3 + reach;
         long seed = SimplexNoise.mix(h ^ 0x5345454444L);
@@ -684,7 +702,7 @@ final class Megacaves {
         }
         double partitionCell = (kind == Kind.HALL || kind == Kind.COMPLEX || kind == Kind.LAKE) && radius >= 110.0 ? 0.55 * radius : Double.NaN;
         double[][] bridges = this.bridges(h, kind, x, z, cos, sin, radius, elongation, floor, height);
-        CavePrimitive[] extras = this.extras(h, x, z, zone, cos, sin, radius, elongation, floor, height, minGround, domain, surface);
+        CavePrimitive[] extras = this.extras(h, x, z, zone, cos, sin, radius, elongation, floor, height, domain);
         for (CavePrimitive p : extras) {
             bound = Math.max(bound, Math.max(Math.max(Math.abs(p.minX - x), Math.abs(p.maxX - x)), Math.max(Math.abs(p.minZ - z), Math.abs(p.maxZ - z))));
         }
@@ -782,7 +800,7 @@ final class Megacaves {
      * several entrances and exits) and a cenote: a collapse shaft from the vault to the sky.
      */
     private CavePrimitive[] extras(long h, double x, double z, int zone, double cos, double sin, double radius, double elongation, double floor,
-                                   double height, double minGround, FluidDomains.Domain domain, double surface) {
+                                   double height, FluidDomains.Domain domain) {
         List<CavePrimitive> out = new ArrayList<>();
         int connectors = 3 + (int) (FluidDomains.unit(h, 60) * 3.0);
         double reach = this.settings.megacaveScale() * CONNECTOR_REACH;

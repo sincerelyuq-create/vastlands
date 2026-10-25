@@ -56,6 +56,8 @@ final class Fractures {
         }
     }
 
+    /** Joint frames are anchored on a grid of this size (blocks). */
+    private static final double FRAME = 2400.0;
     private final SimplexNoise strike, line, gate, widthNoise, heightNoise, middleNoise, ravines;
     private final SimplexNoise deepStrike, deepLine, deepGate;
     private final double scale;
@@ -137,18 +139,43 @@ final class Fractures {
         out.width = out.half < 8.0 ? 0.0 : open * (1.8 + 5.0 * strength * (0.5 + 0.5 * this.widthNoise.sample(x / 130.0 + 40.0, z / 130.0)));
     }
 
-    /** Distance to the nearest zero line of a joint set (stretched noise along a turning strike). */
+    /**
+     * Distance to the nearest zero line of a joint set: a noise stretched along the strike. The
+     * strike turns over ~7 000 blocks, but each frame is anchored at a corner of a
+     * {@value #FRAME}-block grid (its own strike, its own line pattern), and the four frames
+     * around a column are blended by distance weights (a frame's lines thin out and vanish away
+     * from its corner). Rotating about the world's origin instead (Agent 4) shifted the stretched
+     * coordinate by |r| × the turn per block: far from the origin the lines broke up into scattered
+     * single-block holes.
+     */
     private double distance(SimplexNoise strike, SimplexNoise line, double x, double z, double offset) {
-        double angle = Math.PI * strike.sample(x / 7000.0 + offset, z / 7000.0);
-        double cos = Math.cos(angle);
-        double sin = Math.sin(angle);
-        double u = x * cos + z * sin;
-        double v = -x * sin + z * cos;
+        long fi = (long) Math.floor(x / FRAME);
+        long fj = (long) Math.floor(z / FRAME);
+        double tx = smoothstep(0.0, 1.0, x / FRAME - fi);
+        double tz = smoothstep(0.0, 1.0, z / FRAME - fj);
         double[] gradient = new double[2];
-        double value = line.sample(u / 75.0, v / 430.0, gradient);
-        double gu = gradient[0] / 75.0;
-        double gv = gradient[1] / 430.0;
-        double slope = Math.sqrt(gu * gu + gv * gv);
-        return Math.abs(value) / Math.max(slope, 1e-4);
+        double best = Double.POSITIVE_INFINITY;
+        for (int b = 0; b <= 1; b++) {
+            for (int a = 0; a <= 1; a++) {
+                double w = (a == 0 ? 1.0 - tx : tx) * (b == 0 ? 1.0 - tz : tz);
+                if (w < 0.02) {
+                    continue;
+                }
+                double ax = (fi + a) * FRAME;
+                double az = (fj + b) * FRAME;
+                double angle = Math.PI * strike.sample(ax / 7000.0 + offset, az / 7000.0);
+                double cos = Math.cos(angle);
+                double sin = Math.sin(angle);
+                double u = (x - ax) * cos + (z - az) * sin;
+                double v = -(x - ax) * sin + (z - az) * cos;
+                long h = SimplexNoise.mix((fi + a) * 0x9E3779B97F4A7C15L ^ (fj + b) * 0xC2B2AE3D27D4EB4FL ^ Double.doubleToLongBits(offset));
+                double value = line.sample(u / 75.0 + 1000.0 * FluidDomains.unit(h, 0), v / 430.0 + 1000.0 * FluidDomains.unit(h, 1), gradient);
+                double gu = gradient[0] / 75.0;
+                double gv = gradient[1] / 430.0;
+                double slope = Math.sqrt(gu * gu + gv * gv);
+                best = Math.min(best, Math.abs(value) / Math.max(slope, 1e-4) / Math.sqrt(w));
+            }
+        }
+        return best;
     }
 }

@@ -11,7 +11,9 @@ import com.sincerelyuq.vastlands.worldgen.caves.VastlandsCaves;
 import com.sincerelyuq.vastlands.worldgen.context.GenerationContext;
 import com.sincerelyuq.vastlands.worldgen.geography.GeographySample;
 import com.sincerelyuq.vastlands.worldgen.system.GenerationSystems;
+import java.lang.reflect.Method;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import net.minecraft.core.Holder;
@@ -23,7 +25,18 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.biome.Biomes;
 import net.minecraft.world.level.biome.Climate;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.LevelHeightAccessor;
+import net.minecraft.world.level.chunk.ProtoChunk;
+import net.minecraft.world.level.chunk.UpgradeData;
+import net.minecraft.world.level.levelgen.Aquifer;
+import net.minecraft.world.level.levelgen.DensityFunction;
+import net.minecraft.world.level.levelgen.DensityFunctions;
+import net.minecraft.world.level.levelgen.NoiseChunk;
+import net.minecraft.world.level.levelgen.NoiseGeneratorSettings;
+import net.minecraft.world.level.levelgen.NoiseRouter;
 import net.minecraft.world.level.levelgen.RandomState;
+import net.minecraft.world.level.levelgen.blending.Blender;
 import net.minecraft.world.level.levelgen.presets.WorldPreset;
 import net.neoforged.testframework.junit.EphemeralTestServerProvider;
 import org.junit.jupiter.api.Test;
@@ -40,6 +53,39 @@ class CaveBiomeTest {
     private static final ResourceKey<WorldPreset> PRESET = ResourceKey.create(Registries.WORLD_PRESET, Vastlands.id("vastlands"));
     private static final long SEED = 20261018L;
 
+    /** The cached climate sampler of a noise chunk for chunk 0,0, as chunk biome filling builds it. */
+    private static Climate.Sampler cachedSampler(MinecraftServer server, VastlandsChunkGenerator generator, RandomState state) {
+        ProtoChunk chunk = new ProtoChunk(new ChunkPos(0, 0), UpgradeData.EMPTY, LevelHeightAccessor.create(WorldHeight.MIN_Y, WorldHeight.HEIGHT),
+                server.registryAccess().lookupOrThrow(Registries.BIOME), null);
+        NoiseGeneratorSettings settings = generator.generatorSettings().value();
+        NoiseChunk noise = NoiseChunk.forChunk(chunk, state, new NoBeardifier(), settings, (x, y, z) -> new Aquifer.FluidStatus(Integer.MIN_VALUE, null), Blender.empty());
+        try {
+            Method method = NoiseChunk.class.getDeclaredMethod("cachedClimateSampler", NoiseRouter.class, List.class);
+            method.setAccessible(true);
+            return (Climate.Sampler) method.invoke(noise, state.router(), settings.spawnTarget());
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** No structures to adapt the terrain to. */
+    private static final class NoBeardifier implements DensityFunctions.BeardifierOrMarker {
+        @Override
+        public double compute(DensityFunction.FunctionContext context) {
+            return 0.0;
+        }
+
+        @Override
+        public double minValue() {
+            return 0.0;
+        }
+
+        @Override
+        public double maxValue() {
+            return 0.0;
+        }
+    }
+
     @Test
     void caveBiomesFillContiguousPlausibleProvinces(MinecraftServer server) {
         RegistryAccess registries = server.registryAccess();
@@ -50,7 +96,8 @@ class CaveBiomeTest {
         for (ResourceKey<Biome> key : new ResourceKey[] {Biomes.LUSH_CAVES, Biomes.DRIPSTONE_CAVES, Biomes.DEEP_DARK}) {
             assertTrue(possible.stream().anyMatch(h -> h.is(key)), "possible biomes lack " + key.location());
         }
-        // Without other mods the crystal and hot slots fall back to plain rock (no biome of their own).
+        // Without other mods the crystal slot falls back to dripstone, the hot one to plain rock.
+        assertTrue(source.slots().get(CaveBiome.CRYSTAL).stream().allMatch(h -> h.is(Biomes.DRIPSTONE_CAVES)), "crystal slot without mods");
         assertTrue(source.slots().get(CaveBiome.LUSH).stream().allMatch(h -> h.is(Biomes.LUSH_CAVES)), "lush slot");
         assertTrue(source.slots().get(CaveBiome.DEEP_DARK).stream().allMatch(h -> h.is(Biomes.DEEP_DARK)), "deep dark slot");
 
@@ -59,6 +106,14 @@ class CaveBiomeTest {
         VastlandsCaves caves = (VastlandsCaves) systems.caves();
         Climate.Sampler sampler = state.sampler();
         assertEquals(GenerationContext.of(state).orElseThrow(), GenerationContext.of(sampler), "the sampler must lead to its world's context");
+        // Chunk biome filling uses a per-chunk cached sampler (NoiseChunk.cachedClimateSampler): it
+        // must lead to the same context and give the same biomes.
+        Climate.Sampler cached = cachedSampler(server, generator, state);
+        assertEquals(GenerationContext.of(state).orElseThrow(), GenerationContext.of(cached), "a chunk's cached sampler must lead to its world's context");
+        for (int y = 40; y > -240; y -= 20) {
+            assertEquals(source.getNoiseBiome(QuartPos.fromBlock(8), QuartPos.fromBlock(y), QuartPos.fromBlock(8), sampler),
+                    source.getNoiseBiome(QuartPos.fromBlock(8), QuartPos.fromBlock(y), QuartPos.fromBlock(8), cached), "cached sampler biome at Y " + y);
+        }
 
         int surfaceChecked = 0;
         int surfaceDifferent = 0;
@@ -102,7 +157,7 @@ class CaveBiomeTest {
                 samples, lush, dripstone, deepDark, deepDarkAtCities, citySamples, surfaceDifferent, surfaceChecked);
         assertEquals(0, surfaceDifferent, "surface biomes changed");
         assertTrue(lush > 0.03 && lush < 0.3, "lush caves share " + lush);
-        assertTrue(dripstone > 0.08 && dripstone < 0.5, "dripstone share " + dripstone);
+        assertTrue(dripstone > 0.08 && dripstone < 0.45, "dripstone share " + dripstone);
         assertTrue(deepDark > 0.003 && deepDark < 0.12, "deep dark share " + deepDark);
         assertTrue(deepDarkAtCities > 0, "no deep dark at Y -27 for ancient cities");
         assertEquals(0, lushCold, "lush caves under frozen climates");

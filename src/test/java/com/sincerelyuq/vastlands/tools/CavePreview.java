@@ -355,6 +355,7 @@ public final class CavePreview {
     /** Prints the blocks around a point (x and z ±2, y ±3) and the cave diagnostics of its column. */
     private static void probe(CaveVolume volume, VastlandsCaves caves, int px, int py, int pz) {
         System.out.println(caves.describe(px, py, pz));
+        System.out.print(caves.explain(px, py, pz));
         for (int dx = -2; dx <= 2; dx++) {
             System.out.println("  x " + (px + dx) + ": " + caves.debug(px + dx, pz));
         }

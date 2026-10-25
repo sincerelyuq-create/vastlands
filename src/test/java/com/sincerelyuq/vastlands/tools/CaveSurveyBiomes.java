@@ -24,8 +24,9 @@ final class CaveSurveyBiomes {
             case LUSH -> "lush_caves";
             case DRIPSTONE -> "dripstone_caves";
             case DEEP_DARK -> "deep_dark";
-            // Without other mods these slots fall back to plain rock.
-            case CRYSTAL, VOLCANIC, OTHER -> slot.name().toLowerCase(Locale.ROOT) + " (plain without mods)";
+            // Without other mods: crystal falls back to dripstone, the others to plain rock.
+            case CRYSTAL -> "crystal (dripstone_caves without mods)";
+            case VOLCANIC, OTHER -> slot.name().toLowerCase(Locale.ROOT) + " (plain without mods)";
             case NONE -> "plain rock";
         };
     }
