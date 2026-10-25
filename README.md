@@ -22,15 +22,24 @@ continent downhill to the sea, meandering across floodplains, broad rivers up to
 valleys of their own with ragged banks, lakes in basins and where rivers cross flat ground, rocky
 ledges and waterfalls (tall ones off escarpments and in mountains, with a horseshoe lip, a round
 plunge pool with boulders and churning water, and a rough-walled gorge below), frozen rivers in
-polar climates. Caves and forests are not implemented yet. See PROGRESS.md.
+polar climates; and caves: multi-level cave networks shaped by the rock (dense winding karst,
+chasms and shafts in mountains, quiet plains, sea caves on coasts), chambers, halls and rare
+enormous caverns with pillars, entrances in hillsides, cliffs, sinkholes and the sea floor,
+underground lakes and flooded passages that always stand level, underground falls between water
+levels, deep lava lakes below the aquitard with basalt and magma in volcanic regions (no more lava
+in every cave below Y -54), and designed connections to the surface water: rivers flowing through
+natural tunnels and under natural bridges, rivers pouring into the caves through swallets, dry
+grottoes behind tall waterfalls, sea caves and blue holes open to the sea. Forests are not
+implemented yet. See PROGRESS.md.
 
 Using it
 
 - Singleplayer: Create New World → World → World Type: Vastlands.
 - Dedicated server: `level-type=vastlands\:vastlands` in `server.properties` before the world is created.
 - The default world types are not changed by the mod.
-- F3 shows "Vastlands terrain", "Vastlands geography" and "Vastlands hydrology" lines for the column
-  you stand on (surface, landform, climate, ice, water and the nearest river).
+- F3 shows "Vastlands terrain", "Vastlands geography", "Vastlands hydrology" and "Vastlands caves"
+  lines for the column you stand on (surface, landform, climate, ice, water, the nearest river, and
+  the rock and cave water domains).
 
 Building
 
@@ -41,4 +50,7 @@ the terrain of a seed as a relief map and a perspective view without starting th
 `--maps relief,landform,biome,temperature,moisture,ice` for geography, biome, climate and ice maps.
 `./gradlew hydrologyPreview --args="--seed 1 --size 16384 --scale 8 --out build/rivers"` renders
 rivers, lakes and waterfalls over the carved relief and lists the tallest falls and widest rivers.
+`./gradlew cavePreview --args="--seed 1 --center 0 0 --size 1024 --out build/caves/s"` draws
+sections through the caves of a square (`--plan 2`, `--slices -150,40`, `--stats`, `--sea` and more:
+see ARCHITECTURE.md, Testing).
 Architecture and contribution notes: ARCHITECTURE.md.

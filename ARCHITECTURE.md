@@ -74,11 +74,12 @@ src/main/java/com/sincerelyuq/vastlands/
   mixin/RandomStateMixin.java         binds Vastlands density functions to the world seed
   mixin/SurfaceRulesContextMixin.java surface rules use the exact terrain surface (Vastlands worlds only)
   mixin/ServerLevelMixin.java         weather does not freeze the cracks of ice fields (Vastlands worlds only)
+  mixin/NoiseBasedChunkGeneratorMixin.java  noise filling uses the caves' fluid picker (Vastlands worlds only)
   worldgen/
     WorldHeight.java                  MIN_Y = -256, HEIGHT = 768, MAX_Y = 511
     VastlandsChunkGenerator.java      "vastlands:noise", a NoiseBasedChunkGenerator subclass; trench water and
-                                      ice field steps (OceanSurface), river water steps (RiverWater), base
-                                      heights with river water
+                                      ice field steps (OceanSurface), river water steps (RiverWater), cave
+                                      steps (CaveBlocks), no vanilla carvers, base heights with river water
     WorldgenDiagnostics.java          level-load checks (height mismatch, missing context)
     context/                          GenerationContext (per-world state), binding visitor, mixin duck interface
     density/StageDensityFunction.java vastlands:terrain / vastlands:hydrology / vastlands:caves router nodes
@@ -95,6 +96,10 @@ src/main/java/com/sincerelyuq/vastlands/
     hydrology/                        rivers, lakes, falls: HydrologyModel (pure Java: DrainageDomain, BasinRivers,
                                       WaterIndex, LruCache), VastlandsHydrology (HydrologySystem), WaterColumn,
                                       RiverWater (block step)
+    caves/                            caves, cave water and lava: CaveModel (pure Java: CaveGeology, FluidDomains,
+                                      CaveNetwork, CavePrimitive, Fractures, Caverns, RiverTunnels, CaveColumn,
+                                      Noise3), VastlandsCaves (CaveSystem), CaveBlocks (block step), CaveVolume
+                                      (model-side fluid checks), CaveSettings, CaveFluid
 src/main/resources/
   vastlands.mixins.json
   assets/vastlands/lang/en_us.json                         world type name
@@ -110,8 +115,10 @@ src/test/java/.../tools/TerrainPreview.java                ./gradlew terrainPrev
                                                            and ice maps without the game
 src/test/java/.../tools/HydrologyPreview.java              ./gradlew hydrologyPreview: rivers, lakes and falls over the
                                                            carved relief; expected water export for rivercheck.py
+src/test/java/.../tools/CavePreview.java                   ./gradlew cavePreview: cave sections, plans, slices, stats,
+                                                           fluid checks, river tunnels, sea caves, bench
 tools/worldcheck/                                          world generation, region analysis, heightmaps, oceans, rivers,
-                                                           screenshots
+                                                           caves (cavecheck.py, blockprobe.py), screenshots
 docs/terrain/, docs/geography/, docs/hydrology/            previews, region maps and in-game screenshots
 ```
 
@@ -126,11 +133,13 @@ preset with only the overworld replaced; the Nether and the End are vanilla.
   and `settings = vastlands:overworld`.
 - Noise settings `vastlands:overworld` were derived from vanilla 1.21.8 `minecraft:overworld`.
   Changes: `noise.min_y = -256`, `noise.height = 768`; the Vastlands stages in `final_density`
-  (next section); the top slide moved from 240..256 to 488..504; the router outputs `continents`,
+  (next section; vanilla's noise caves removed from it); `aquifers_enabled: false` (the caves'
+  fluid picker decides every open block, see Caves); the top slide moved from 240..256 to 488..504; the router outputs `continents`,
   `erosion`, `ridges`, `temperature`, `vegetation`, `depth` and `initial_density_without_jaggedness`
   read the terrain (`vastlands:overworld/<name>`, see Terrain and Geography); the bottom slide is
   `vastlands:overworld/bottom_slide` (vanilla's -64..-40, lower only under abyssal trenches). Surface
-  rules, aquifer noises, ore veins, spawn target and sea level 63 are vanilla values.
+  rules, aquifer noises (unused since aquifers are disabled), ore veins, spawn target and sea level
+  63 are vanilla values.
 - Vanilla constraints (DimensionType / NoiseSettings codecs): `min_y` and `height` must be multiples
   of 16, `min_y + height <= 2032`, `logical_height <= height`. The dimension type and the noise
   settings must describe the same range, or terrain is silently clipped; `WorldgenDiagnostics` logs
@@ -141,12 +150,11 @@ preset with only the overworld replaced; the Nether and the End are vanilla.
 
 How the height is used: the world builds and stores blocks from -256 to 511, bedrock is at -256.
 The terrain surface spans about Y -30 (abyssal plains; trench floors down to ~-160) to 470
-(asymptote of the highest peaks; the top slide at 488..504 is only a safety net). Below -64 the
-rock is still solid deepslate cut only by carvers: the bottom slide stays at vanilla's -64..-40
-because opening the deep range lets vanilla's fluid picker fill every cave below -54 with lava
-(measured: lava rose from 1.0% to 5.8% of the -256..-65 band when the slide was moved down). Only
-under trenches does the slide move down, to end 12 blocks below the trench floor (see Geography,
-Trenches). Moving it everywhere is the Caves agent's job, together with the lava fix.
+(asymptote of the highest peaks; the top slide at 488..504 is only a safety net). The caves use the
+whole depth down to Y -248 (see Caves): the caves stage wraps the final density outside the
+slides, so the bottom slide (vanilla's -64..-40, lower under trenches, see Geography, Trenches) no
+longer limits them; it only shapes the landscape density, which is solid there anyway. Vanilla's
+lava below Y -54 is gone: the caves' fluid picker puts lava only in deep lava domains.
 
 Generation Pipeline
 
@@ -160,17 +168,18 @@ vastlands:hydrology    ← HydrologySystem   file: density_function/overworld/hy
         │
 minecraft:cache_once                       file: density_function/overworld/landscape.json
         │   replaces all three sloped_cheese references inside vanilla's final_density
-vanilla final_density body                 slides, blend, interpolation, noise caves, noodle caves
+vanilla final_density body                 slides, blend, interpolation (vanilla's noise caves removed)
         │
 vastlands:caves        ← CaveSystem        wraps the whole final_density (per block, not interpolated)
         │
-NoiseChunk → aquifers → [trench water, river water] → surface rules → carvers → [trench water, river water]
-        → features → [ice fields]
+NoiseChunk (aquifers off; fluids from CaveSystem.fluidPicker) → [trench water, cave step, river water]
+        → surface rules → (no vanilla carvers) [trench water, river water, swallets] → features → [ice fields]
               └─ ForestSystem, via GenerationContext.of(level)
 ```
 
 The bracketed steps are `VastlandsChunkGenerator` overrides (`fillFromNoise`, `applyCarvers`,
-`applyBiomeDecoration`) calling `ocean/OceanSurface` and `hydrology/RiverWater`; they only touch the
+`applyBiomeDecoration`) calling `ocean/OceanSurface`, `caves/CaveBlocks` and `hydrology/RiverWater`;
+`applyCarvers` no longer runs vanilla's carvers in Vastlands worlds. The steps only touch the
 chunk being generated and are pure functions of the position (and of the hydrology model for the
 neighbouring columns), so they do not depend on generation order.
 
@@ -214,8 +223,8 @@ System Contracts
 
 All interfaces are in `worldgen/system`. `GenerationSystems.create(GenerationSetup)` is the single
 place where implementations are chosen. Terrain is `VastlandsTerrain`, hydrology is
-`VastlandsHydrology`; caves and forests are still `Passthrough.INSTANCE` (which no longer
-implements `TerrainSystem` or `HydrologySystem`).
+`VastlandsHydrology`, caves are `VastlandsCaves`; forests are still `Passthrough.INSTANCE` (which
+implements only `CaveSystem` and `ForestSystem` defaults).
 
 | System | Interface | Kind | May depend on | Owner |
 |---|---|---|---|---|
@@ -266,12 +275,23 @@ HydrologySystem (contract for later systems; details in Hydrology below):
 - `WaterColumn water(x, z)`: the water of a block column: `kind` (DRY, SEA, RIVER, LAKE, ROCK),
   `waterTop` (Y of the top water block), `groundTop` (top solid block under the water: the density's,
   or lower at the foot of a fall; a boulder's top for ROCK), `surface`. `placed()` is true for river and lake water, which
-  Vastlands places itself; sea water comes from vanilla's aquifers. Not cached: about a microsecond
+  Vastlands places itself; sea water comes from noise filling (vanilla's aquifers until Agent 4,
+  now the caves' fluid picker). Not cached: about a microsecond
   plus one model column query; query once per column per step.
 - `double parameter(TerrainParameter, x, y, z)`: router outputs as reshaped by hydrology (weirdness,
   depth, initial density); other parameters are the terrain's.
 - `VastlandsHydrology.model()` (`HydrologyModel`) for planning: `falls(x, z)`, `stats(x, z)`,
-  `describe(x, z)`.
+  `describe(x, z)`, and (Agent 4) `channels(x, z, reach, visitor)`: the river segments within reach
+  of a point (ends, water top, half width, bank), read only, for systems that follow rivers.
+
+CaveSystem (contract for later systems; details in Caves below):
+- `apply(x, y, z, density)`: the final density with cave space opened (never above the ground
+  except at entrances) and gorge roofs restored.
+- `double surfaceHeight(x, z, ground)`: the ground once the caves have shaped it (raised only
+  under gorge roofs); `GenerationSystems.surfaceHeight` uses it.
+- `Aquifer.FluidPicker fluidPicker(vanilla)`: the fluid of every open block in noise filling.
+- `VastlandsCaves`: `isCave(x, y, z)`, `caveFluid(x, y, z)`, `isRoof`, `isGrotto`, `describe`; cave
+  columns cached per thread.
 
 How to implement a system
 
@@ -286,8 +306,8 @@ How to implement a system
 Terrain (Agent 2)
 
 The terrain is a 2D height field turned into density: `density = input + (surface - y) * 0.125`,
-clamped to ±128. Every column has exactly one surface, so there is no floating terrain (vanilla's
-noise caves still hollow out the rock below). Biomes, aquifers and surface rules are fed from the
+clamped to ±128. Every column has exactly one surface, so there is no floating terrain (the caves
+hollow out the rock below, see Caves). Biomes, aquifers and surface rules are fed from the
 same height field, so they agree with the landscape. Code: `worldgen/terrain`. `TerrainModel` is
 pure Java (no game classes): it can be rendered with `./gradlew terrainPreview` (see Testing).
 
@@ -509,6 +529,8 @@ Trenches in the world:
   whose floor is below Y -30, every block from the floor up to Y -30 becomes water (the floor block
   only if it is open). Lava in caves under the floor stays; where a cave mouth opens in the floor, a
   little lava meets the sea (obsidian, magma: 0.4% of the trench columns in the test world).
+  Since Agent 4 the caves' fluid picker puts sea water into trenches and into the caves of sea
+  domains, and carvers no longer run, so this step only re-sets blocks that already are water.
 
 Frozen seas (`FrozenSea`, `OceanSurface.placeIceFields`, `ServerLevelMixin`):
 - Ice strength 0..1 from the sea-level temperature: 0 at -0.45 (the edge of vanilla's frozen band),
@@ -807,6 +829,181 @@ in `HydrologyModel.profile`, rough walls in `VastlandsHydrology` (`ROUGHNESS`, `
 rims and foam in `RiverWater`, the river biome width in `BasinRivers.emit`.
 Render with `hydrologyPreview` before generating worlds; `HydrologyModelTest` guards the properties.
 
+Caves (Agent 4)
+
+Underground space, the water and lava in it, and where it meets rivers and the sea:
+`worldgen/caves`. `CaveModel` is pure Java like the terrain and hydrology models: a deterministic
+function of (seed, x, y, z) that can be rendered without the game (`./gradlew cavePreview`).
+`VastlandsCaves` (the `CaveSystem`) turns it into router density and the fluid of every open block;
+`CaveBlocks` is a small block step. Vanilla's noise caves (cheese, spaghetti, noodles, pillars,
+entrances) are gone from the Vastlands router and vanilla's carvers are not run in Vastlands worlds:
+both ignore water levels, would cut river beds and open flooded caves into dry ones.
+
+Integration:
+- Density: `vastlands:caves` wraps the whole final density (per block, outside interpolation). It
+  only lowers the density where the model carves cave space (to at most -0.45, 0.2 per block of
+  signed distance, so walls are exact to the block), and raises it to 0.3 where the caves restore
+  rock over a river gorge (roofs, below). Output range: the input's, widened to [-0.45, 0.3].
+- Fluids: the Vastlands noise settings set `aquifers_enabled: false`, so noise filling uses
+  `Aquifer.createDisabled(picker)`, which asks the fluid picker for every open block.
+  `NoiseBasedChunkGeneratorMixin` wraps the `Supplier.get()` of vanilla's global picker in
+  `createNoiseChunk` and `iterateNoiseColumn`: for a `RandomState` with a Vastlands context it
+  returns `CaveSystem.fluidPicker(vanilla)`. `VastlandsCaves.fluidPicker` puts vanilla's sea above
+  the ground (water up to Y 62, as the disabled aquifer's sea level would) and, below the ground,
+  the fluid of the cave's domain up to its level, air above it. This replaces vanilla's lava below
+  Y -54 and vanilla's aquifers in Vastlands worlds (other worlds keep vanilla's picker); base column
+  queries (`iterateNoiseColumn`, structure placement) see the same fluids.
+- Surface: `CaveSystem.surfaceHeight(x, z, ground)` is the ground raised where a roof restores a
+  gorge, else `ground`; `GenerationSystems.surfaceHeight` (surface rules) uses it.
+- Block step `CaveBlocks` (in `VastlandsChunkGenerator`): after noise filling, before the first
+  river water pass, spillway notches are marked for post-processing and the rock around volcanic
+  lava is lined; after the second river water pass (`applyCarvers`, which no longer runs carvers)
+  the water of swallets is placed. Both read only the chunk's own blocks and the model.
+- F3: a "Vastlands caves" line (rock, domains above and below the aquitard, geology fields).
+
+Layers, coarse to fine (`CaveModel`):
+1. Geology (`CaveGeology`), continuous 0..1 fields from the geography plus own noises: `karst`
+   (a 5 200-block lithology field favoured on tablelands and hills and by wet climates, absent from
+   crystalline range cores: dense multi-level networks, wide low tubes, chambers, dolines, canyon
+   passages), `fracture` (mountain systems, young ranges most, and escarpments: chasms, tall
+   rifts, shafts), `volcanic` (a 9 000-block hotspot field plus young ranges: higher deep lava,
+   basalt), `abundance` (plains provinces quiet, a 2 400-block field leaves regions almost solid),
+   `coast` (1 at the coastline, 0 beyond ~600 blocks), `wetness` (climate).
+2. Fluid domains (`FluidDomains`): cells of a warped 2D Voronoi diagram in two zones. The upper
+   zone (surface down to the aquitard, a cave-free rock band about 8 blocks thick around Y -66 with
+   ±1.5 blocks of noise) has cells of ~320 blocks: sea domains (site at sea or below Y 67) are
+   flooded to sea level (Y 62); inland domains hold a water table 8..38 blocks below their regional
+   base level (15..85% of them, by wetness and karst) or are dry. The deep zone (aquitard to
+   bedrock) has cells of ~448 blocks: lava with its top at Y -236..-150 (32% + 45% × volcanic of
+   the domains; volcanic ones higher), ancient flooded caves with a level at Y -226..-110
+   (16% × (1 - volcanic)), dry otherwise; under the open ocean 75% are flooded to sea level.
+   In a domain every open block below its level is fluid and every one above it air: lakes and
+   flooded passages always stand level, sea caves keep air pockets above Y 62.
+3. Cave pieces:
+   - Network (`CaveNetwork`): a jittered lattice of 64-block cells; every node exists on every
+     level: seven upper levels at fixed offsets from the regional base level (-60 .. +180: plains
+     get one to three, mountains up to seven stacked under their peaks), a coastal level around
+     Y 57 near coasts (sea caves half under water) and three deep levels around Y -104, -152 and
+     -200. Level heights undulate over ~320 blocks; each level's development follows its own
+     1 300-block field. Tunnels join active neighbours (four lattice neighbours and one diagonal
+     per quad: no crossings) as quadratic curves with a vertical bump and varying radius; karst
+     gets wide low phreatic tubes, fractured rock tall rifts, some tunnels flat sediment floors,
+     some upper ones a canyon slot cut into the floor. Junctions may be chambers (radius 8..29,
+     deep 10..36, 8% of them halls ×1.8 long and low; elongated and lobed, walls in uneven terraces,
+     ceilings hanging in breakdown lobes, rubble floors); nodes may
+     hold a shaft to the next level below. The highest level of a node may open to the surface:
+     an adit into a hillside or cliff (slope ≥ 0.28, downhill, 12% with a very large mouth), a sea
+     cave (coastal nodes: rising seaward about 1 in 4 to meet the shore or sea floor, half or wholly
+     under water), a doline in karst, or a blue hole (a flooded funnel in the sea floor).
+   - Fractures (`Fractures`): joint sets along a strike that turns over ~7 000 blocks, cracks ~75
+     blocks apart opened by a gate noise in stretches of tens to hundreds of blocks; lens-shaped
+     sections up to ~4 blocks either side and ~120 blocks tall in mountains; a rare ravine set
+     reaching the surface (V-shaped); a second set in the deep zone.
+   - Enormous caverns (`Caverns`): at most one per 640-block cell (`giantCaverns` 0.32 × geology:
+     about a third of the cells), mostly deep (centres Y -200..-130): radius 45..110, 20..52 high,
+     a flattened dome over a rubble floor, its ceiling hanging in breakdown lobes, lobed outline,
+     walls stepping back in uneven terraces (6-block bands whose edges wander up and down and
+     whose step changes around the wall), pillars. Their fluid is the domain's: an underground
+     lake, a lava lake or dry.
+4. Column (`CaveColumn`, built once per column and cached per thread): the ground (the lowest
+   ground within 4 blocks), both domains, the pieces whose bounds contain the column (up to 48),
+   and the heights that must stay rock (up to 24 intervals):
+   - cover: 6 blocks under the ground (2 under the sea floor in sea domains), except entrances;
+   - dams: within 2.5..5 blocks of a Voronoi edge between two domains whose fluids differ at some
+     height, rock over exactly those heights up to 2..3 blocks above the higher level, so flooded
+     and dry caves, or water and lava, never touch and no water stands against air;
+   - spillways: between two domains of the same fluid at levels 3+ blocks apart, windows of 3
+     blocks every 20 along the edge, 30% of them open (`spillways`): the dam's crest drops below
+     the higher level there and `CaveBlocks` marks the higher fluid in the notch for
+     post-processing, so on the first tick it spills over and runs down into the lower domain as
+     an underground fall (fed for ever by the sources of the higher domain, which vanilla never
+     drains);
+   - the aquitard band, closed where the zones above and below it differ;
+   - clearance: wherever the cave fluid at a height differs from the fluid outside (the sea up to
+     Y 62, river or lake water up to its top, air), the rock within 4 blocks of the lowest ground
+     around (7 under rivers and lakes) stays solid: no dry cave under the sea floor, no flooded
+     cave opening onto dry land, no cave under a river bed.
+5. Block (`CaveModel.carve`): the minimum of the pieces' signed distances, chasms and caverns,
+   plus wall roughness (3D noise whose wavelength grows with its amplitude, so walls bulge at the
+   scale of the passage instead of shedding detached pockets, and a fine octave), chockstones
+   wedged in chasms, then the solid intervals.
+
+River connections (`RiverTunnels`; the hydrology is read only, through the `Rivers` interface on
+`HydrologyModel.channels` and `falls`). The caves add rock only above the carved ground and never
+below the top of any water near it, and always leave a vault over the water:
+- Natural tunnels: where a narrow river (half width under ~20) runs in a gorge 24..40+ blocks
+  deep and a 700-block gate noise along the river is open (`riverTunnels` 0.5), the gorge gets its
+  rock back up to a share of the terrain before carving: the gorge narrows into a slot and closes
+  into an arched tunnel; skylights where the rock would be thinner than 7 blocks.
+- Natural bridges: about 1% of river segments in valleys 13+ blocks deep (no fall or lake within
+  40 blocks): a rock fin 18..36 blocks thick from wall to wall, its crest rounded a little below
+  the rim, ragged steep ends, a deck of 6+ blocks over an arched vault that flares towards both
+  portals.
+- Swallets (0.4% of segments, where the cave domain under the river is flooded 14+ blocks below
+  it and no dam crosses): a shaft (radius 2.2) in the bank beside the channel, joined to the river
+  by a notch one block wide at the water level. `CaveBlocks.afterRivers` fills the notch with a
+  source and hangs a curtain in the shaft (a flowing block, amount 7, at the river's water top and
+  falling water down to the cave water): the river pours into the flooded caves for ever, without
+  draining, in the states vanilla computes for those blocks.
+- Grottoes behind falls of 19+ blocks (70% × `riverTunnels` / 0.5 of them, where the cave domain
+  is dry there and no dam is within 12 blocks): an elliptical room 6..12 blocks deep cut into the
+  cliff under the lip, floor one block above the plunge pool, ceiling up to 9 blocks above it
+  (15+ blocks below the upper water), its mouth 1.3× wider running through the rim to 3 blocks
+  past the first pool column; from inside the curtain is a wall of falling water. The cliff face
+  is found from the hydrology's water columns; the grotto keeps rock under and beside every
+  column of curtain water (`RiverTunnels.underWater`).
+
+Ocean connections: sea domains flood the caves near and under the sea to Y 62 (sea-connected
+networks, flooded coastal karst, marine caverns where a cavern lies in such a domain), the coastal
+level puts passages at the waterline, sea-cave adits open them into cliffs and the shore (often
+several per network), and blue holes into the shelf floor (cover there is 2 blocks, so long
+passages run just under the floor without opening except at their mouths). Measured in the model
+(`cavePreview --sea`, 4 096² around 0,0): ~15 km of coastline, 65 sea-cave adits and 24 blue holes
+with mouths at the sea, 84 of them open to the sea (5.5 per km), 0 unstable fluid blocks.
+
+Lava: only in deep domains (below the aquitard; tops at most Y -150), lava falls only over
+spillways between lava domains. Water and lava domains are separated by dams, so they never touch.
+Around volcanic lava (`volcanic` > 0.25) `CaveBlocks` lines the stone touching lava with magma,
+blackstone and basalt and the walls up to 8 blocks above it with basalt and smooth basalt;
+elsewhere a little magma at the shore. Surface rules only repaint stone, so these stay.
+
+Determinism and threads: everything is a pure function of the seed and the position. Nodes,
+cells (64 blocks), domains, grottoes and swallets are cached per thread in direct-mapped caches
+keyed by their exact coordinates (a hit returns what a miss would compute); columns in a 32 × 32
+window per thread. Nothing reads chunks, so neighbouring chunks agree in any generation order
+(`CaveModelTest.sameSeedSameCavesFromAnyThreadAndOrder`, seam checks of `cavecheck.py`).
+
+Contract for later systems (`CaveSystem`, `VastlandsCaves`):
+- `surfaceHeight(x, z, ground)`, `fluidPicker(vanilla)` (above).
+- `isCave(x, y, z)`, `caveFluid(x, y, z)` (AIR, WATER, LAVA), `isRoof`, `isGrotto`,
+  `fluidCode(x, y, z)`: what noise filling puts in a block; `describe` for F3. Columns are cached
+  per thread: cheap for nearby queries.
+- `entrances(...)`, `swalletsNear`, `grottoesNear`, `roofStrength`, `swalletPart`: for previews
+  and tests.
+- For forests: the ground keeps at least 6 blocks of rock over cave space except at entrances
+  (adits, dolines, sea caves), ravines and the portals of river tunnels, so tree features only
+  meet caves there.
+
+Performance (this container, 4 vCPU, `cavePreview --bench`, one thread, 64 chunks around 0,0,
+warm caches): cave columns 3.6 ms, density of all 768 × 256 blocks 3.1 ms, fluid picker 1.1 ms per
+chunk (cold: 6.8, 5.9, 1.7 ms). The cost is per column (pieces gathered once) plus a few float
+operations per piece per block; the density returns early for blocks already open (sky, sea) and
+outside the height range of the column's pieces. End to end on a dedicated server (40 × 40 chunks
+around -200,2700, alternated with `main`): 10.1 chunks/s with caves, 10.7 without (vanilla noise
+caves, aquifers and carvers): about 6% slower.
+
+Tuning: `CaveSettings.DEFAULT` (abundance, chambers, giant caverns, fractures, entrances, sea
+caves, river tunnels, spillways, lava); level offsets, lattice and entrance rules in
+`CaveNetwork`; domain sizes and fluid shares in `FluidDomains`; cover, clearance and dams in
+`CaveModel`; bridges, swallets and grottoes in `RiverTunnels`. Any change changes generation
+(seams against existing chunks). Render with `cavePreview` before generating worlds;
+`CaveModelTest` guards the properties.
+
+Limitations (details: PROGRESS.md, Known Issues): most network tunnels are short (64-block
+lattice edges; long systems are chains of them); spillway falls are rare; vanilla features still
+place lava and water springs and underground lava lakes (a few can meet cave water deep down);
+ores and other features anchored to the world bottom keep vanilla's shifted ranges.
+
 Vanilla Isolation
 
 - Vanilla world types are untouched: only `vastlands:*` data is added, plus one entry appended to
@@ -817,18 +1014,23 @@ Vanilla Isolation
   biome modifier) changes vanilla worlds too. Later agents must scope such changes to Vastlands
   worlds, e.g. with a placement filter that checks for `VastlandsChunkGenerator`
   (`PlacementContext.generator()`), or by using Vastlands-specific biomes.
+- Caves (Agent 4): carvers are skipped only by `VastlandsChunkGenerator` when its caves are
+  `VastlandsCaves`; `NoiseBasedChunkGeneratorMixin` changes the fluid picker only for a
+  `RandomState` with a Vastlands context (vanilla worlds, the Nether and the End keep vanilla's).
+  The biomes' carver lists and features are untouched.
 
 Testing and Verification
 
-JUnit (`./gradlew test`, 63 tests):
+JUnit (`./gradlew test`, 69 tests):
 - `WorldHeightDataTest` — data files agree with `WorldHeight` and pass vanilla's codecs.
 - `GenerationSetupTest` — seeded randomness is deterministic and separated per system and seed;
-  terrain and hydrology are implemented, caves and forests are passthrough.
+  terrain, hydrology and caves are implemented, forests are passthrough.
 - `StageDensityFunctionTest` — passthrough when unbound, delegation and bounds when bound,
   `fillArray`, lazy context creation, binding survives later visitors, codec round trip.
 - `TerrainParameterFunctionTest` — unbound value and bounds, binding to the context's terrain, codec.
 - `RandomStateBindingTest` — the mixin binds stages in a real `RandomState`; vanilla settings get no
-  context; a passthrough stage keeps vanilla density exactly.
+  context; a passthrough stage keeps vanilla density exactly; the caves stage applies the bound
+  cave system to the vanilla density.
 - `TerrainModelTest` — same seed same terrain, seeds differ, thread-safe and order-independent,
   continuity (max neighbour step < 12 blocks, mean < 0.4 over 4 seeds), no discontinuities (no
   jump within 0.05 blocks), height distribution
@@ -875,6 +1077,18 @@ JUnit (`./gradlew test`, 63 tests):
   have bed and banks cut by a carver-like tunnel and get it again; no water block of the middle chunk (borders included) changes
   under vanilla's fluid rules (ported from `FlowingFluid`), every source above sea level is river or
   lake water of the model and all flowing water is a fall curtain.
+- `CaveModelTest` — two cave systems of the same seed agree on 20 000 blocks (cave, roof, fluid)
+  queried in a shuffled order from parallel threads; at seven places (land, sea, a lava region, a
+  coast, a natural bridge, a swallet, a natural tunnel with a grotto) 96 × 96 columns over the
+  full height hold no fluid that vanilla's rules would move (`CaveVolume.check`: water or lava
+  beside or above cave air, water touching lava, sea or river water touching dry caves; designed
+  spillway notches aside); no cave space or roof within the clearance under river and lake water
+  (swallets aside) at three river places; the network entrances with their mouth at the sea in a
+  1 024-block square of coast and shelf (sea-cave adits and blue holes, at least 10) hold their
+  fluids and at least 80% open into the sea; no cave lava above Y -54; cave share of the rock 1.2..8% with over a fifth of the columns
+  cave-free, chambers with few large ones, adits, enormous caverns in under half of the 640-block
+  cells; the natural bridge and swallet near the origin's region exist and the swallet's shaft
+  reaches the cave water.
 
 Terrain previews without the game: `./gradlew terrainPreview --args="..."` (`TerrainPreview` in the
 test sources): `--seed S --center X Z --size BLOCKS --scale BLOCKS_PER_PIXEL --out PREFIX` writes a
@@ -887,6 +1101,19 @@ at the coldest sea of the square, or around `--ice-center X Z` at the square's s
 prints landform, climate band and biome shares, the mean biome run along rows and the highest
 peaks; `--find NAME` lists places of a biome or landform; `--cover FILE` exports the expected sea
 ice cover for `oceancheck.py --cover`; `--region-scale F` renders other region sizes.
+
+Cave previews: `./gradlew cavePreview --args="--seed S --center X Z --size BLOCKS ..."`
+(`CavePreview`): `--section` (default) writes sections along x and z through the centre (one pixel
+per block, Y -256 at the bottom: rock shaded by depth, cave air black, cave water blue, lava orange,
+sea and river water outside); `--plan N` a plan coloured by the height of the highest cave block;
+`--slices Y,Y` top-down slices; `--stats` cave, water and lava shares per height band; `--check N`
+the fluid check of `CaveModelTest` for an N × N box (also counts cave water open to the sea);
+`--tunnels STEP` lists natural tunnels, bridges, swallets and grottoes of the square; `--roofs` maps
+them (roofed river columns, vaults, skylights) at one block per pixel; `--sea` lists
+every network entrance with its mouth at the sea, checks each block by block and gives sea caves
+per km of coastline; `--probe X Y Z` prints the domains, solids and blocks around a point;
+`--order X Y Z` the same block from fresh systems after different query histories; `--bench`
+times the cave stage per chunk as noise filling calls it.
 
 River previews: `./gradlew hydrologyPreview --args="--seed S --center X Z --size BLOCKS --scale
 BLOCKS_PER_PIXEL --out PREFIX"` (`HydrologyPreview`) renders the carved relief with rivers and lakes
@@ -920,6 +1147,16 @@ Real world checks (`tools/worldcheck`, standard-library Python; screenshots need
   water), inside chunks vs on chunk borders; with `--expected` (`./gradlew hydrologyPreview
   --args="--center CX CZ --size N --water FILE"` for the world's square: centre = `block_origin` +
   N/2) the agreement of water tops and ground with the model; river biome cells at the surface.
+- `cavecheck.py run/NAME [--png FILE] [--section x=N|z=N]` (needs numpy; PNGs need Pillow) reads
+  every block of a world: the composition of the underground (below each column's highest solid
+  block) per 32-block band (cave air, water, lava), water and lava sources that vanilla's fluid
+  tick would change (the rules of `FlowingFluid`, ported) in caves and at the surface, inside chunks
+  vs on chunk borders, water touching lava, flowing water and lava (falls, springs, spillways) and
+  the flowing blocks a tick would change, lava above Y -54, open/solid changes between neighbours
+  across vs inside chunk borders (seams), columns open to the sky, cave mouths (underground air
+  beside open air) and flooded openings (underground water beside open water); plans and sections.
+- `blockprobe.py run/NAME X Y Z [--radius R] [--height H]` prints the blocks around a position
+  layer by layer, fluids with their level (W0 source, w7 flowing, w8 falling).
 - `screenshot.py run/NAME --out DIR --shot "name:X Y Z YAW PITCH" ...` copies the world to
   `run/saves`, enables commands, starts the dev client under Xvfb with `--quickPlaySingleplayer`,
   and for each shot teleports (spectator), waits for chunks to render and saves an F2 screenshot.
@@ -929,16 +1166,17 @@ Real world checks (`tools/worldcheck`, standard-library Python; screenshots need
 
 Technical Limitations (verified)
 
-- Lava below Y=-54: vanilla's global fluid picker (`NoiseBasedChunkGenerator.createFluidPicker`,
-  private static) hardcodes lava at Y < -54. In the extended range almost every cave cut by
-  carvers between -248 and -55 is filled with lava. This is also why the bottom slide stays at
-  -64..-40 (see World Preset and Height). Owner: Caves. Exception: the open water of abyssal
-  trenches, which `OceanSurface.fillDeepWater` turns back into water after noise filling and after
-  carving (see Geography, Trenches); where a cave opens into a trench floor, its lava meets the sea.
+- Lava below Y=-54 (fixed by Agent 4): vanilla's global fluid picker
+  (`NoiseBasedChunkGenerator.createFluidPicker`, private static) hardcodes lava at Y < -54. In
+  Vastlands worlds aquifers are disabled and `NoiseBasedChunkGeneratorMixin` replaces the picker
+  with the caves' (see Caves): lava only in deep lava domains, sea water in trenches and caves under
+  the sea. `OceanSurface.fillDeepWater` still runs as a safety net. Vanilla's lava features
+  (`spring_lava`, underground lava lakes) still place small amounts of lava at any depth.
 - Features and carvers anchored to the world bottom or top (`above_bottom` / `below_top`) move with
   the new limits: diamonds (vanilla -64..16) now generate at -256..-176, lower redstone at
-  -256..-224, tuff, geodes, deep monster rooms, lower fossils, gravel, lava springs and the cave
-  carvers (min Y -248 instead of -56) shift too. Owner: Caves (underground), within the isolation rule above.
+  -256..-224, tuff, geodes, deep monster rooms, lower fossils, gravel and lava springs shift too
+  (vanilla's cave carvers are no longer run in Vastlands worlds). Not changed by Agent 4: ores and
+  underground features are biome features shared with vanilla worlds (isolation rule above).
 - Hydrology: see Hydrology, Limitations.
 - Surface building cost grows with the world depth: vanilla's `SurfaceSystem.buildSurface` tests the
   surface rules for every stone block from the surface down to Y -256 on the single, consecutive

@@ -2,12 +2,12 @@ Vastlands — Development Progress
 
 Current Status
 
-Phase: Terrain, geography and hydrology complete, ready for Agent 4 (Caves)
+Phase: Terrain, geography, hydrology and caves complete, ready for Agent 5 (Forests)
 Project: Vastlands
 Minecraft: 1.21.8
 Loader: NeoForge 21.8.57
 
-The project builds and all 63 tests pass. The "Vastlands" world type generates a
+The project builds and all 69 tests pass. The "Vastlands" world type generates a
 continent-scale geography in a world of Y -256..511: open oceans with shelves, continental slopes,
 abyssal plains (Y -22..-30), mid-ocean ridges, seamounts and rare trenches (to Y ~-160); continents
 with vast plains provinces, hill country, mountain systems with branch ranges (peaks up to Y ~450),
@@ -17,7 +17,12 @@ fractured ice fields; and river networks that drain every continent to the sea: 
 tributaries joining into broad rivers (up to ~100 blocks wide), lakes in basins and on rivers, rocky ledges
 and waterfalls (up to 50..80 blocks off escarpments and in mountains) with round plunge pools,
 boulders and rough-walled gorges below them, river and frozen river biomes, frozen rivers in polar
-climates. Caves and forests are still passthrough placeholders.
+climates; and caves through the whole depth: multi-level networks shaped by the rock (karst,
+fractured mountains, quiet plains, coasts), chambers, halls, chasms, shafts and rare enormous
+caverns, entrances in hillsides, cliffs, dolines and the sea floor, level underground lakes and
+flooded networks, underground falls, deep lava lakes with volcanic rock below the aquitard (no
+lava in every cave below Y -54 any more), natural river tunnels and bridges, swallets, grottoes
+behind falls, sea caves and blue holes. Forests are still a passthrough placeholder.
 
 Development Roadmap
 
@@ -25,10 +30,262 @@ Development Roadmap
 - [x] Agent 2 — Terrain: Implement realistic mountains, valleys, plains, and terrain continuity.
 - [x] Agent 2.5 — Geography: Continent-scale regions, climate, climate-aware biomes, oceans, trenches and frozen seas.
 - [x] Agent 3 — Hydrology: Implement large rivers, tributaries, downhill drainage, and waterfalls.
-- [ ] Agent 4 — Caves: Implement diverse cave systems and underground formations.
+- [x] Agent 4 — Caves: Implement diverse cave systems and underground formations.
 - [ ] Agent 5 — Forests: Implement large forests, giant trees, and tree variations.
 
-Latest Completed Work (Agent 3 — Hydrology)
+Latest Completed Work (Agent 4 — Caves)
+
+- `worldgen/caves` (new): the underground of Vastlands worlds: a pure-Java cave model on top of the
+  geography, terrain and hydrology, a cave system for the router and the fluids of noise filling,
+  and a small block step. Algorithm, constants and contracts: ARCHITECTURE.md, "Caves" and "System
+  Contracts".
+  - `CaveGeology`: karst, fractured, volcanic and coastal rock, cave abundance and wetness as
+    continuous fields from the geography (Vastlands has no rock types).
+  - `FluidDomains`: the hydrogeology. Warped Voronoi domains above (~320 blocks) and below (~448)
+    an aquitard band around Y -66; each holds one fluid up to one level: sea domains flooded to
+    sea level near and under the sea, inland water tables below the regional base level or dry
+    rock, deep lava lakes (tops Y -236..-150, higher in volcanic regions), rare ancient flooded
+    caves, the deep caves under the open ocean flooded. Every lake and flooded passage stands
+    level and is held by rock.
+  - `CaveNetwork`: multi-level networks on a 64-block lattice: seven upper levels relative to the
+    regional base level (plains one to three, mountains up to seven), a coastal level at the
+    waterline, three deep levels; curved tunnels with varying radius (phreatic tubes in karst,
+    rifts in fractured rock, flat sediment floors, canyon slots), chambers and halls at junctions,
+    shafts between levels, entrances: adits into hillsides and cliffs (some very large), sea caves,
+    dolines, blue holes.
+  - `Fractures`: chasms along joint sets, ravines reaching the surface, a deep set.
+  - `Caverns`: enormous caverns (radius 45..110, 20..52 high, pillars, rubble floors, ceilings
+    with breakdown lobes, walls in uneven terraces) in about a third of the 640-block cells, mostly
+    deep; underground lakes or lava lakes by their domain.
+  - `CaveModel`/`CaveColumn`: per column the pieces and the heights that stay rock: cover under the
+    ground, dams between domains whose fluids differ (with spillway notches between water levels:
+    underground falls), the aquitard, clearance wherever cave fluid would meet a different fluid
+    outside (sea, river and lake water, open air); per block the signed distance with wall
+    roughness and chockstones.
+  - `RiverTunnels` (4.1, rivers): natural tunnels (deep gorges roofed back to the terrain before
+    carving, slot gorges and arches at their mouths, skylights), natural bridges (rock fins with an
+    arched vault), swallets (a river pouring through a notch in its bank down a shaft into the
+    flooded caves, without draining), dry grottoes behind tall falls (the curtain as a wall).
+  - Sea connections (4.1, oceans): sea-connected domains flooded to Y 62 under and near the sea,
+    the coastal level at the waterline (partly submerged caves with air pockets), sea-cave adits
+    opening into cliffs, the shore and the sea floor (often several per network), blue holes in the
+    shelf.
+  - `VastlandsCaves` (`CaveSystem`): density (opens cave space, restores gorge roofs), the fluid
+    picker (sea above the ground, the domain's water, lava or air below), the surface under roofs,
+    F3 line, queries for previews and tests.
+  - `CaveBlocks`: spillway notches marked for post-processing, volcanic lining (magma, blackstone,
+    basalt, smooth basalt) around volcanic lava, the swallets' water.
+- Router (`noise_settings/overworld.json`): vanilla's noise caves removed from `final_density`
+  (`vastlands:caves` wraps the landscape, slides and interpolation); `aquifers_enabled: false`.
+- `NoiseBasedChunkGeneratorMixin` (new): noise filling and base column queries of Vastlands worlds
+  use `CaveSystem.fluidPicker` instead of vanilla's global picker (lava below Y -54, water below
+  sea level). Fixes the lava below Y -54 noted by Agent 1.
+- `VastlandsChunkGenerator`: no vanilla carvers in Vastlands worlds; `CaveBlocks` after noise
+  filling and after the second river water pass; an F3 "Vastlands caves" line.
+- `CaveSystem` extended (`surfaceHeight(x, z, ground)`, `fluidPicker`); `GenerationSystems`
+  creates `VastlandsCaves` and its surface height includes gorge roofs.
+- `HydrologyModel.channels(x, z, reach, visitor)` (read-only view of the river segments, the
+  integration boundary for the caves; no change to the hydrology's behaviour).
+- Tools: `./gradlew cavePreview` (sections, plans, slices, stats, fluid checks, river tunnels and
+  roofs, sea caves, probes, bench); `tools/worldcheck/cavecheck.py` (underground composition,
+  unstable fluids under vanilla's rules in caves and at the surface, seams, lava above Y -54, cave
+  mouths and flooded openings, plans and sections of a generated world);
+  `tools/worldcheck/blockprobe.py` (blocks around a position with fluid levels).
+
+Files and Modules Affected (Agent 4)
+
+- New: `worldgen/caves/{CaveModel,CaveColumn,CaveGeology,FluidDomains,CaveNetwork,CavePrimitive,
+  Fractures,Caverns,RiverTunnels,Noise3,CaveSettings,CaveFluid,VastlandsCaves,CaveBlocks,
+  CaveVolume}`, `mixin/NoiseBasedChunkGeneratorMixin`.
+- Changed: `worldgen/system/{CaveSystem,GenerationSystems,Passthrough}`,
+  `worldgen/VastlandsChunkGenerator`, `worldgen/hydrology/HydrologyModel` (`channels`, added only).
+- Data: `noise_settings/overworld.json` (final density without vanilla's noise caves, aquifers
+  off), `vastlands.mixins.json`.
+- Tests: `caves/CaveModelTest` (new); `GenerationSetupTest` (caves implemented),
+  `StageDensityFunctionTest`, `RandomStateBindingTest` (caves stage bound); `tools/CavePreview`
+  (new).
+- Build: `build.gradle` (`cavePreview` task).
+- Tools and docs: `tools/worldcheck/{cavecheck,blockprobe}.py` (new), `ARCHITECTURE.md` (Caves
+  section and updates), `PROGRESS.md`, `README.md`, `docs/caves/` (previews).
+
+Build and Test Results (Agent 4)
+
+- `./gradlew build`: BUILD SUCCESSFUL (JDK 21, Gradle 9.2.1) on a 4 vCPU container (7 min 26 s).
+- JUnit: 69 tests, 0 failures, 0 skipped: WorldHeightDataTest 3, GenerationSetupTest 3,
+  StageDensityFunctionTest 6, TerrainParameterFunctionTest 3, RandomStateBindingTest 3,
+  TerrainModelTest 8, VastlandsTerrainTest 7, PresetDataTest 6, TerrainBiomeTest 2,
+  GeographyModelTest 7, FrozenSeaTest 6, HydrologyModelTest 8, RiverWaterTest 1, CaveModelTest 6
+  (new). The test JVM now gets 2 GB (`build.gradle`): with Gradle's default of 512 MB the cave
+  tests' caches left too little for the hydrology tests after them in the same JVM
+  (OutOfMemoryError in `HydrologyModelTest`, then the test server of `RiverWaterTest` did not
+  start).
+- `CaveModelTest` (seed 20261018): two systems agree on 20 000 blocks queried in a shuffled
+  parallel order; at seven places 22.7 million blocks (cave air 535 837, water 470 926, lava
+  45 592), 0 fluid blocks that vanilla's rules would move (also at the bridge, the swallet and the
+  grotto behind the 32-block fall, which had 2 before the last grotto fix); no cave space under
+  river and lake water within the clearance; 23 sea caves with a mouth at the sea in the square
+  512..1536, -2048..-1024 (8 blue holes), all 23 open to the sea and stable; 0 cave lava above Y -54
+  on a 4 096-block grid; cave share 1.56% of the rock between Y -240 and the ground over 4 000 random
+  columns of a 32 768-block square, 2 747 of them without caves; 256 network cells: 1 824 tunnel
+  pieces, 78 chambers (10 of radius 30+), 12 adits, 3 dolines; enormous caverns in 128 of 400
+  640-block cells.
+- Model (`cavePreview --sea`, 4 096 blocks around 0,0): ~15.2 km of coastline, 186 entrances of
+  which 89 have their mouth at the sea (65 sea-cave adits, 24 blue holes), 84 open to the sea
+  (5.5 per km of coastline), 0 unstable fluid blocks at any of them.
+- Model (`cavePreview --tunnels 8`, 16 384 blocks around 0,0, ~268 km²): 15 cells of 256 blocks
+  with roofed river columns (natural bridges and tunnels), 11 swallets, 3 grottoes behind falls.
+
+Verification in Game (Agent 4)
+
+Dedicated server (`tools/worldcheck/generate.py`, seed 20261018, all chunks fully generated),
+checked with `cavecheck.py` (whole world: every block from Y -256 up) and `blockprobe.py`:
+- caves3 — 12×12 chunks at 0,0 (hills), final code: cave space 3.68% of the underground blocks:
+  the upper levels (Y 64..95 5.4%; Y 32..63 9.0%, 7.2% of it water standing at the local water
+  table) and a deep hall (Y -160..-129 14.4%); 98 440 water and 80 lava sources in caves, 0 that
+  vanilla's fluid tick would change, inside chunks or on borders; water never touches lava;
+  open/solid changes between neighbouring columns the same across chunk borders as inside chunks
+  (no seams); the 30 flowing blocks a tick would change are a vanilla water spring at Y -221..-215
+  and the 32 lava blocks above Y -54 vanilla lava features. caves1 and caves2 were the same square
+  with earlier versions (also 0 unstable); a screenshot of the hall in caves2 showed its terraces
+  as even rings and its ceiling as a smooth dome, which led to the uneven terraces and breakdown
+  ceilings of chambers and caverns.
+- swallet1 — 6×6 chunks at -319,3106: the river pours through its bank notch (source water at
+  the river's water top, a lip of amount 7, falling water down the shaft into the flooded caves),
+  checked block by block; 0 unstable water.
+- bridge1 — 6×6 chunks at -305,75: a natural bridge over a river; 0 unstable water; vanilla lava
+  springs touch cave water in 4 blocks deep down (vanilla features, see Known Issues).
+- gorge1 / gorge2 — 8×8 chunks at -6560,615: a natural tunnel and a fall of 32 blocks (130 → 98)
+  with a dry grotto behind the curtain. gorge2 after the last grotto fix (rock kept under the
+  curtain columns): 24 289 water and 100 lava sources in caves, 0 unstable; 479 sources at the
+  surface, 0 unstable; 791 cave-mouth blocks in 122 columns, 42 flooded openings; the 7 flowing
+  surface blocks a tick would change are the fall's lip beside the sill that weather froze to ice
+  (Agent 3's known issue, not caves); the 40 falling blocks in caves at Y -195..-172 are vanilla
+  water springs.
+- perf-caves2 — 40×40 chunks at -200,2700 (the performance square, a broad river with
+  tributaries): `rivercheck.py`: 351 766 sources above sea level, 0 unstable at rivers and lakes
+  (the same square on `main`, with vanilla aquifers and carvers: 14 unstable at rivers);
+  `cavecheck.py`: cave space 0.80% of 141 million underground blocks (lowland plains: quiet rock),
+  120 472 water and 468 114 lava sources in caves, water never touches lava, no seams; 25 water and
+  41 lava sources that would flow are vanilla's (springs not yet ticked outside the simulated
+  spawn area, and a mineshaft corridor cut beside a cave lava lake at -400,-187,2763); 2 494 lava
+  blocks above Y -54 are vanilla's underground lava lakes (closed blobs of lava in the rock).
+- coast1 / coast2 — 8×8 chunks at 400,100 (a low coast): 99 024 water sources in caves (the sea
+  domain flooded to Y 62), 0 unstable in caves and at the surface; lava only at Y -195..-132.
+  This stretch of coast has no sea-cave mouths (the model agrees: 0 cave water blocks open to the
+  sea in the square); sea caves were checked in the model (`cavePreview --sea`, CaveModelTest).
+- Generation never loaded neighbouring chunks: every decision is a function of the model, and
+  seams were checked in every world. swallet1, bridge1, gorge2 and coast2 were generated before the
+  last change of chamber and cavern shapes (only shapes changed there, not fluids or connections).
+- Screenshots (`screenshot.py --night-vision`, dev client under Xvfb, Mesa software rendering;
+  `docs/caves/`): the grotto behind the 32-block fall from inside and the fall from its pool
+  (gorge2), the natural bridge from the river (bridge1), the deep hall (caves3), a lava-filled
+  chasm and the swallet's shaft (swallet1).
+- Not verified: real GPU rendering (screenshots are software-rendered); multiplayer; seeds other than 20261018 in generated worlds; a world square with sea-cave mouths
+  generated in game (only in the model); long play (spillway falls ticking, players breaking
+  dams).
+
+Performance (Agent 4)
+
+- Per chunk (`cavePreview --bench`, one thread, 64 chunks around 0,0, warm caches): cave columns
+  3.6 ms, density of all 768 × 256 blocks 3.1 ms, fluid picker 1.1 ms; first pass over new ground
+  (cold caches) 6.8, 5.9 and 1.7 ms.
+- End to end (dedicated server, `generate.py`, 40 × 40 chunks around -200,2700, a broad river with
+  tributaries, start-up excluded; runs alternated with `main` in a separate worktree): `main`
+  10.75 and 10.73 chunks/s, with caves 10.09 and 10.13 chunks/s: about 6% slower. Vanilla's carvers
+  and noise caves are gone, the caves stage runs per block outside interpolation and its columns
+  read the hydrology for river connections. (Agent 3 measured 13.8 chunks/s on the same square in
+  an earlier container; this one is slower for both branches.)
+- Memory: per worldgen thread a 32 × 32 column window, 1 024 network cells, 2 048 nodes, domain
+  and river caches (a few MB); nothing global grows with the explored area.
+- Fluids: no fluid ticks are scheduled by the caves except the spillway notches (a handful of
+  blocks per spillway); cave water and lava are in the states vanilla leaves as they are.
+
+Known Issues
+
+- Network tunnels follow the 64-block lattice: long cave systems are chains of short curved
+  tunnels between nodes, not single long passages, and a plan of the caves (`cavePreview --plan`,
+  `docs/caves/preview-plan-2048.png`) shows the lattice as a polygonal mesh. Underground the
+  curvature, bumps, varying radius and levels hide most of it.
+- Natural bridges over wide valleys have a low, flat vault (the opening is a few blocks above the
+  water); the bridge's sides take the surface rules' dirt like any cliff.
+- Underground falls between water levels exist only where a dam between two domains has an open
+  spillway (30% of the notch windows); they are rare, and some only fill a pocket below the notch.
+- Vanilla features and structures still run: water and lava springs (`spring_water`,
+  `spring_lava`) and underground lava lakes put small amounts of water and lava into the rock and
+  caves, also above Y -54 (56 lava blocks in gorge2, 2 494 in the 40 × 40-chunk square), rarely lava
+  next to cave water deep down (4 blocks in bridge1); mineshafts can cut corridors beside cave lava
+  or water, which then flows into them. Springs, lakes and structures are shared with vanilla
+  worlds (scoping them out of Vastlands worlds would need a placement filter, see ARCHITECTURE.md,
+  Vanilla Isolation).
+- Ores and other features anchored to the world bottom keep vanilla's shifted ranges (diamonds
+  at Y -256..-176 etc.; see ARCHITECTURE.md, Technical Limitations).
+- River biomes follow the channel even where the caves roof it into a tunnel (the biome of the
+  hill over a natural tunnel is a river biome).
+- A swallet's notch is one block wide; the ground over it can be a single block of soil.
+- No river runs into an underground lake or out of a cave (resurgence): rivers enter the caves
+  only through swallets, and the hydrology's rivers are not rerouted underground (that would
+  change Agent 3's drainage).
+- Sea caves and blue holes are unevenly spread: ~5.5 per km of coastline around 0,0 (model), none
+  on some stretches (the low coast at 400,100); where a coastal domain is dry or holds an inland
+  water table, rock stays between its caves and the sea.
+- Changing any cave constant (`CaveSettings` or a class constant) changes generation: worlds
+  created before get seams at caves.
+- Unchanged from Agent 3: structures across rivers, low levees and rims, terrain coasts, large
+  river lakes, bubble columns under falls, frozen fall sills in cold biomes, drainage-cell
+  valleys, smooth faces in previews, no streams below the river threshold, river biome width,
+  basin reach.
+- Unchanged from earlier agents: iceberg melt pools, deep frozen oceans with rain, corals on trench
+  floors, monument pillars (unverified), badlands terracotta bands, noise-shaped climate zones,
+  rarer high ground, experimental-settings warning, cloud height 192, `screenshot.py` lost input,
+  license "All Rights Reserved".
+
+Architectural Decisions (Agent 4)
+
+- Caves as a pure analytic model (signed-distance pieces on a deterministic graph) instead of
+  vanilla's noise caves and carvers: entrances, levels, chambers and connections can be placed
+  where the geology and the rivers say, every chunk computes the same pieces, and nothing reads
+  neighbouring chunks.
+- Fluids from domains, not from vanilla's aquifers: aquifers decide water per block from noise and
+  open water walls and floods where caves meet; with aquifers off, the caves' picker gives every
+  open block its domain's fluid, so every water and lava body is level, and the only places two
+  different fluids could meet are dam lines, which stay rock. One mechanism also replaces vanilla's
+  lava below Y -54.
+- The fluid picker through a mixin on the `Supplier.get` of vanilla's private global picker (in
+  `createNoiseChunk` and `iterateNoiseColumn`), chosen by the `RandomState`'s Vastlands context:
+  vanilla worlds and other dimensions keep vanilla's picker.
+- No vanilla carvers in Vastlands worlds (skipped in `VastlandsChunkGenerator`): they ignore water
+  levels and cut river beds; biome carver lists stay untouched for vanilla worlds.
+- The caves stage stays outside interpolation (per block): cave walls are exact to the block and
+  the cost is per column plus a few operations per piece; the landscape below stays interpolated.
+- River connections read the hydrology (`channels`, `falls`, `water`) and never change it: the
+  caves add rock only above the carved ground and never below any water near it; the hydrology's
+  block step still seals beds and banks after the caves, and swallet water is placed after it in
+  the states vanilla computes. No river is rerouted underground.
+- Code constants (`CaveSettings.DEFAULT`), not a config file, like the geography's settings: a
+  world's caves must not depend on a mutable file.
+
+Instructions for Agent 5 (Forests)
+
+1. Read ARCHITECTURE.md: "Caves" (contract, entrances), "System Contracts" (CaveSystem,
+   HydrologySystem), "Generation Pipeline", "Vanilla Isolation".
+2. `ForestSystem.treeDensity(x, z)` is the only forest hook so far; forest features reach their
+   system through `GenerationContext.of(ServerLevel)`. Scope new features to Vastlands worlds
+   (placement filter on `VastlandsChunkGenerator`) or use Vastlands-specific biomes.
+3. The ground keeps at least 6 blocks of rock over cave space except at entrances (adits, dolines,
+   sea caves), ravines, river tunnel portals, natural bridges and swallets. Large trees with deep
+   roots should check the block below (or `VastlandsCaves.isCave`) near those, or skip columns
+   where `GenerationSystems.surfaceHeight` differs from the hydrology's (roofs).
+4. Over natural tunnels and bridges the surface is restored rock (`CaveSystem.surfaceHeight` is
+   above the river); vanilla's surface rules paint it, but the biome there is a river biome (see
+   Known Issues): forests that follow biomes will skip those hills unless they read the terrain.
+5. Do not place features into river or lake water (`HydrologySystem.water(x, z).placed()`) or into
+   the swallet notches beside rivers (`VastlandsCaves.swalletPart`).
+6. Verify in game with `tools/worldcheck` (`analyze.py`, `rivercheck.py`, `cavecheck.py`): 0
+   unstable water at rivers and in caves must stay 0 when trees are added.
+
+Agent 3 — Hydrology (completed earlier)
+
+Completed Work (Agent 3)
 
 - `worldgen/hydrology` (new): rivers, tributaries, lakes and waterfalls: a pure-Java model on top
   of the terrain, a hydrology system for the router and a block step for the water. Algorithm,
@@ -203,7 +460,7 @@ Performance (Agent 3)
 - Memory: up to 32 drainage tiles (~1 MB each with their rivers), 256 region indexes, 400
   elevation tiles (6.4 MB), a 4 096-entry node cache per worldgen thread.
 
-Known Issues
+Known Issues at the end of Agent 3 (current list: see Agent 4 above)
 
 - Villages and other structures can stand across rivers: their foundations fill parts of the
   channel and paths cross on the water (as vanilla villages next to water). Base height queries
@@ -802,6 +1059,5 @@ Do not mark a feature complete unless it has actually been implemented and verif
 
 Next Task
 
-Agent 4: Implement the Cave system: large caverns, tunnels, vertical shafts and cave formations
-through `CaveSystem` and the router, including the fix for vanilla's lava below Y -54 and the bottom
-slide, keeping river and lake beds sealed (Instructions for Agent 4).
+Agent 5: Implement forests: large forests, giant trees and tree variations through `ForestSystem`,
+scoped to Vastlands worlds, keeping rivers, lakes and caves intact (Instructions for Agent 5).

@@ -1,5 +1,6 @@
 package com.sincerelyuq.vastlands.worldgen.system;
 
+import com.sincerelyuq.vastlands.worldgen.caves.VastlandsCaves;
 import com.sincerelyuq.vastlands.worldgen.hydrology.VastlandsHydrology;
 import com.sincerelyuq.vastlands.worldgen.terrain.VastlandsTerrain;
 
@@ -14,7 +15,7 @@ public record GenerationSystems(TerrainSystem terrain, HydrologySystem hydrology
     public static GenerationSystems create(GenerationSetup setup) {
         TerrainSystem terrain = new VastlandsTerrain(setup);
         HydrologySystem hydrology = new VastlandsHydrology(setup, terrain);
-        CaveSystem caves = Passthrough.INSTANCE;
+        CaveSystem caves = new VastlandsCaves(setup, terrain, hydrology);
         ForestSystem forests = Passthrough.INSTANCE;
         return new GenerationSystems(terrain, hydrology, caves, forests);
     }
@@ -22,11 +23,11 @@ public record GenerationSystems(TerrainSystem terrain, HydrologySystem hydrology
     /**
      * Height of the generated ground surface (the landscape after all density stages that reshape
      * it), used to decide where surface rules apply (see {@code SurfaceRulesContextMixin}): the
-     * terrain with the hydrology's channels, valleys and levees. Caves (Agent 4) only hollow out
-     * rock below it; a cave stage that reshapes the surface itself must be reflected here.
+     * terrain with the hydrology's channels, valleys and levees, raised where the caves roof over
+     * a river gorge. Caves otherwise only hollow out rock below it (entrances aside).
      */
     public double surfaceHeight(int blockX, int blockZ) {
-        return this.hydrology.surfaceHeight(blockX, blockZ);
+        return this.caves.surfaceHeight(blockX, blockZ, this.hydrology.surfaceHeight(blockX, blockZ));
     }
 
     public String describe() {

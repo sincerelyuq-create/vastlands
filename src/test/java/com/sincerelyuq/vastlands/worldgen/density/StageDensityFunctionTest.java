@@ -15,7 +15,6 @@ import com.sincerelyuq.vastlands.worldgen.context.GenerationContext;
 import com.sincerelyuq.vastlands.worldgen.system.DensityRange;
 import com.sincerelyuq.vastlands.worldgen.system.DensityStage;
 import com.sincerelyuq.vastlands.worldgen.system.GenerationSetup;
-import com.sincerelyuq.vastlands.worldgen.system.Passthrough;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.DensityFunctions;
@@ -104,11 +103,13 @@ class StageDensityFunctionTest {
         assertEquals(7L, context.setup().worldSeed());
         DensityStage terrain = context.systems().terrain();
         DensityStage hydrology = context.systems().hydrology();
+        DensityStage caves = context.systems().caves();
         assertEquals(terrain.apply(POS.blockX(), POS.blockY(), POS.blockZ(), 0.0)
-                + Math.min(hydrology.apply(POS.blockX(), POS.blockY(), POS.blockZ(), 1.0), 2.0), wired.compute(POS));
+                + Math.min(hydrology.apply(POS.blockX(), POS.blockY(), POS.blockZ(), 1.0), caves.apply(POS.blockX(), POS.blockY(), POS.blockZ(), 2.0)),
+                wired.compute(POS));
         assertSame(terrain, findStage(wired, StageDensityFunction.Stage.TERRAIN).implementation());
         assertSame(hydrology, findStage(wired, StageDensityFunction.Stage.HYDROLOGY).implementation());
-        assertSame(Passthrough.INSTANCE, findStage(wired, StageDensityFunction.Stage.CAVES).implementation());
+        assertSame(caves, findStage(wired, StageDensityFunction.Stage.CAVES).implementation());
     }
 
     @Test
