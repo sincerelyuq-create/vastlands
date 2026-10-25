@@ -190,31 +190,32 @@ Dedicated dev server (`tools/worldcheck/generate.py`, all chunks fully generated
 each), checked with `cavecheck.py` (every block from Y -256 up), the new `biomecheck.py` and
 `blockprobe.py`; the same squares generated with Agent 4's code from a worktree of `main`:
 - mega1 — seed 20261018, 716,448 (lowland, an upper pillar megacave 236 × 152 with a lake at Y -21
-  and a cenote): cave space 3.87% of the underground (Agent 4: 1.76%), 14.8% at Y -32..-1;
-  463 394 water and 58 961 lava sources in caves, 0 that vanilla's fluid tick would change, water
+  and a cenote): cave space 3.81% of the underground (Agent 4: 1.76%), 14.3% at Y -32..-1;
+  457 464 water and 58 962 lava sources in caves, 0 that vanilla's fluid tick would change, water
   never touches lava; open/solid changes across chunk borders 0.0092 / 0.0081 against 0.0083 /
   0.0082 inside chunks (no seams); the cenote is a shaft open from the sky down to the megacave's
-  lake (`blockprobe.py` at 716,448: air from Y 99 to -11, source water at -21); 2 544 columns of
+  lake (`blockprobe.py` at 716,448: air from Y 99 to -11, source water at -21); 2 589 columns of
   cave mouths (Agent 4: 2 625 in the first run of this square). Biomes of the cave space: lush
-  caves 42.0% (Y -56..59: the megacave and its province; Agent 4: 10.7%), dripstone 14.4%, the
-  rest the surface biome (dark forest, swamp); 184 276 blocks of lush features (moss, clay,
-  dripleaf, azalea, vines) and 37 800 of dripstone. 1 unstable water source at the surface
-  (864 62 367, sea-level water at a shore flowing into a dip of the terrain; no cave there) and 108
+  caves 41.2% (Y -56..59: the megacave and its province; Agent 4: 10.7%), dripstone 14.6%, the
+  rest the surface biome (dark forest, swamp); 182 790 blocks of lush features (moss, clay,
+  dripleaf, azalea, vines) and 36 398 of dripstone. 1 unstable water source at the surface
+  (864 62 367, sea-level water at a shore flowing into a dip of the terrain; no cave there) and 91
   flowing cave blocks a tick would change (vanilla water springs, e.g. 673 -210 370).
-- s1m — seed 1, 0,0 (foothills and mountains): cave space 8.39% (Agent 4: 2.46%; 24.6% at
-  Y -160..-129 where a deep megacave and galleries run); 1 976 159 water and 1 793 lava sources in
+- s1m — seed 1, 0,0 (foothills and mountains): cave space 8.33% (Agent 4: 2.46%; 24.5% at
+  Y -160..-129 where a deep megacave and galleries run); 1 973 552 water and 1 792 lava sources in
   caves, 2 unstable water sources (24 -24 186 and -190 5 -160: amethyst geodes cut into cave water;
   Agent 4's code in the same square: 31, in an ancient city), water never touches lava, no seams
-  (0.0099 / 0.0082 across borders, 0.0101 / 0.0083 inside). A first run of this square, before two
+  (0.0098 / 0.0082 across borders, 0.0101 / 0.0083 inside). A first run of this square, before two
   fixes, had 57 unstable sources in an ancient city standing in a flooded domain (the deep dark is
   now kept out of flooded rock) and the cave biomes of vanilla's table in every chunk (chunk biome
   filling uses a cached climate sampler: fixed by `NoiseChunkMixin`, now covered by
-  `CaveBiomeTest`). Biomes of the cave space now: dripstone 42.4% (Agent 4: 79.1%), the deep dark
+  `CaveBiomeTest`). Biomes of the cave space now: dripstone 42.0% (Agent 4: 79.1%), the deep dark
   0.2% at Y -72..3 (Agent 4: 12.3% at Y -64..3), lush caves 0.3% (cold mountains: the column's own
-  climate excludes them), the rest the surface biome; feature blocks: dripstone 213 675, sculk
-  2 229, lush 35 268.
-- Both worlds were generated again with the final code (after the fracture frames and the ring
-  vault): 11.12 and 11.08 chunks/s, no exception in either log.
+  climate excludes them), the rest the surface biome; feature blocks: dripstone 216 846, sculk
+  2 394, lush 35 277.
+- Both worlds were generated again with the final code (after the fracture frames, the ring
+  vault, the abysses' bell vaults and the wall recesses): 11.21 and 11.14 chunks/s, no exception
+  in either log.
 - The log of every world shows `Vastlands cave biomes: lush [minecraft:lush_caves], dripstone
   [minecraft:dripstone_caves], deep_dark [minecraft:deep_dark], crystal [minecraft:dripstone_caves],
   volcanic [], other []` and no exception. The server never loaded neighbouring chunks for the caves
