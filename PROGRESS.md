@@ -138,8 +138,8 @@ Build and Test Results (Agent 4.5)
   -1794,1648, a flooded one at -464,-1541, a lava one at -236,-1832, a dry canyon at -1343,-680,
   river galleries at -704,224 and -500,330), 97 designed spillway blocks among them; river and lake
   beds intact; 31 sea caves with a mouth at the sea (13 blue holes), all 31 open to the sea and
-  stable; 0 cave lava above Y -54; cave share 6.22% of the rock between Y -240 and the ground over
-  4 000 random columns of a 32 768-block square (Agent 4: 1.56%), 1 862 of them without caves
+  stable; 0 cave lava above Y -54; cave share 6.20% of the rock between Y -240 and the ground over
+  4 000 random columns of a 32 768-block square (Agent 4: 1.56%), 1 867 of them without caves
   (Agent 4: 2 747); 256 network cells: 4 669 tunnel pieces, 371 chambers (81 of radius 30+);
   megacaves in 20 × 20 cells of 1 024 blocks: 180 upper, 173 deep; galleries of all classes and
   river galleries over four 3 072-block squares.
