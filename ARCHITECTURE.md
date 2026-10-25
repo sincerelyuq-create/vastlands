@@ -993,23 +993,26 @@ Layers, coarse to fine (`CaveModel`):
      with elongation 0.1..0.4), limited so the bounds stay within 0.47 of the distance to every
      neighbouring cell's centre (no overlaps; each column needs the 3 × 3 cells around it). Kinds:
      hall, lake (basin and islands), canyon (elongation 0.6..0.75, up to 220 tall, V floor,
-     bridges), abyss (radius 50..120, 110..300 tall, sheer walls, shelf, bridges), complex (a ragged
-     shelf with holes halfway up: two floors; partitions) and pillars (a forest of columns, stubs and
-     pendants), chosen from the room above and below and the rock. Height = a share of the radius
-     (halls 0.32..0.52, canyons 1.0, abysses 2.5) within the room between the aquitard (+18) or
-     Y -236 and the rough ground at the centre (−24) or the aquitard (−26); then, ring by ring
-     (0.35, 0.7, 0.95 of the outline, 12 directions each), the vault's dome profile there (plus 20%
-     for cupolas) must stay under that ring's lowest rough ground (−24): tall vaults under peaks,
-     low ones where valleys cross the rim (abysses up to ~150 and complexes ~135 blocks tall under
-     mountains in the measured seeds). Per column (`Megacaves.Section`): a
-     lobed, elongated outline (q = 1 at the wall) whose walls step back in uneven 6-block
-     terraces; a floor (superellipse of power 2.6..4: flat, with talus rising to the walls; hills of
-     0.15 h, a basin and islands in lakes, soft 5-block benches, rubble and boulders) and a vault
-     (a dome of power 1.7..2.4 over the floor, exponent 0.55..0.9: its sides slope in; hanging
-     lobes, ribs and cupolas ±0.2 h); slope-corrected distances so the wall noise acts across steep
-     walls too; pillars on a jittered grid (R/5, 24..60; 80% of sites in pillar caverns, 25% in
-     halls, 20% in lakes; 68% full columns flared at both ends, 16% stalagmite stubs, 16%
-     pendants); partition walls along a warped sub-cell Voronoi (0.55 R) with gaps, 35..100% of the
+     bridges), abyss (radius 50..120, 110..300 tall, sheer walls for the lower half closing into a
+     bell-shaped vault, shelf, bridges), complex (a ragged shelf with holes halfway up: two floors;
+     partitions) and pillars (a forest of columns, stubs and pendants), chosen from the room above
+     and below and the rock. Height = a share of the radius (halls 0.32..0.52, canyons 1.0, abysses
+     2.5) within the room between the aquitard (+18) or Y -236 and the rough ground at the centre
+     (−24) or the aquitard (−26); then, ring by ring (0.35, 0.7, 0.95 of the outline, 12
+     directions each), the vault's dome profile there (plus 20% for cupolas) must stay under that
+     ring's lowest rough ground (−24): tall vaults under peaks, low ones where valleys cross the rim
+     (abysses up to ~175 and complexes ~135 blocks tall under mountains in the measured seeds). Per
+     column (`Megacaves.Section`): a lobed, elongated outline (q = 1 at the wall) whose walls step
+     back in uneven 6-block terraces and recede by up to a fifth at heights picked by a 3D noise
+     (~80 blocks along the wall, ~40 in height: alcoves and overhangs; only inwards, so the cave
+     stays inside its fluid domain's footprint); a floor (superellipse of power 2.6..4: flat, with
+     talus rising to the walls; hills of 0.15 h, a basin and islands in lakes, soft 5-block
+     benches, rubble and boulders) and a vault (a dome of power 1.7..2.4 over the floor, exponent
+     0.55..0.9: its sides slope in; abysses a bell: walls sheer to 0.45..0.6 h, then a round dome;
+     hanging lobes, ribs and cupolas ±0.2 h); slope-corrected distances so the wall noise acts
+     across steep walls too; pillars on a jittered grid (R/5, 24..60; 80% of sites in pillar
+     caverns, 25% in halls, 20% in lakes; 68% full columns flared at both ends, 16% stalagmite
+     stubs, 16% pendants); partition walls along a warped sub-cell Voronoi (0.55 R) with gaps, 35..100% of the
      height; shelves; natural bridges (decks 4..7 thick, thicker towards the walls). Extras: 3..5
      connector passages (radius 4..10, out to 65..130 blocks past the wall, at the floor and
      halfway up: several entrances and exits, openings high on the walls) and, for 30% ×

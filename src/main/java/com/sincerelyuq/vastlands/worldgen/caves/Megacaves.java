@@ -23,8 +23,8 @@ import java.util.function.Consumer;
  *     <li>{@link Kind#LAKE}: a wide, lower cavern around a basin that holds a lake with islands;</li>
  *     <li>{@link Kind#CANYON}: an underground canyon several times as long as wide and up to 220
  *     blocks tall, a V-shaped floor, ledges along its walls and natural bridges across;</li>
- *     <li>{@link Kind#ABYSS}: a vertical void with sheer stepped walls, often a lake at its
- *     foot, bridges high above;</li>
+ *     <li>{@link Kind#ABYSS}: a vertical void with sheer stepped walls closing into a bell-shaped
+ *     vault, often a lake at its foot, bridges high above;</li>
  *     <li>{@link Kind#COMPLEX}: a multi-level cavern: a ragged rock shelf with holes halfway up
  *     divides it into two floors, partitions split it into chambers;</li>
  *     <li>{@link Kind#PILLARS}: a forest of columns, some broken into stalagmite stubs and
@@ -82,6 +82,8 @@ final class Megacaves {
          * and the vault's exponent (low: fuller dome).
          */
         final double rise, power, dome, vault;
+        /** Share of the height the walls rise sheer before the vault closes in (abysses; 0 for the others). */
+        final double bell;
         /** Basin depth at the centre (lakes). */
         final double basin;
         /** Horizontal bounding radius of everything the megacave adds (connectors included). */
@@ -105,7 +107,7 @@ final class Megacaves {
             this.exists = false;
             this.kind = Kind.HALL;
             this.x = this.z = this.radius = this.cos = this.sin = this.elongation = 0.0;
-            this.floor = this.height = this.rise = this.power = this.dome = this.vault = this.basin = this.bound = 0.0;
+            this.floor = this.height = this.rise = this.power = this.dome = this.vault = this.bell = this.basin = this.bound = 0.0;
             this.seed = 0L;
             this.domain = null;
             this.pillarCell = this.pillarChance = this.pillarRadius = 0.0;
@@ -116,7 +118,7 @@ final class Megacaves {
         }
 
         Megacave(long key, int zone, Kind kind, double x, double z, double radius, double angle, double elongation, double floor, double height,
-                 double rise, double power, double dome, double vault, double basin, double bound, long seed, FluidDomains.Domain domain,
+                 double rise, double power, double dome, double vault, double bell, double basin, double bound, long seed, FluidDomains.Domain domain,
                  double pillarCell, double pillarChance, double pillarRadius, double shelf, double shelfThickness, double partitionCell,
                  double[][] bridges, CaveGeology.Geology geo, GeographySample g, double theme, CavePrimitive[] extras) {
             this.key = key;
@@ -135,6 +137,7 @@ final class Megacaves {
             this.power = power;
             this.dome = dome;
             this.vault = vault;
+            this.bell = bell;
             this.basin = basin;
             this.bound = bound;
             this.seed = seed;
@@ -177,6 +180,7 @@ final class Megacaves {
         double floorScale, ceilingScale;
         double phase;
         SimplexNoise terraces;
+        Noise3 walls;
         /** Nearest pillar: distance, radius, kind (0 none, 1 column, 2 stalagmite stub, 3 pendant) and stub height share. */
         double pillarDistance, pillarRadius, pillarStub;
         int pillarKind;
@@ -213,7 +217,10 @@ final class Megacaves {
             if (band != this.terraceBand) {
                 double wobble = this.terraces.sample(this.x / 23.0 + band * 3.7, this.z / 23.0 - band * 1.9);
                 this.terraceBand = band;
-                this.terraceFactor = 1.0 + 0.05 * (FluidDomains.unit(c.seed ^ band, 3) - 0.5) + 0.04 * wobble;
+                // Alcoves and overhangs: the wall recedes by up to a fifth at heights picked by a
+                // ~40-block noise; never outwards, the footprint bounds the fluid domain.
+                double recess = 0.5 + 0.5 * this.walls.sample(this.x / 80.0, band * 6.0 / 40.0, this.z / 80.0);
+                this.terraceFactor = (1.0 + 0.05 * (FluidDomains.unit(c.seed ^ band, 3) - 0.5) + 0.04 * wobble) * (1.0 - 0.22 * recess * recess);
             }
             double wall = (this.q / this.terraceFactor - 1.0) * this.blocksPerQ;
             double d = Math.max(wall, Math.max((this.floor - y) * this.floorScale, (y - this.ceiling) * this.ceilingScale));
@@ -257,6 +264,7 @@ final class Megacaves {
     private final CaveNetwork.Ground ground;
     private final CaveSettings settings;
     private final SimplexNoise outline, relief, rubble, ceilings, masks, province;
+    private final Noise3 walls;
     private final ThreadLocal<KeyedCache<Megacave>> cache = ThreadLocal.withInitial(() -> new KeyedCache<>(256));
     private final ThreadLocal<double[]> scratch = ThreadLocal.withInitial(() -> new double[2]);
 
@@ -273,6 +281,7 @@ final class Megacaves {
         this.ceilings = new SimplexNoise(seed + 804);
         this.masks = new SimplexNoise(seed + 805);
         this.province = new SimplexNoise(seed + 806);
+        this.walls = new Noise3(seed + 807);
     }
 
     /** The megacave of a zone whose footprint contains a point, and its q there, or null. */
@@ -387,6 +396,7 @@ final class Megacaves {
         out.terraceBand = Long.MIN_VALUE;
         out.blocksPerQ = Math.max(1.0, blocksPerQ);
         out.terraces = this.outline;
+        out.walls = this.walls;
         out.phase = 5.0 * this.outline.sample(x / 37.0 + 50.0, z / 37.0);
         double qc = Math.min(q, 0.999999);
         double p = m.power;
@@ -418,7 +428,7 @@ final class Megacaves {
         double qpc = Math.pow(qc, pc);
         double sc = Math.pow(1.0 - qpc, 1.0 / pc);
         double dsc = -qpc / Math.max(qc, 1e-6) * Math.pow(Math.max(sc, 1e-4), 1.0 - pc);
-        double vaultShape = Math.pow(Math.max(sc, 1e-6), m.vault);
+        double vaultShape = m.bell + (1.0 - m.bell) * Math.pow(Math.max(sc, 1e-6), m.vault);
         double ceiling = m.floor + h * vaultShape;
         double lobes = 0.5 + 0.5 * this.ceilings.sample(x / 13.0, z / 13.0);
         double ribs = NoiseMath.ridged(this.ceilings, x / 60.0 + 40.0, z / 60.0, 2);
@@ -428,7 +438,7 @@ final class Megacaves {
         out.floor = floor;
         out.ceiling = ceiling;
         double floorSlope = Math.abs(m.rise * ds) / out.blocksPerQ;
-        double ceilingSlope = Math.abs(h * m.vault * Math.pow(Math.max(sc, 1e-4), m.vault - 1.0) * dsc) / out.blocksPerQ;
+        double ceilingSlope = Math.abs(h * (1.0 - m.bell) * m.vault * Math.pow(Math.max(sc, 1e-4), m.vault - 1.0) * dsc) / out.blocksPerQ;
         out.floorScale = Math.max(0.05, 1.0 / Math.sqrt(1.0 + floorSlope * floorSlope));
         out.ceilingScale = Math.max(0.05, 1.0 / Math.sqrt(1.0 + ceilingSlope * ceilingSlope));
         this.pillars(m, x, z, s, out);
@@ -593,6 +603,7 @@ final class Megacaves {
         double power = 2.6 + 1.4 * FluidDomains.unit(h, 5);
         double dome = 1.7 + 0.7 * FluidDomains.unit(h, 15);
         double vault = 0.55 + 0.35 * FluidDomains.unit(h, 6);
+        double bell = 0.0;
         double heightShare;
         switch (kind) {
             case LAKE -> {
@@ -611,8 +622,11 @@ final class Megacaves {
                 radius = Math.min(radius, 50.0 + 70.0 * FluidDomains.unit(h, 8)) * this.settings.megacaveScale();
                 elongation = 0.05 + 0.15 * FluidDomains.unit(h, 4);
                 power = 6.0;
-                dome = 5.0;
-                vault = 0.15;
+                // A bell: sheer walls for the lower half, then a round dome closing in (a vault
+                // that stays high out to the walls looked like a box).
+                bell = 0.45 + 0.15 * FluidDomains.unit(h, 16);
+                dome = 2.0;
+                vault = 0.8 + 0.4 * FluidDomains.unit(h, 6);
                 heightShare = 2.5;
             }
             case COMPLEX -> heightShare = 0.55 + 0.2 * FluidDomains.unit(h, 7);
@@ -664,7 +678,7 @@ final class Megacaves {
         double floorHi = top - 1.2 * height;
         double floor = floorLo + (floorHi - floorLo) * Math.pow(FluidDomains.unit(h, 10), 1.6);
         for (int r = 1; r < rings.length; r++) {
-            double profile = Math.pow(Math.max(1e-6, 1.0 - Math.pow(rings[r], dome)), vault / dome);
+            double profile = bell + (1.0 - bell) * Math.pow(Math.max(1e-6, 1.0 - Math.pow(rings[r], dome)), vault / dome);
             double allowed = Math.min(grounds[r] - CaveNetwork.COVER - 6.0, ceilingCap) - floor;
             if (profile > 0.05) {
                 height = Math.min(height, allowed / (1.2 * profile));
@@ -681,6 +695,7 @@ final class Megacaves {
             power = 3.0;
             dome = 2.0;
             vault = 0.6;
+            bell = 0.0;
         }
         double rise = (kind == Kind.CANYON ? 0.55 : 0.3) * height;
         double bound = radius * (1.0 + elongation) * 1.3 + reach;
@@ -706,7 +721,7 @@ final class Megacaves {
         for (CavePrimitive p : extras) {
             bound = Math.max(bound, Math.max(Math.max(Math.abs(p.minX - x), Math.abs(p.maxX - x)), Math.max(Math.abs(p.minZ - z), Math.abs(p.maxZ - z))));
         }
-        return new Megacave(key, zone, kind, x, z, radius, angle, elongation, floor, height, rise, power, dome, vault, basin, bound, seed, domain,
+        return new Megacave(key, zone, kind, x, z, radius, angle, elongation, floor, height, rise, power, dome, vault, bell, basin, bound, seed, domain,
                 pillarCell, pillarChance, pillarRadius, shelf, shelfThickness, partitionCell, bridges, geo, g, FluidDomains.unit(h, 14), extras);
     }
 

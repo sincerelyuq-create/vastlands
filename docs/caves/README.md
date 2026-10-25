@@ -23,8 +23,8 @@ Agent 4.5 (underground overhaul), rendered from the cave model with `./gradlew c
 
 | File | What |
 |---|---|
-| `preview45-plan-2048.png` | the same 2 048 blocks around 0,0 as `preview-plan-2048.png`, after the overhaul: wider and denser networks, galleries crossing the lattice, the deep megacaves (red), flooded caves at the coast (blue) |
-| `preview45-abyss-x.png` | seed 1, section along x through an abyss megacave at 4489,-9964 under a mountain (194 × 140 blocks, vault 146 blocks above its floor, a lake at its foot, a shelf halfway up), a river gallery at its water table on the left, deep halls below the aquitard |
+| `preview45-plan-2048.png` | the same 2 048 blocks around 0,0 as `preview-plan-2048.png`, after the overhaul: wider and denser networks, galleries crossing the lattice, megacaves as broad patches, caves under the sea at the right |
+| `preview45-abyss-x.png` | seed 1, section along x through an abyss megacave at 4489,-9964 under a mountain (194 × 140 blocks, sheer walls closing into a bell-shaped vault 176 blocks above its floor, a lake at its foot), a river gallery at its water table on the left, deep halls below the aquitard |
 | `preview45-complex-z.png` | seed 20261018, section along z through a two-floor complex at -2331,-2367 (412 × 301 blocks, floor Y -12, vault Y 92): a lake on its floor, the shelf, pillars, and the cenote, a collapse shaft from the sky into the vault |
 | `preview45-complex-y10.png` | the same complex sliced at Y 10: the shelf with its holes, pillars, partitions, connectors leading out |
 | `preview45-pillars-y100.png` | a pillar cavern at -12680,-10780 under high mountains sliced at Y 100: columns, stubs, the network and chasms around it |

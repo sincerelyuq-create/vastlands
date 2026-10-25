@@ -86,9 +86,10 @@ ARCHITECTURE.md, "Caves"):
   every dam they cross.
 - `Megacaves` (new, replaces `Caverns`): six kinds hundreds of blocks across in two stacked zones,
   vaults checked ring by ring against the ground (tall under peaks, low where valleys cross the
-  rim: abysses ~150 and complexes ~135 blocks tall under mountains),
-  their own fluid domain (lakes with islands, submerged caverns, lava lakes, dry), pillars,
-  partitions, shelves (two floors), natural bridges, terraced walls, connectors and cenotes.
+  rim: abysses ~175 and complexes ~135 blocks tall under mountains), abysses with a bell-shaped
+  vault, their own fluid domain (lakes with islands, submerged caverns, lava lakes, dry), pillars,
+  partitions, shelves (two floors), natural bridges, terraced walls with alcoves and overhangs,
+  connectors and cenotes.
 - `FluidDomains`: megacave domains with dams and spillways on their footprint; `water` setting.
 - `Fractures`: joint frames anchored on a 2 400-block grid and blended (fixes the broken cracks far
   from the origin), wider chasms (up to ~12 blocks), more open joints where `vertical` is high.
