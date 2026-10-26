@@ -7,10 +7,14 @@ import com.sincerelyuq.vastlands.worldgen.biome.VastlandsBiomeSource;
 import com.sincerelyuq.vastlands.worldgen.density.HydrologyParameterFunction;
 import com.sincerelyuq.vastlands.worldgen.density.StageDensityFunction;
 import com.sincerelyuq.vastlands.worldgen.density.TerrainParameterFunction;
+import com.sincerelyuq.vastlands.worldgen.forest.ForestFeature;
+import com.sincerelyuq.vastlands.worldgen.forest.VanillaTrees;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.world.level.biome.BiomeSource;
 import net.minecraft.world.level.chunk.ChunkGenerator;
 import net.minecraft.world.level.levelgen.DensityFunction;
+import net.minecraft.world.level.levelgen.feature.Feature;
+import net.minecraft.world.level.levelgen.placement.PlacementModifierType;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
@@ -27,6 +31,9 @@ public final class VastlandsRegistries {
             DeferredRegister.create(Registries.DENSITY_FUNCTION_TYPE, Vastlands.MOD_ID);
     public static final DeferredRegister<MapCodec<? extends BiomeSource>> BIOME_SOURCES =
             DeferredRegister.create(Registries.BIOME_SOURCE, Vastlands.MOD_ID);
+    public static final DeferredRegister<Feature<?>> FEATURES = DeferredRegister.create(Registries.FEATURE, Vastlands.MOD_ID);
+    public static final DeferredRegister<PlacementModifierType<?>> PLACEMENT_MODIFIER_TYPES =
+            DeferredRegister.create(Registries.PLACEMENT_MODIFIER_TYPE, Vastlands.MOD_ID);
 
     /** {@code "type": "vastlands:noise"} in a dimension's generator. */
     public static final DeferredHolder<MapCodec<? extends ChunkGenerator>, MapCodec<VastlandsChunkGenerator>> NOISE_GENERATOR =
@@ -35,6 +42,13 @@ public final class VastlandsRegistries {
     /** {@code "type": "vastlands:caves"} in a generator's biome source: surface biomes of a delegate, cave biomes of the caves. */
     public static final DeferredHolder<MapCodec<? extends BiomeSource>, MapCodec<VastlandsBiomeSource>> CAVE_BIOME_SOURCE =
             BIOME_SOURCES.register("caves", () -> VastlandsBiomeSource.CODEC);
+
+    /** {@code "type": "vastlands:forest"}: the Vastlands forests of a chunk (configured feature {@code vastlands:forest}). */
+    public static final DeferredHolder<Feature<?>, ForestFeature> FOREST = FEATURES.register("forest", ForestFeature::new);
+
+    /** Appended to vanilla's tree features in Vastlands worlds: positions where Vastlands grows the trees are dropped. */
+    public static final DeferredHolder<PlacementModifierType<?>, PlacementModifierType<VanillaTrees.Filter>> OUTSIDE_FORESTS =
+            PLACEMENT_MODIFIER_TYPES.register("outside_forests", () -> () -> VanillaTrees.Filter.CODEC);
 
     static {
         for (StageDensityFunction.Stage stage : StageDensityFunction.Stage.values()) {
@@ -51,5 +65,7 @@ public final class VastlandsRegistries {
         CHUNK_GENERATORS.register(modEventBus);
         DENSITY_FUNCTION_TYPES.register(modEventBus);
         BIOME_SOURCES.register(modEventBus);
+        FEATURES.register(modEventBus);
+        PLACEMENT_MODIFIER_TYPES.register(modEventBus);
     }
 }

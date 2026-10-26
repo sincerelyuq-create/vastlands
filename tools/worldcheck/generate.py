@@ -71,6 +71,7 @@ def main():
                    help="block coordinates of the centre of the square (default 0 0)")
     p.add_argument("--accept-eula", action="store_true")
     p.add_argument("--fresh", action="store_true", help="delete an existing world with this name first")
+    p.add_argument("--poll", type=float, default=10.0, help="seconds between completion checks (the resolution of generation_seconds)")
     args = p.parse_args()
     if not 1 <= args.radius <= 32:
         p.error("--radius must be 1..32 (gamerule spawnChunkRadius)")
@@ -106,7 +107,7 @@ def main():
         rcon.command("gamerule spawnChunkRadius %d" % args.radius)
         pending = {(x, z) for x in range(lo_x, hi_x + 1) for z in range(lo_z, hi_z + 1)}
         while pending:
-            time.sleep(10)
+            time.sleep(args.poll)
             # Plain save-all: "flush" would block the server thread until all generation is done.
             rcon.command("save-all")
             pending = {(x, z) for (x, z) in pending if (read_chunk(region, x, z) or {}).get("Status") != "minecraft:full"}

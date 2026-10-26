@@ -23,7 +23,7 @@ Development Modules
    2.5. Geography — continent-scale regions, climate, climate-aware biomes, oceans, trenches and frozen seas. (Done: Agent 2.5.)
 3. Hydrology — rivers, tributaries, downhill drainage, waterfalls, and river valleys. (Done: Agent 3.)
 4. Caves — large underground caverns, tunnels, vertical shafts, and diverse cave formations. (Done: Agent 4; overhauled by Agent 4.5: passage widths, density, galleries, megacaves, cave biomes.)
-5. Forests — large forests, tree diversity, giant trees, and natural vegetation distribution.
+5. Forests — large forests, tree diversity, giant trees, and natural vegetation distribution. (Done: Agent 5.)
 
 Integration Rules
 
@@ -70,11 +70,14 @@ Repository Layout
 ```
 src/main/java/com/sincerelyuq/vastlands/
   Vastlands.java                      @Mod entry point, MOD_ID, LOGGER, id()
-  registry/VastlandsRegistries.java   DeferredRegisters: chunk generator, density function types
+  registry/VastlandsRegistries.java   DeferredRegisters: chunk generator, density function types, biome source,
+                                      the forest feature and its placement filter
   mixin/RandomStateMixin.java         binds Vastlands density functions to the world seed, registers the climate sampler
   mixin/SurfaceRulesContextMixin.java surface rules use the exact terrain surface (Vastlands worlds only)
   mixin/ServerLevelMixin.java         weather does not freeze the cracks of ice fields (Vastlands worlds only)
   mixin/NoiseBasedChunkGeneratorMixin.java  noise filling uses the caves' fluid picker (Vastlands worlds only)
+  mixin/PlacedFeatureMixin.java       vanilla tree features skip Vastlands forests (Vastlands worlds only); PlacedFeatureAccessor
+  mixin/ClimateRTreeMixin.java        exact climate searches during the forests' biome lookups (ExactClimateSearch)
   worldgen/
     WorldHeight.java                  MIN_Y = -256, HEIGHT = 768, MAX_Y = 511
     VastlandsChunkGenerator.java      "vastlands:noise", a NoiseBasedChunkGenerator subclass; trench water and
@@ -102,6 +105,10 @@ src/main/java/com/sincerelyuq/vastlands/
                                       VastlandsCaves (CaveSystem), CaveBlocks (block step), CaveVolume (model-side
                                       fluid checks), CaveSettings, CaveFluid, CaveBiome, MegacaveInfo
     biome/VastlandsBiomeSource.java   "vastlands:caves" biome source: surface delegate + cave biome slots
+    forest/                           forests: ForestModel (pure Java: ForestType, TreeForm, Wood, TreeSpec, TreeShapes,
+                                      TreeShape, TreeBlocks, ForestSample, ForestSettings, ForestCache, TreeRandom),
+                                      VastlandsForests (ForestSystem), ForestFeature and ForestBlocks (the block step),
+                                      ForestBiomes, VanillaTrees, ExactClimateSearch
 src/main/resources/
   vastlands.mixins.json
   assets/vastlands/lang/en_us.json                         world type name
@@ -114,6 +121,11 @@ src/main/resources/
                                                            vegetation, bottom_slide (terrain outputs)
   data/vastlands/tags/worldgen/biome/cave/                 cave biome slots: lush, dripstone, deep_dark, crystal,
                                                            volcanic, other (optional entries for other mods)
+  data/vastlands/tags/worldgen/biome/forest/               forest communities (temperate .. dry), transparent, all
+  data/vastlands/tags/worldgen/placed_feature/forest/      displaced: vanilla features that give way to the forests;
+                                                           buried: underground lava lakes kept from under them
+  data/vastlands/worldgen/{configured,placed}_feature/     forest.json: the vastlands:forest feature
+  data/vastlands/neoforge/biome_modifier/forest.json       adds it to the vegetal decoration of #vastlands:forest/all
 src/test/java/...                                          JUnit tests (see Testing)
 src/test/java/.../tools/TerrainPreview.java                ./gradlew terrainPreview: terrain, landform, biome, climate
                                                            and ice maps without the game
@@ -123,10 +135,13 @@ src/test/java/.../tools/CavePreview.java                   ./gradlew cavePreview
                                                            fluid checks, river tunnels, sea caves, places, bench
 src/test/java/.../tools/CaveSurvey.java                    ./gradlew caveSurvey: passage widths, cave share by depth,
                                                            wide spaces, connectivity, water bodies, cave biomes
+src/test/java/.../tools/ForestPreview.java                 ./gradlew forestPreview: tree gallery, isometric views, aerial
+                                                           maps, forest statistics, places, order check, bench
 tools/worldcheck/                                          world generation, region analysis, heightmaps, oceans, rivers,
                                                            caves (cavecheck.py, blockprobe.py), biomes (biomecheck.py),
-                                                           screenshots
-docs/terrain/, docs/geography/, docs/hydrology/            previews, region maps and in-game screenshots
+                                                           forests (forestcheck.py), screenshots
+docs/terrain/, docs/geography/, docs/hydrology/,           previews, region maps and in-game screenshots
+docs/caves/, docs/forests/
 ```
 
 World Preset and Height
@@ -184,7 +199,8 @@ vastlands:caves        ← CaveSystem        wraps the whole final_density (per 
 biomes: vastlands:caves ← surface delegate (multi_noise) + VastlandsCaves.caveBiome below the ground
 NoiseChunk (aquifers off; fluids from CaveSystem.fluidPicker) → [trench water, cave step, river water]
         → surface rules → (no vanilla carvers) [trench water, river water, swallets] → features → [ice fields]
-              └─ ForestSystem, via GenerationContext.of(level)
+                                                  vanilla tree features give way ┘ └ vastlands:forest (end of vegetal
+                                                  decoration: ForestSystem via GenerationContext.of(level))
 ```
 
 The bracketed steps are `VastlandsChunkGenerator` overrides (`fillFromNoise`, `applyCarvers`,
@@ -205,8 +221,9 @@ neighbouring columns), so they do not depend on generation order.
   the terrain's value through away from rivers.
   The five 2D ones are wrapped in `minecraft:flat_cache` like vanilla's.
 - The caves stage is outside interpolation and runs for every block.
-- Forests are not part of the router; forest features reach their system through
-  `GenerationContext.of(ServerLevel)`.
+- Forests are not part of the router: the feature `vastlands:forest` reaches its system through
+  `GenerationContext.of(ServerLevel)` and builds each chunk's part of every tree that reaches it
+  (see Forests).
 - The JSON graph is data and may be restructured by later agents (for example to move the caves
   hook inside interpolation), as long as each stage keeps one clear place in the router.
 
@@ -233,15 +250,15 @@ System Contracts
 
 All interfaces are in `worldgen/system`. `GenerationSystems.create(GenerationSetup)` is the single
 place where implementations are chosen. Terrain is `VastlandsTerrain`, hydrology is
-`VastlandsHydrology`, caves are `VastlandsCaves`; forests are still `Passthrough.INSTANCE` (which
-implements only `CaveSystem` and `ForestSystem` defaults).
+`VastlandsHydrology`, caves are `VastlandsCaves`, forests are `VastlandsForests` (`Passthrough`
+remains for tests).
 
 | System | Interface | Kind | May depend on | Owner |
 |---|---|---|---|---|
 | Terrain | `TerrainSystem` | `DensityStage` | — | Agent 2 |
 | Hydrology | `HydrologySystem` | `DensityStage` | Terrain | Agent 3 |
 | Caves | `CaveSystem` | `DensityStage` | Terrain, Hydrology | Agent 4, 4.5 |
-| Forests | `ForestSystem` | `treeDensity(x, z)` | Terrain, Hydrology | Agent 5 |
+| Forests | `ForestSystem` | feature `vastlands:forest` | Terrain, Hydrology, Caves | Agent 5 |
 
 Systems are created in that order and receive only earlier systems. Nothing depends on caves or forests.
 
@@ -305,6 +322,16 @@ CaveSystem (contract for later systems; details in Caves below):
   `megacaves(...)` (`MegacaveInfo` for natural wonders).
 - Biomes: `VastlandsBiomeSource` (`vastlands:caves`) finds the caves through
   `GenerationContext.of(Climate.Sampler)`.
+
+ForestSystem (contract for later systems; details in Forests below):
+- `double treeDensity(x, z)`: the share of the tree lattice holding a tree (0..1).
+- `ForestSample forestAt(x, z)`: the community, its share of the neighbourhood, density, stand age,
+  clearing, riparian, treeline, exposure, slope, temperature, moisture, old growth.
+- `trees(minX, minZ, maxX, maxZ, consumer)`: every tree, shrub and fallen log whose blocks can reach
+  a box (`TreeSpec`: root, form, wood, height, crown, community), in a fixed order; their blocks
+  through `VastlandsForests.model().shape(spec)` (`TreeShape`).
+- `VastlandsForests.bind(owner, biomes)` before use (the feature binds the world's biome source);
+  `replacesVanillaTrees(category, x, z)`, `describe` for F3.
 
 How to implement a system
 
@@ -1161,6 +1188,214 @@ still place lava and water springs and underground lava lakes; ores and other fe
 to the world bottom keep vanilla's shifted ranges; no river rises from a cave (resurgence) and
 none is rerouted underground (that would change Agent 3's drainage).
 
+Forests (Agent 5)
+
+Trees, shrubs, deadwood and the forest floor of the surface: `worldgen/forest`. `ForestModel` is
+pure Java like the other models: a deterministic function of (seed, x, z) on the terrain, rivers,
+caves and surface biomes, rendered and measured without the game (`./gradlew forestPreview`).
+`VastlandsForests` (the `ForestSystem`) binds it to the world; the feature `vastlands:forest`
+(`ForestFeature`, `ForestBlocks`) builds each chunk's part of every tree that reaches it; vanilla's
+tree features give way where Vastlands grows the trees (`VanillaTrees`, `PlacedFeatureMixin`).
+
+Integration:
+- Biomes decide who grows the trees. Each forest community is a biome tag
+  `#vastlands:forest/<community>` (`data/vastlands/tags/worldgen/biome/forest/`):
+
+  | Community | Biomes (tag) | Trees |
+  |---|---|---|
+  | temperate | forest | oak, birch stands, spruce in the cold, a little dark oak in wet climates, rare ancient oaks |
+  | flower | flower forest | small oaks and birches, many shrubs, bees |
+  | birch | birch forest | birch, oak patches |
+  | old_birch | old growth birch forest | tall birches, snags |
+  | dark | dark forest | dark oaks (big ones in old stands), oaks, birches, huge mushrooms |
+  | boreal | taiga, snowy taiga | spruce, pine patches, birch (riverbanks, young stands), rare giant spruces |
+  | old_spruce, old_pine | old growth spruce / pine taiga | giant spruces or pines over spruce and pine, snags, moss |
+  | grassland | plains, sunflower plains, snowy plains, meadow | groves and lone open-grown oaks, birches, rare ancient oaks; spruce in snowy plains |
+  | savanna | savanna, savanna plateau, windswept savanna | acacias, oaks by the water, shrubs |
+  | jungle, sparse_jungle | jungle, sparse jungle | tall jungle trees, giant ones, oaks with vines, a dense shrub layer |
+  | swamp | swamp | swamp oaks hung with vines, in shallow water too |
+  | highland | windswept hills, gravelly hills, windswept forest | spruce, pine, oaks where mild, krummholz in the cold |
+  | grove | grove | spruce, pine, krummholz |
+  | alpine | snowy slopes | krummholz, a few stunted spruces |
+  | dry | wooded badlands | small oaks and shrubs |
+
+  `transparent` holds the river biomes (riverbanks take the woods around them); `all` is the
+  union. A biome in none of them (deserts, badlands, peaks, beaches, oceans, mushroom fields,
+  mangrove swamps, bamboo jungles, cherry groves, pale gardens, and every biome of another mod
+  unless a tag lists it) is left to its own features: Vastlands neither removes its trees nor
+  roots any there. Other mods' biomes join a community by an optional tag entry (a datapack),
+  without code and without a dependency.
+- The feature: `data/vastlands/worldgen/{configured,placed}_feature/forest.json` and the NeoForge
+  biome modifier `data/vastlands/neoforge/biome_modifier/forest.json` add `vastlands:forest` to the
+  vegetal decoration of `#vastlands:forest/all`. Vanilla decorates a chunk with the features of every
+  biome within one chunk of it, so the feature runs in every chunk a tree can reach (a tree's
+  blocks stay within 16 blocks of its root, `TreeShape.REACH`). It runs after the biomes' own
+  vegetation (flowers, grass, pumpkins, berries stay vanilla) and before `freeze_top_layer`, so
+  snow lands on the crowns. In other worlds it does nothing (`VastlandsChunkGenerator` check).
+- Vanilla's trees: the placed features in `#vastlands:forest/displaced`
+  (`data/vastlands/tags/worldgen/placed_feature/forest/`: the 21 tree features of the managed
+  biomes, and `lake_lava_surface`, whose lava would set the dense forests alight) get one more
+  placement filter in Vastlands worlds (`vastlands:outside_forests`, appended by
+  `PlacedFeatureMixin` at `placeWithBiomeCheck`, placed through the original's context so its biome
+  filter still checks the original). The filter drops positions whose biome (the level's biome, the
+  one vanilla's biome filter reads) belongs to a forest community; everywhere else those features
+  place exactly as before with the same random sequence. Other worlds are untouched; other mods'
+  features are touched only if the tag lists them. Vanilla's underground lava lakes
+  (`#vastlands:forest/buried`) get the same filter judged at the ground above them while they start
+  less than 24 blocks under it: such a lake carves four layers of air over its lava, opens out of
+  a hillside and sets a dense forest on fire (seen in a screenshot session in taiga); deeper ones
+  are untouched.
+- Exact biome lookups (`ExactClimateSearch`, `ClimateRTreeMixin`): vanilla's climate index starts
+  each search from the thread's last result and keeps it on an exact tie, so a column on a parameter
+  boundary gets whichever biome the thread found last. The forests ask for the same biomes from
+  several chunks and threads, so inside their lookups the index searches from scratch and leaves the
+  thread's last result alone. Found when two generations of one square differed by whole trees.
+- F3: a "Vastlands forest" line (community and its share, density, age, clearing, riparian,
+  treeline, exposure, slope).
+
+Layers (`ForestModel`):
+1. Communities on a 16-block grid: each node's biome category (at the ground, `ForestBiomes`);
+   blended over the nodes within 2.5 nodes (weights (1 - d²/6.25)², river biomes left out), then
+   bilinear: composition and density change over ~40 blocks across biome borders, and forests thin
+   towards open land, the sea and unmanaged biomes. The grid points also carry the terrain model's
+   height and climate (one uncached `TerrainSystem.sample` per point and thread: temperature,
+   sea-level temperature, moisture, prevailing wind), read bilinearly by every point of the model.
+   Each node has the terrain's position (TPI: the ground minus the mean of 6 grid points ~32 and 6
+   ~75 blocks around) and the sea among those points.
+2. The forest at a point (`evaluate`): capacity = Σ weight × community capacity × moisture response
+   (closed forests 0.72 + 0.4 m, open land 0.55 + 0.9 m); groves on open land (2-octave noise at 190
+   blocks, smoothstep 0.36..0.7, up to 0.45); regional cover 0.55..1.05 (1 700 blocks); stand age
+   (950 blocks, shifted by the communities' maturity): young stands denser with small trees, old
+   growth with giants, snags, fallen logs, moss and gaps; clearings: openings (115 blocks,
+   smoothstep 0.48..0.62), meadows (480 blocks), gaps of fallen giants (30 blocks, old growth only);
+   the treeline (below); exposed crests thinner and shorter in the cold (TPI 8..30), sheltered
+   valleys denser (TPI -6..-24), the coast thinner within ~70 blocks of the sea; riparian woods within
+   18 blocks of a river or lake edge (`HydrologyModel.channels`; +30% in forests, +60% on open
+   land: gallery forests along rivers through plains and savannas), wet meadows on some floodplains
+   (260-block noise); small-scale variation (19 blocks). Noise fields are domain-warped (38 blocks at
+   420, 7 at 90) so their shapes meander.
+3. The treeline: the geography clamps its temperature at -1, so the trees use an unclamped
+   temperature: the sea-level temperature cooled by the lapse rate (0.0022 per block) for the local
+   ground above the sea, but in polar lowlands at least -0.7 up to 40 blocks above the sea (polar
+   taiga stays wooded). Trees thin from -0.78 to none at -1.15 (±0.1 by a 320-block noise, so the
+   line runs in bands and tongues), grow shorter from -0.5 down and turn to krummholz on cold
+   exposed ground. Mountain biomes add their own steps: meadows (open), groves, snowy slopes
+   (stunted trees), peaks (none).
+4. Trees: a jittered lattice of 4-block cells, one candidate each, standing with probability
+   density × 0.92; its community is drawn from the blended weights, its wood from the community's
+   composition (with 95-block patches per wood: birch stands in oak woods, spruce stands in mixed
+   forest, pine patches in taiga), its form and size from the age, the edge (low density or a small
+   share of the community: smaller trees, more shrubs, so edges step down instead of standing as a
+   wall), the climate and the ground. A candidate yields to any neighbour within two cells with a
+   higher priority (its form's spacing plus a random fraction) closer than the mean of their
+   spacings (bush 1.5 .. ancient oak 8, `TreeForm`): giants keep room around them, shrubs fill gaps,
+   trees never touch. The yield is not recursive (a candidate's priority and site test depend only
+   on its own cell), so the answer for any cell is the same from any chunk. A 3-block lattice holds
+   shrubs (edges, clearings' margins, the jungle floor; clear of trunks), a 16-block lattice fallen
+   logs (old growth, level ground between trunks).
+5. The world under a tree (`checkSite`; the ground is the hydrology's surface: the caves only raise
+   it under their roofs over gorges, above river water where no tree stands): its biome managed (or
+   a river biome on dry ground); every trunk column dry (swamp oaks also in sea-level water at most
+   one block deep) and within a block of the others; no water beside the trunk at or above its ground (no trunks on eroded banks);
+   local slope over 4 blocks at most 0.45 for giants, 0.55 for dark oaks, mushrooms and logs, 0.95
+   for trees, 1.25 for shrubs (cliffs stay bare, steep slopes carry shrubs); no cave space at the
+   ground and 1, 3 and 6 blocks below any trunk column (cave mouths, dolines, cenotes, ravines), and
+   for crowns of radius 4.5+ none at the lip 3 blocks around; no waterfall within the crown plus 8
+   blocks (curtains and plunge pools stay clear, `HydrologyModel.falls` of every 512-block region
+   in reach).
+
+Tree shapes (`TreeShapes`, `TreeShape`; vanilla logs, wood and leaves only): broadleaf (oak, birch:
+a leaning, gently curving trunk forking into 2..7 branches spread by the golden angle and bent
+upward, each ending in a lumpy leaf cluster, side shoots and a fill in big crowns, crowns skewed
+to one side), ancient oak (a 2 × 2 trunk with flared roots of bark blocks, 4..6 heavy limbs
+bending at an elbow, sub-branches, low spreading limbs, a dome, rooted and coarse dirt around),
+birch (layers of leaves on the upper trunk, twigs), spruce (whorls of needles with radial branch
+logs inside), pine (a long bare trunk under a rounded crown), giant spruce and pine (2 × 2,
+podzol and moss around), krummholz (a low mat stretched downwind, from the geography's prevailing
+wind), dark oak (2 × 2, limbs under a broad flat canopy of three layers), tall and giant jungle
+trees (vines, cocoa, branches up the trunk), acacia (forked leaning trunks under flat
+umbrellas), swamp oak (a wide flat crown hung with vines), shrubs, snags (dead trunks), fallen
+logs (with stumps and moss), huge brown and red mushrooms (vanilla's shapes). Broadleaves, birches,
+swamp oaks and tall jungle trees within 7 blocks of a river or lake lean out over the water, other
+trees a little at random. Leaves carry the distance vanilla
+computes (breadth-first from the tree's own logs through leaves); leaves more than 6 steps from a
+log are never built, vines and cocoa without support dropped, bee nests on the east, south or west
+of the trunk facing south with room in front, like vanilla's. A shape is a pure function of its
+`TreeSpec` (its seed comes from the cell), built once per thread and cached. Each form has a reach
+(`TreeForm.reach`: bush 5, birch 8, spruce 9, broadleaf 13, ancient oak 16 ..., two or three blocks
+above the largest radius measured over ~170 000 trees); the builder drops blocks beyond it, and
+`trees` reports a tree for a box only if its root lies within that reach, so a chunk builds the
+shapes of the trees that can reach it, not of every tree within 16 blocks.
+
+The block step (`ForestBlocks`, in each chunk's decoration):
+- Each tree, shrub and log reaching the chunk (`model.trees` for the chunk: roots within their
+  form's reach of it), in a fixed order; its shape's blocks inside the chunk: logs into air, plants, snow and leaves; leaves
+  and decorations into air, plants and snow; leaves and logs win over mushroom caps; never into
+  water (swamp trees: logs and waterlogged leaves in shallow water); double plants lose both
+  halves; melons, pumpkins and bamboo give way to logs (a bamboo stalk cut by a log loses the part
+  above it). Trunks whose ground is lower than the model's grow down onto solid ground (at most 5
+  blocks); grass under a trunk becomes dirt; a trunk column or flared root that would come to rest
+  on water is left out. Podzol, rooted dirt, coarse dirt and moss around giant trunks on the top
+  soil. Bee nests get two or three bees (vanilla's block entity). Blocks are written into the
+  chunk without neighbour updates, like vanilla's tree features; the light step runs afterwards.
+- Structures (`StructureGuard`): a tree is left out whole if its footprint overlaps a piece of a
+  surface structure (step `SURFACE_STRUCTURES`: villages, outposts, temples, huts, igloos, ruined
+  portals, shipwrecks, mansions, other mods' surface structures) starting within 7 chunks of the
+  tree's own chunk. Every chunk the tree reaches sees the same structures (they are within the 8
+  chunks a decorating region can read). Only x and z count: vanilla moves some pieces up or down
+  when it places them (buried treasure, scattered features, shipwrecks), so their heights depend on
+  whether their chunk is decorated yet. Underground structures do not keep forests off the ground
+  above them.
+- The forest floor of the chunk's columns, by community, canopy (leaves above the column counted
+  from the shapes) and moisture: leaf litter under broadleaf canopies (more in shade, in patches),
+  ferns and large ferns (taiga, humid shade, jungle), grass and tall grass (more in the open and at
+  edges), bushes at edges, mushrooms in deep shade, moss blocks and carpets on old wet ground, dry
+  grass in hot savannas; under a closed canopy the floor stays sparse; in snowy climates only a few
+  ferns. Everything checked with vanilla's `canSurvive`.
+
+Determinism and chunk safety: candidates depend only on their cell; acceptance only on the
+candidates around; the world is read only through pure model queries (terrain, hydrology, caves,
+biomes with exact searches) and, in the block step, the chunk's own blocks. Each chunk writes only
+its own blocks, so trees cross chunk borders whole without cross-chunk writes and in any order.
+Caches are per thread, keyed by exact grid coordinates, open-addressed (`ForestCache`, like the
+caves' `KeyedCache`): nodes, blended weights, candidates, falls per 512-block region, shapes. A hit
+returns what a miss would compute; nothing grows with the explored area.
+
+Contract for later systems (`ForestSystem`, `VastlandsForests`): see System Contracts. `forestAt`
+for anything that should follow the forests (wildlife, ruins in clearings, a forest-floor feature);
+`trees(...)` and `model().shape(spec)` for the exact blocks of every tree (also before the chunk is
+decorated, for any chunk); `ForestModel.checkSite` reasons (`siteProblem`) explain why a cell has
+no tree. Cave openings, waterfalls and water are kept clear by the model, so features placed into
+those (Agent 6) do not need to remove trees.
+
+Performance (this container, 4 vCPU; JFR profiles of the dedicated server; details: PROGRESS.md,
+Agent 5): the feature costs 1.8 (savanna) .. 3.9 ms per decorated chunk in temperate, boreal, dark
+and mountain forests and 6.1 ms in the jungle, ~3% of the worldgen workers' time, shared by the
+site checks, the shapes, the model and the block writes. End to end (`generate.py --poll 2`, same
+squares alternated with `main`): 0..8% slower where forests are dense, within the run-to-run spread
+elsewhere. What keeps it there: the 16-block grid carries the terrain model's height and climate
+(one uncached query per point instead of a dozen interpolated terrain queries per node, which
+also evicted the terrain's column cache), the model reads the hydrology's surface (not the caves'
+column) and the caves only for trunk columns that pass the other checks, per-form reaches (a chunk
+builds only the shapes that can reach it), the crown noise skipped outside each blob's largest
+radius. Features run on the consecutive worldgen executor, so the feature's cost adds directly.
+
+Tuning: `ForestSettings.DEFAULT` (density, clearings, riparian, age, treeSize, shrubs, deadwood,
+understory; all 1 except age 0); community capacities, grove shares and maturity in `ForestType`;
+spacings and reaches in `TreeForm`; compositions in `ForestModel.Choices`; shapes in `TreeShapes`; the floor in
+`ForestBlocks.Understory`; which biome is which community in the tags. Any change changes
+generation (seams against existing chunks). Render with `forestPreview` (`--gallery`, `--view`,
+`--map`, `--stats`) before generating worlds; `ForestModelTest` and `ForestGameTest` guard the
+properties, `forestcheck.py` checks generated worlds.
+
+Limitations (details: PROGRESS.md, Known Issues): biomes outside the communities keep vanilla's
+trees (bamboo jungles, cherry groves, mangroves, pale gardens), and a crown near such a border can
+overhang into them; underground structures do not keep trees off the ground above; a leaf's path
+to its log can be cut where the terrain or another tree's log takes a block of the crown (stored
+distance stays valid until a neighbour update, then up to a few leaves decay: 0..3 per 576 chunks
+measured inside the squares); Sincerelyuq's Biomes and other mods' surface biomes are not in any
+community until a tag lists them.
+
 Vanilla Isolation
 
 - Vanilla world types are untouched: only `vastlands:*` data is added, plus one entry appended to
@@ -1179,13 +1414,21 @@ Vanilla Isolation
   tags are in the `vastlands` namespace; the sampler registration in `RandomStateMixin` happens only
   for a `RandomState` with a Vastlands context. Vanilla biomes are used as they are (lush caves,
   dripstone caves and the deep dark bring their own features).
+- Forests (Agent 5): `vastlands:forest` is added to vanilla biomes by a NeoForge biome modifier, so
+  it is in their feature lists in every world, but it places nothing unless the generator is a
+  `VastlandsChunkGenerator`. `PlacedFeatureMixin` appends the `vastlands:outside_forests` filter
+  only when the generator is a `VastlandsChunkGenerator` and the placed feature is in
+  `#vastlands:forest/displaced` or `#vastlands:forest/buried`; otherwise `placeWithBiomeCheck` runs
+  unchanged. `ClimateRTreeMixin`
+  changes the climate index only inside `ExactClimateSearch.call` (the forests' biome lookups); every
+  other search, in any world, keeps vanilla's last-result shortcut.
 
 Testing and Verification
 
-JUnit (`./gradlew test`, 70 tests):
+JUnit (`./gradlew test`, 76 tests):
 - `WorldHeightDataTest` — data files agree with `WorldHeight` and pass vanilla's codecs.
 - `GenerationSetupTest` — seeded randomness is deterministic and separated per system and seed;
-  terrain, hydrology and caves are implemented, forests are passthrough.
+  terrain, hydrology, caves and forests are implemented.
 - `StageDensityFunctionTest` — passthrough when unbound, delegation and bounds when bound,
   `fillArray`, lazy context creation, binding survives later visitors, codec round trip.
 - `TerrainParameterFunctionTest` — unbound value and bounds, binding to the context's terrain, codec.
@@ -1261,6 +1504,19 @@ JUnit (`./gradlew test`, 70 tests):
   caves 3..30% (none under frozen climates, almost none under the sea), dripstone 8..50%, the deep
   dark 0.3..12% and present at Y -27; cave biome runs along rows 120 blocks deep longer than 200
   blocks.
+- `ForestModelTest` (Agent 5; biomes from vanilla's table on the router's parameters, like
+  `forestPreview`) — two models of the same seed give every chunk the same trees and shapes when
+  queried in rows on one thread and shuffled on parallel threads, at four places (dark forest and
+  old growth taiga, a lowland lake, a jungle, a river in taiga); shapes: every leaf within distance 6
+  of its own logs with the distance vanilla computes, every block within its form's reach, vines on a solid
+  face, cocoa on jungle logs, bee nests with room in front (south); trees on dry ground, never
+  over caves or falls, within the slope limits, only in managed biomes (> 3 000 trees, > 50 of them
+  riparian); trunk spacing on the main lattice (no two closer than the mean of their spacings),
+  giants rare, each community's woods; density by biome (dark forest > 0.4, forest and taiga > 0.35,
+  plains < 0.15, desert < 0.03); open land beside water at least twice as wooded as away from it.
+- `ForestGameTest` (test server, Agent 5) — the world's real biome source and the mod's mixins: 800
+  chunks get the same trees from a fresh system queried in a shuffled order on parallel threads
+  (measured 13 327 trees reaching them, 0 chunks differ).
 
 Terrain previews without the game: `./gradlew terrainPreview --args="..."` (`TerrainPreview` in the
 test sources): `--seed S --center X Z --size BLOCKS --scale BLOCKS_PER_PIXEL --out PREFIX` writes a
@@ -1301,6 +1557,18 @@ per km of coastline; `--probe X Y Z` prints the domains, solids and blocks aroun
 times the cave stage per chunk as noise filling calls it; `--places R` (Agent 4.5) lists the
 megacaves (fluid, cenote), underground river galleries and their spillway notches within R blocks.
 
+Forest previews: `./gradlew forestPreview --args="..."` (`ForestPreview`, Agent 5; biomes from
+vanilla's table on the router's parameters, `PreviewForestBiomes`): `--gallery FILE` every tree
+form at three sizes (isometric sheets; `--gallery-seed S` other random details); `--view X Z SIZE
+FILE` an isometric view of a square of terrain, water and trees; `--map X Z SIZE SCALE FILE` an
+aerial map (crowns by wood over hillshaded ground); `--stats X Z SIZE` tree counts by community,
+form and wood, heights, spacing, canopy cover, clearings and every trunk checked against water,
+caves and slopes; `--find TYPE R`, `--find-river R`, `--find-treeline R` places of a community,
+forested riverbanks and treelines; `--trees X Z R` the trees around a point; `--reach X Z SIZE`
+the largest radius of each form in a square against its reach; `--bench X Z CHUNKS`
+the model and shapes per chunk; `--order X Z CHUNKS` the trees of every chunk from two systems in
+two orders; `--explain LAYER I J X Z N` why a lattice cell has or lacks its tree.
+
 River previews: `./gradlew hydrologyPreview --args="--seed S --center X Z --size BLOCKS --scale
 BLOCKS_PER_PIXEL --out PREFIX"` (`HydrologyPreview`) renders the carved relief with rivers and lakes
 (blue), frozen water (pale: snowy or frozen biomes by vanilla's table), the sea and falls of 8+
@@ -1314,7 +1582,8 @@ Real world checks (`tools/worldcheck`, standard-library Python; screenshots need
   to the square's centre with `gamerule spawnChunkRadius R` (a ticket: parallel generation like a
   player's view; `/forceload` generates one chunk at a time on the server thread and is not used),
   waits until the 2R × 2R chunks are fully generated and saved (`generation_seconds`,
-  `chunks_per_second`), probes the build limits with `setblock`, and stops the server.
+  `chunks_per_second`; `--poll S` sets how often it checks, default 10 s, use 2 for timings),
+  probes the build limits with `setblock`, and stops the server.
   Running a server means accepting the Minecraft EULA; the flag writes `run/eula.txt`.
 - `analyze.py run/NAME [run/OTHER]` reads the region files: section range, bedrock floor, block
   composition per height band, surface heights, and (with two worlds) identical blocks, biomes and
@@ -1341,8 +1610,17 @@ Real world checks (`tools/worldcheck`, standard-library Python; screenshots need
   the flowing blocks a tick would change, lava above Y -54, open/solid changes between neighbours
   across vs inside chunk borders (seams), columns open to the sky, cave mouths (underground air
   beside open air) and flooded openings (underground water beside open water); plans and sections.
+- `forestcheck.py run/NAME [--json FILE] [--png FILE] [--compare run/OTHER]` (Agent 5, needs
+  numpy) reads every block of a world: logs, wood and leaves by wood type; leaves' stored distance
+  against the distance recomputed by vanilla's rule (leaves that decay now or would after an
+  update, also only 16+ blocks inside the square, where every neighbouring chunk is in the world);
+  trunk bases on ground, in water or on air, and connected log bodies (26 neighbours) without
+  support; trees per chunk, heights, canopy cover; the forest floor and decorations; neighbour
+  changes of the canopy across vs inside chunk borders (seams); `--png` a canopy map; `--compare`
+  the share of identical tree blocks with another generation of the same square.
 - `blockprobe.py run/NAME X Y Z [--radius R] [--height H]` prints the blocks around a position
-  layer by layer, fluids with their level (W0 source, w7 flowing, w8 falling).
+  layer by layer, fluids with their level (W0 source, w7 flowing, w8 falling), logs by axis (Ty, Tx,
+  Tz), wood (Tw) and leaves with their distance (e1..e7, persistent E1..E7).
 - `biomecheck.py run/NAME` (Agent 4.5, needs numpy) counts the biomes of the underground per
   64-block band, the biomes holding the cave space (weighted by cave air and water) with their
   height ranges, and the blocks typical of cave biome features (moss, clay, dripleaf, azalea;

@@ -36,20 +36,32 @@ floor; underground lakes and flooded passages that always stand level, lakes and
 underground rivers falling over dams between water levels, deep lava lakes below the aquitard with
 basalt and magma in volcanic regions; and designed connections to the surface water: rivers flowing
 through natural tunnels and under natural bridges, rivers pouring into the caves through swallets,
-dry grottoes behind tall waterfalls, sea caves and blue holes open to the sea. Forests are not
-implemented yet. See PROGRESS.md.
+dry grottoes behind tall waterfalls, sea caves and blue holes open to the sea; and forests: woods
+that follow the biomes, the climate and the ground (oak, birch and mixed woods, dark forests,
+taiga and old growth giants, jungles, savannas, swamps, groves on the plains), regional belts of
+denser and thinner forest, young and old stands, clearings and meadows, soft edges, gallery
+forests along rivers with trees leaning over the water, a treeline in the mountains that thins to
+wind-shaped krummholz; trees of many shapes from vanilla blocks (branching oaks and birches,
+ancient oaks with flared roots and crowns up to ~28 blocks across, whorled spruces, pines, giant
+spruces, pines and jungle trees, flat-topped acacias and dark oaks), snags, fallen logs, shrubs
+and a forest floor of leaf litter, ferns, moss and mushrooms; nothing grows in rivers, lakes,
+waterfalls or cave openings. See PROGRESS.md.
 
 Using it
 
 - Singleplayer: Create New World → World → World Type: Vastlands.
 - Dedicated server: `level-type=vastlands\:vastlands` in `server.properties` before the world is created.
 - The default world types are not changed by the mod.
-- F3 shows "Vastlands terrain", "Vastlands geography", "Vastlands hydrology", "Vastlands caves" and
-  "Vastlands cave biome" lines for the column you stand on (surface, landform, climate, ice, water,
-  the nearest river, the rock and cave water domains, and the cave biome slot).
+- F3 shows "Vastlands terrain", "Vastlands geography", "Vastlands hydrology", "Vastlands caves",
+  "Vastlands cave biome" and "Vastlands forest" lines for the column you stand on (surface,
+  landform, climate, ice, water, the nearest river, the rock and cave water domains, the cave biome
+  slot, and the forest community with its density, age and clearing).
 - Other mods' cave biomes: add them to the biome tags `vastlands:cave/lush`, `dripstone`,
   `deep_dark`, `crystal`, `volcanic` or `other` (a datapack, optional entries); see ARCHITECTURE.md,
   Caves.
+- Other mods' surface biomes: add them to a forest community tag (`vastlands:forest/temperate`,
+  `birch`, `dark`, `boreal`, `jungle` ... see ARCHITECTURE.md, Forests) for Vastlands trees there;
+  biomes in no community keep their own trees.
 
 Building
 
@@ -65,4 +77,7 @@ sections through the caves of a square (`--plan 2`, `--slices -150,40`, `--stats
 see ARCHITECTURE.md, Testing).
 `./gradlew caveSurvey --args="--seed 1 --center 0 0 --size 768"` measures the caves of a square
 (passage widths, cave share by depth, wide spaces and megacaves, connectivity, water, cave biomes).
+`./gradlew forestPreview --args="--gallery build/forests/g.png --map 288 32 512 1 build/forests/m.png"`
+draws every tree form and an aerial map of a forest; `--view`, `--stats` and more: ARCHITECTURE.md,
+Testing.
 Architecture and contribution notes: ARCHITECTURE.md.

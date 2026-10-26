@@ -1,0 +1,26 @@
+{
+  "values": [
+    "minecraft:trees_birch_and_oak_leaf_litter",
+    "minecraft:trees_flower_forest",
+    "minecraft:trees_birch",
+    "minecraft:birch_tall",
+    "minecraft:dark_forest_vegetation",
+    "minecraft:trees_taiga",
+    "minecraft:trees_old_growth_spruce_taiga",
+    "minecraft:trees_old_growth_pine_taiga",
+    "minecraft:trees_plains",
+    "minecraft:trees_snowy",
+    "minecraft:trees_meadow",
+    "minecraft:trees_grove",
+    "minecraft:trees_windswept_hills",
+    "minecraft:trees_windswept_forest",
+    "minecraft:trees_savanna",
+    "minecraft:trees_windswept_savanna",
+    "minecraft:trees_jungle",
+    "minecraft:trees_sparse_jungle",
+    "minecraft:trees_swamp",
+    "minecraft:trees_badlands",
+    "minecraft:trees_water",
+    "minecraft:lake_lava_surface"
+  ]
+}
