@@ -1,0 +1,7 @@
+{
+  "type": "vastlands:formations",
+  "config": {
+    "layer": "caves",
+    "density": 1.0
+  }
+}

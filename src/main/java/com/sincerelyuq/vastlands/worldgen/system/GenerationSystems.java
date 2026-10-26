@@ -3,6 +3,7 @@ package com.sincerelyuq.vastlands.worldgen.system;
 import com.sincerelyuq.vastlands.worldgen.caves.VastlandsCaves;
 import com.sincerelyuq.vastlands.worldgen.forest.VastlandsForests;
 import com.sincerelyuq.vastlands.worldgen.hydrology.VastlandsHydrology;
+import com.sincerelyuq.vastlands.worldgen.nature.VastlandsNature;
 import com.sincerelyuq.vastlands.worldgen.terrain.VastlandsTerrain;
 
 /**
@@ -10,15 +11,17 @@ import com.sincerelyuq.vastlands.worldgen.terrain.VastlandsTerrain;
  *
  * <p>{@link #create} is the single place where implementations are chosen. Systems are created in
  * dependency order and may only receive systems created before them:
- * terrain → hydrology → caves → forests. Nothing depends on forests.
+ * terrain → hydrology → caves → nature → forests. Nothing depends on forests; the forests keep
+ * their trees clear of the natural formations.
  */
-public record GenerationSystems(TerrainSystem terrain, HydrologySystem hydrology, CaveSystem caves, ForestSystem forests) {
+public record GenerationSystems(TerrainSystem terrain, HydrologySystem hydrology, CaveSystem caves, NatureSystem nature, ForestSystem forests) {
     public static GenerationSystems create(GenerationSetup setup) {
         TerrainSystem terrain = new VastlandsTerrain(setup);
         HydrologySystem hydrology = new VastlandsHydrology(setup, terrain);
         CaveSystem caves = new VastlandsCaves(setup, terrain, hydrology);
-        ForestSystem forests = new VastlandsForests(setup, terrain, hydrology, caves);
-        return new GenerationSystems(terrain, hydrology, caves, forests);
+        NatureSystem nature = new VastlandsNature(setup, terrain, hydrology, caves);
+        ForestSystem forests = new VastlandsForests(setup, terrain, hydrology, caves, nature);
+        return new GenerationSystems(terrain, hydrology, caves, nature, forests);
     }
 
     /**
@@ -35,6 +38,7 @@ public record GenerationSystems(TerrainSystem terrain, HydrologySystem hydrology
         return "terrain=" + this.terrain.id()
                 + " hydrology=" + this.hydrology.id()
                 + " caves=" + this.caves.id()
+                + " nature=" + this.nature.id()
                 + " forests=" + this.forests.id();
     }
 }

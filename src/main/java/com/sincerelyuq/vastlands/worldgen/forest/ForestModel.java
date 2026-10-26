@@ -52,6 +52,15 @@ public final class ForestModel {
     public interface Biomes {
         /** {@link ForestType} ordinal, {@link #NONE} or {@link #TRANSPARENT}. */
         int category(int x, int y, int z);
+
+        /**
+         * 0..1: how well moss blends into the biome's grass at a block (see
+         * {@code GrassColors.mossBlend}: about 1 under plains, forest and birch forest grass, 0 under
+         * the dark grass of dark forests and swamps). 1 where unknown.
+         */
+        default double mossBlend(int x, int y, int z) {
+            return 1.0;
+        }
     }
 
     /** What the forests read from the world: the other systems' models. Thread-safe. */
@@ -76,6 +85,16 @@ public final class ForestModel {
         List<double[]> falls(int x, int z);
 
         boolean isCave(int x, int y, int z);
+
+        /**
+         * False where a natural formation (a boulder, an outcrop, a pillar, driftwood on a shore)
+         * keeps a tree away: no trunk within {@code trunk} blocks of its footprint, and for tall
+         * formations no crown of radius {@code crown} over it. True where there is none (and in
+         * worlds without natural formations).
+         */
+        default boolean clearOfFormations(int x, int z, double trunk, double crown) {
+            return true;
+        }
     }
 
     static final int CELL = 4;
@@ -99,7 +118,7 @@ public final class ForestModel {
     private final Biomes biomes;
     private final ForestSettings settings;
     private final int seaLevel;
-    private final SimplexNoise warpA, warpB, warpC, warpD, cover, patch, clear, meadow, wetMeadow, gaps, age, micro, line;
+    private final SimplexNoise warpA, warpB, warpC, warpD, cover, patch, clear, meadow, wetMeadow, gaps, age, micro, line, fungi;
     private final SimplexNoise[] species = new SimplexNoise[Wood.VALUES.length + 1];
 
     private final ThreadLocal<Caches> caches = ThreadLocal.withInitial(Caches::new);
@@ -133,6 +152,7 @@ public final class ForestModel {
         this.age = new SimplexNoise(seed + 11);
         this.micro = new SimplexNoise(seed + 12);
         this.line = new SimplexNoise(seed + 13);
+        this.fungi = new SimplexNoise(seed + 14);
         for (int i = 0; i < this.species.length; i++) {
             this.species[i] = new SimplexNoise(seed + 40 + i);
         }
@@ -489,6 +509,16 @@ public final class ForestModel {
         return share;
     }
 
+    /** 0..1: how well moss blends into the biome's grass at a block (see {@link Biomes#mossBlend}). */
+    public double mossBlend(int x, int y, int z) {
+        return this.biomes.mossBlend(x, y, z);
+    }
+
+    /** 0..1: how mossy a community's floor grows where it is wet and old (old growth taiga most, open land not at all). */
+    public static double mossEcology(ForestType type) {
+        return type == null ? 0.0 : Choices.mossEcology(type);
+    }
+
     /** The forest category of the surface biome of a column ({@link ForestType} ordinal, {@link #NONE}, {@link #TRANSPARENT}). */
     public int category(int x, int y, int z) {
         return this.biomes.category(x, y, z);
@@ -519,6 +549,8 @@ public final class ForestModel {
         boolean pass;
         double priority;
         TreeForm form;
+        /** The form's spacing, wider for big mushroom caps. */
+        double spacing;
         Wood wood;
         ForestType type;
         double height;
@@ -586,15 +618,16 @@ public final class ForestModel {
         } else if (layer == SHRUB) {
             Choices.shrub(c, type, p, r);
         } else {
-            Choices.fallen(c, type, p, r);
+            int ground = groundTop(this.land.surface(c.x, c.z));
+            Choices.fallen(c, type, p, r, this.biomes.mossBlend(c.x, ground, c.z));
         }
         if (c.form == null) {
             return c;
         }
         c.windX = p.windX;
         c.windZ = p.windZ;
-        // Lean: riparian trees towards the water, others a little at random.
-        double lean = r.range(-0.6, 0.6);
+        // Lean: riparian trees towards the water, others a little at random (mushroom stems more).
+        double lean = r.range(-0.6, 0.6) * (c.form.mushroom() ? 2.4 : 1.0);
         double la = r.next() * Math.PI * 2;
         c.leanX = Math.cos(la) * lean;
         c.leanZ = Math.sin(la) * lean;
@@ -604,7 +637,8 @@ public final class ForestModel {
             c.leanZ += p.waterDirZ * amount;
         }
         c.pass = true;
-        c.priority = c.form.spacing + r.next() * 0.999;
+        c.spacing = c.form.mushroom() ? c.form.spacing + Math.max(0.0, c.crown - 3.4) : c.form.spacing;
+        c.priority = c.spacing + r.next() * 0.999;
         return c;
     }
 
@@ -630,7 +664,7 @@ public final class ForestModel {
         for (int t = 0; t < ForestType.COUNT; t++) {
             if (p.weights[t] > 0.0) {
                 ForestType type = ForestType.VALUES[t];
-                rate += p.weights[t] * (type.closed() ? 0.4 : 0.08);
+                rate += p.weights[t] * (type.closed() ? 0.4 : (type == ForestType.SWAMP ? 0.3 : 0.08));
             }
         }
         rate /= Math.max(1e-6, p.share);
@@ -653,6 +687,13 @@ public final class ForestModel {
         double qx = this.wx(x, z);
         double qz = this.wz(x, z);
         return 0.35 + 1.3 * smoothstep(-0.5, 0.5, this.species[wood.ordinal()].sample(qx / 95.0, qz / 95.0));
+    }
+
+    /** 0.25..1.75 (mean about 1): the patches of huge mushrooms in dark forests (~70 blocks), groups of caps among the dark oaks. */
+    double mushroomPatch(double x, double z) {
+        double qx = this.wx(x, z);
+        double qz = this.wz(x, z);
+        return 0.25 + 1.5 * smoothstep(-0.35, 0.55, NoiseMath.fbm(this.fungi, qx / 70.0, qz / 70.0, 2, 0.5));
     }
 
     /** 0.35..1.65: patches of pines among spruces. */
@@ -698,8 +739,8 @@ public final class ForestModel {
                 if (water.kind() == WaterColumn.Kind.DRY) {
                     top = groundTop(this.land.surface(x, z));
                 } else if (swamp && water.kind() == WaterColumn.Kind.SEA && water.waterTop() - water.groundTop() <= 1
-                        && form != TreeForm.FALLEN) {
-                    // Swamp oaks stand in shallow water.
+                        && form != TreeForm.UPROOTED && form != TreeForm.DEBRIS) {
+                    // Swamp oaks stand in shallow water, logs and stumps lie in it.
                     top = water.groundTop();
                 } else {
                     return "water at the trunk";
@@ -722,7 +763,8 @@ public final class ForestModel {
         double slope = this.localSlope(c.x, c.z, 2);
         double limit = switch (form) {
             case ANCIENT, MEGA_CONIFER, MEGA_PINE, MEGA_JUNGLE -> 0.45;
-            case DARK_OAK, FALLEN, HUGE_BROWN_MUSHROOM, HUGE_RED_MUSHROOM -> 0.55;
+            case DARK_OAK, FALLEN, UPROOTED, DEBRIS, HUGE_BROWN_MUSHROOM, HUGE_RED_MUSHROOM -> 0.55;
+            case GIANT_MUSHROOM -> 0.45;
             case BUSH, KRUMMHOLZ -> 1.25;
             default -> 0.95;
         };
@@ -738,6 +780,11 @@ public final class ForestModel {
                 return "eroded bank";
             }
         }
+        // Natural formations (boulders, outcrops, pillars, driftwood) keep trunks, logs and crowns away.
+        double trunkKeep = form.deadwood() ? (form == TreeForm.STUMP ? 1.2 : c.height + 2.5) : 0.5 * w + 1.0;
+        if (!this.land.clearOfFormations(c.x, c.z, trunkKeep, form.lowGrowth() ? 0.0 : c.crown)) {
+            return "natural formation";
+        }
         // Caves: nothing open under the trunk, and big trees not at the lip of an opening.
         for (int a = 0; a < w; a++) {
             for (int b = 0; b < w; b++) {
@@ -748,8 +795,9 @@ public final class ForestModel {
                 }
             }
         }
-        if (c.crown >= 4.5 || form == TreeForm.FALLEN) {
-            double ring = form == TreeForm.FALLEN ? 2.0 : 3.0;
+        boolean lying = form.deadwood() && form != TreeForm.STUMP;
+        if (c.crown >= 4.5 || lying) {
+            double ring = lying ? 2.0 : 3.0;
             for (int k = 0; k < 6; k++) {
                 double a = k * (Math.PI / 3);
                 int x = c.x + (int) Math.round(Math.cos(a) * ring);
@@ -761,7 +809,7 @@ public final class ForestModel {
             }
         }
         // Waterfalls: keep crowns away from curtains and their pools.
-        if (form != TreeForm.FALLEN && form != TreeForm.BUSH) {
+        if (!form.deadwood() && form != TreeForm.BUSH) {
             double keep = c.crown + 8.0;
             // The falls of every 512-block region the kept distance reaches.
             for (int rx = Math.floorDiv(c.x - (int) keep, 512); rx <= Math.floorDiv(c.x + (int) keep, 512); rx++) {
@@ -774,16 +822,24 @@ public final class ForestModel {
                 }
             }
         }
-        if (form == TreeForm.FALLEN && !this.fallenFits(c, lowest)) {
+        if (lying && !this.fallenFits(c, lowest)) {
             return "fallen log ground";
         }
         c.y = lowest + 1;
         return null;
     }
 
-    /** A fallen log needs level dry ground under every block (its shape decides the direction). */
+    /**
+     * Lying deadwood needs level dry ground under every block of its lowest layer (its shape decides
+     * the direction), swamp logs also shallow water. A broken log's far piece may rest one block up
+     * or down: the ground under it decides its step ({@link TreeSpec#step}).
+     */
     private boolean fallenFits(Cand c, int top) {
         TreeShape shape = this.shapeOf(c, top + 1);
+        boolean broken = c.form == TreeForm.FALLEN && (c.flags >>> TreeSpec.STYLE_SHIFT & 15) == TreeShapes.LOG_BROKEN;
+        int split = broken ? TreeShapes.breakIndex(c.height, c.shapeSeed) : Integer.MAX_VALUE;
+        boolean swamp = c.type == ForestType.SWAMP && c.form == TreeForm.FALLEN;
+        int far = Integer.MIN_VALUE;
         for (int k = 0; k < shape.size(); k++) {
             int pos = shape.positions[k];
             if (TreeShape.dy(pos) != 0) {
@@ -792,14 +848,34 @@ public final class ForestModel {
             int x = c.x + TreeShape.dx(pos);
             int z = c.z + TreeShape.dz(pos);
             WaterColumn water = this.land.water(x, z);
-            if (water.kind() != WaterColumn.Kind.DRY) {
+            int g;
+            if (water.kind() == WaterColumn.Kind.DRY) {
+                g = groundTop(this.land.surface(x, z));
+            } else if (swamp && water.kind() == WaterColumn.Kind.SEA && water.waterTop() - water.groundTop() <= 1) {
+                g = water.groundTop();
+            } else {
                 return false;
             }
-            int g = groundTop(this.land.surface(x, z));
-            // Level ground under every block, so the log never bridges a dip.
-            if (g != top || this.land.isCave(x, g, z) || this.land.isCave(x, g - 2, z)) {
+            if (Math.abs(TreeShape.dx(pos)) + Math.abs(TreeShape.dz(pos)) > split) {
+                if (far == Integer.MIN_VALUE) {
+                    far = g;
+                } else if (g != far) {
+                    return false;
+                }
+            } else if (g != top) {
+                // Level ground under every block, so the log never bridges a dip.
                 return false;
             }
+            if (this.land.isCave(x, g, z) || this.land.isCave(x, g - 2, z)) {
+                return false;
+            }
+        }
+        if (broken && far != Integer.MIN_VALUE) {
+            int step = far - top;
+            if (Math.abs(step) > 1) {
+                return false;
+            }
+            c.flags |= (step == 1 ? 1 : (step == -1 ? 2 : 0)) << TreeSpec.STEP_SHIFT;
         }
         return true;
     }
@@ -832,7 +908,7 @@ public final class ForestModel {
                     if (!n.pass || n.priority <= c.priority) {
                         continue;
                     }
-                    double keep = 0.5 * (c.form.spacing + n.form.spacing);
+                    double keep = 0.5 * (c.spacing + n.spacing);
                     double dx = n.x - c.x;
                     double dz = n.z - c.z;
                     if (dx * dx + dz * dz < keep * keep && this.site(n)) {
@@ -883,7 +959,7 @@ public final class ForestModel {
                 if (!n.pass) {
                     continue;
                 }
-                double keep = extra + share * 0.5 * n.form.spacing + (n.form.wide() ? 0.7 : 0.0);
+                double keep = extra + share * 0.5 * n.spacing + (n.form.wide() ? 0.7 : 0.0);
                 double cx = n.x + (n.form.wide() ? 0.5 : 0.0);
                 double cz = n.z + (n.form.wide() ? 0.5 : 0.0);
                 if (Math.abs(cx - x) <= keep + 0.5 && Math.abs(cz - z) <= keep + 0.5 && Math.hypot(cx - x, cz - z) <= keep + 0.5
@@ -909,7 +985,7 @@ public final class ForestModel {
                     for (long dj = -2; dj <= 2; dj++) {
                         Cand n = this.cand(MAIN, i + di, j + dj);
                         if ((di != 0 || dj != 0) && n.pass && n.priority > c.priority) {
-                            double keep = 0.5 * (c.form.spacing + n.form.spacing);
+                            double keep = 0.5 * (c.spacing + n.spacing);
                             double d = Math.hypot(n.x - c.x, n.z - c.z);
                             if (d < keep) {
                                 out.append(String.format(java.util.Locale.ROOT, "%n  yields? to %d %d at %d %d (%s, d %.1f < %.1f): site %s (%s)", i + di, j + dj, n.x, n.z, n.form, d, keep, this.site(n), this.siteProblem(n)));
@@ -969,7 +1045,8 @@ public final class ForestModel {
 
     /** The shape of a tree (cached per thread by the tree's key). */
     public TreeShape shape(TreeSpec spec) {
-        return this.caches.get().shapes.get(spec.key(), k -> TreeShapes.shape(spec));
+        // The flags take part in the key: a broken log's shape is built once before its step is known.
+        return this.caches.get().shapes.get(spec.key() ^ SimplexNoise.mix(spec.flags() + 0x5348415045L), k -> TreeShapes.shape(spec));
     }
 
     private TreeShape shapeOf(Cand c, int y) {
@@ -1074,14 +1151,16 @@ public final class ForestModel {
                 }
                 case DARK -> {
                     double u = r.next();
-                    if (u < 0.06) {
-                        boolean brown = r.chance(0.55);
-                        set(c, brown ? TreeForm.HUGE_BROWN_MUSHROOM : TreeForm.HUGE_RED_MUSHROOM, Wood.MUSHROOM, r.between(5, 8), brown ? 3 : 2);
-                    } else if (u < 0.09) {
+                    // Huge mushrooms gather in patches: groups of caps of many sizes among the dark oaks.
+                    double fungi = 0.06 * m.mushroomPatch(x, z) * m.settings.mushrooms();
+                    double v = u - fungi;
+                    if (u < fungi) {
+                        mushroom(c, r, old);
+                    } else if (v < 0.03) {
                         bush(c, Wood.DARK_OAK, r, s);
-                    } else if (u < 0.21) {
+                    } else if (v < 0.15) {
                         oak(c, r, s, old, young, edge, p.riparian, 0.03);
-                    } else if (u < 0.26) {
+                    } else if (v < 0.20) {
                         birch(c, r, s, old, young);
                     } else if (old > 0.2 && r.chance(0.5 * old)) {
                         set(c, TreeForm.DARK_OAK, Wood.DARK_OAK, r.range(10, 15) * s, r.range(5.0, 6.6));
@@ -1250,7 +1329,13 @@ public final class ForestModel {
             }
         }
 
-        static void fallen(Cand c, ForestType type, Point p, TreeRandom r) {
+        /**
+         * The floor lattice: mostly fallen logs (plain, broken, rotting, and giant ones in old
+         * growth), then stumps, woody debris and root plates of wind-thrown trees. Moss grows on
+         * wet ground where it suits the biome ({@code blend}: moss against the biome's grass), rot
+         * (holes, mushrooms) on wet shaded ground.
+         */
+        static void fallen(Cand c, ForestType type, Point p, TreeRandom r, double blend) {
             Wood wood = switch (type) {
                 case BOREAL, OLD_SPRUCE, OLD_PINE, GROVE, HIGHLAND, ALPINE -> Wood.SPRUCE;
                 case BIRCH, OLD_BIRCH -> Wood.BIRCH;
@@ -1259,9 +1344,118 @@ public final class ForestModel {
                 case SAVANNA -> Wood.ACACIA;
                 default -> r.chance(0.7) ? Wood.OAK : Wood.BIRCH;
             };
-            set(c, TreeForm.FALLEN, wood, r.between(3, 5) + (int) Math.round(3.0 * p.old), 1);
-            if (p.moisture > -0.15 || p.old > 0.5) {
+            double wet = smoothstep(-0.35, 0.45, p.moisture);
+            double u = r.next();
+            int style = TreeShapes.LOG_PLAIN;
+            if (u < 0.17) {
+                set(c, TreeForm.STUMP, wood, r.between(1, 2) + (r.chance(0.3 * p.old) ? 1 : 0), 1);
+            } else if (u < 0.29) {
+                set(c, TreeForm.DEBRIS, wood, 2, 2);
+            } else if (u < 0.29 + 0.07 * (0.4 + p.old) && type.closed()) {
+                set(c, TreeForm.UPROOTED, wood, Math.min(8, r.between(4, 6) + (int) Math.round(2.0 * p.old)), 3);
+            } else {
+                boolean big = type == ForestType.OLD_SPRUCE || type == ForestType.OLD_PINE || type == ForestType.DARK || type == ForestType.TEMPERATE;
+                if (big && p.old > 0.5 && r.chance(0.2 * p.old)) {
+                    style = TreeShapes.LOG_GIANT;
+                    set(c, TreeForm.FALLEN, wood, r.between(6, 8), 1);
+                } else {
+                    double v = r.next();
+                    style = v < 0.22 ? TreeShapes.LOG_BROKEN : (v < 0.22 + 0.3 * wet * (0.4 + p.old) ? TreeShapes.LOG_ROTTEN : TreeShapes.LOG_PLAIN);
+                    set(c, TreeForm.FALLEN, wood, r.between(3, 5) + (int) Math.round(3.0 * p.old), 1);
+                }
+            }
+            c.flags |= style << TreeSpec.STYLE_SHIFT;
+            double moss = mossEcology(type) * wet * (0.5 + 0.5 * p.old) * Math.max(blend, 0.45);
+            if (r.chance(Math.min(1.0, 1.6 * moss))) {
                 c.flags |= TreeSpec.MOSS;
+            }
+            if (wet > 0.3 && (type.closed() || type == ForestType.SWAMP) && r.chance(0.3 + 0.4 * p.old)) {
+                c.flags |= TreeSpec.ROT;
+            }
+        }
+
+        /** 0..1: how mossy a community's floor grows where it is wet and old (old growth taiga most, open land not at all). */
+        static double mossEcology(ForestType type) {
+            return switch (type) {
+                case OLD_SPRUCE, OLD_PINE -> 1.0;
+                case SWAMP -> 0.55;
+                case BOREAL -> 0.45;
+                case JUNGLE, SPARSE_JUNGLE -> 0.35;
+                case TEMPERATE, BIRCH, OLD_BIRCH, FLOWER, DARK -> 0.3;
+                case HIGHLAND, GROVE -> 0.2;
+                default -> 0.0;
+            };
+        }
+
+        /**
+         * A huge mushroom of the dark forest. Most keep vanilla's familiar shapes (a flat brown cap,
+         * a round red dome) at varied sizes; the rest are umbrellas, wide shelves on short stems,
+         * tiered and lopsided brown caps, tall narrow, flattened and lobed red ones; in old stands a
+         * rare giant of either colour.
+         */
+        static void mushroom(Cand c, TreeRandom r, double old) {
+            if (old > 0.25 && r.chance(0.045 + 0.05 * old)) {
+                boolean red = r.chance(0.45);
+                if (red) {
+                    c.flags |= TreeSpec.RED | (r.chance(0.7) ? TreeShapes.RED_BELL : TreeShapes.RED_DOME) << TreeSpec.STYLE_SHIFT;
+                    set(c, TreeForm.GIANT_MUSHROOM, Wood.MUSHROOM, r.range(10, 15), r.range(4.6, 6.4));
+                } else {
+                    c.flags |= (r.chance(0.55) ? TreeShapes.BROWN_TIERED : TreeShapes.BROWN_UMBRELLA) << TreeSpec.STYLE_SHIFT;
+                    set(c, TreeForm.GIANT_MUSHROOM, Wood.MUSHROOM, r.range(10, 16), r.range(5.2, 7.0));
+                }
+                return;
+            }
+            double u = r.next();
+            if (r.chance(0.55)) {
+                int style;
+                double height;
+                double crown;
+                if (u < 0.5) {
+                    style = TreeShapes.BROWN_FLAT;
+                    height = r.between(5, 8);
+                    crown = r.range(2.6, 3.4);
+                } else if (u < 0.68) {
+                    style = TreeShapes.BROWN_UMBRELLA;
+                    height = r.between(6, 9);
+                    crown = r.range(3.2, 4.2);
+                } else if (u < 0.8) {
+                    style = TreeShapes.BROWN_WIDE;
+                    height = r.between(4, 6);
+                    crown = r.range(4.2, 5.6);
+                } else if (u < 0.9) {
+                    style = TreeShapes.BROWN_TIERED;
+                    height = r.between(8, 11);
+                    crown = r.range(3.4, 4.6);
+                } else {
+                    style = TreeShapes.BROWN_LOPSIDED;
+                    height = r.between(5, 8);
+                    crown = r.range(3.0, 4.2);
+                }
+                c.flags |= style << TreeSpec.STYLE_SHIFT;
+                set(c, TreeForm.HUGE_BROWN_MUSHROOM, Wood.MUSHROOM, height, crown);
+            } else {
+                int style;
+                double height;
+                double crown;
+                if (u < 0.5) {
+                    style = TreeShapes.RED_DOME;
+                    height = r.between(5, 8);
+                    crown = r.range(2.0, 2.6);
+                } else if (u < 0.67) {
+                    style = TreeShapes.RED_TALL;
+                    height = r.between(9, 13);
+                    crown = r.range(1.6, 2.2);
+                } else if (u < 0.82) {
+                    style = TreeShapes.RED_FLATTENED;
+                    height = r.between(5, 8);
+                    crown = r.range(3.2, 4.4);
+                } else {
+                    style = TreeShapes.RED_LOBED;
+                    height = r.between(6, 9);
+                    crown = r.range(2.6, 3.4);
+                }
+                c.flags |= style << TreeSpec.STYLE_SHIFT;
+                set(c, TreeForm.HUGE_RED_MUSHROOM, Wood.MUSHROOM, height, crown);
             }
         }
 

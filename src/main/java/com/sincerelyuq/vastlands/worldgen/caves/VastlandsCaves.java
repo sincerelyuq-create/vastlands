@@ -283,6 +283,99 @@ public final class VastlandsCaves implements CaveSystem {
         return this.model.carve(this.column(x, z), y) < 0.0;
     }
 
+    /** Fields of one run in {@link #runs}' output. */
+    public static final int RUN_FLOOR = 0;
+    public static final int RUN_CEILING = 1;
+    /** The fluid on the floor: 0 air, 1 water, 2 lava. */
+    public static final int RUN_FLUID = 2;
+    /** Y of the fluid's top block (the floor's domain level), or {@link Integer#MIN_VALUE} when dry. */
+    public static final int RUN_LEVEL = 3;
+    /** The deepest point of the run below its walls, in tenths of a block: about the radius of free space around the column. */
+    public static final int RUN_ROOM = 4;
+    /** 0, or 1 / 2 if the run lies in an upper / deep megacave. */
+    public static final int RUN_MEGACAVE = 5;
+    /** 1 if the run reaches the ground (a cave mouth, a shaft open to the sky). */
+    public static final int RUN_OPEN = 6;
+    public static final int RUN_FIELDS = 7;
+
+    /**
+     * The open runs of a column, bottom-up (for natural formations, Agent 6): each run is the open
+     * cave space between a floor (its lowest block, solid below) and a ceiling (its highest block,
+     * solid above), exactly as noise filling opens it (the same {@code carve} as the density). Up to
+     * {@code out.length / RUN_FIELDS} runs, fields at {@code run * RUN_FIELDS + RUN_*}; returns their
+     * number. Columns of swallets and grottoes behind falls report none (river water stands there).
+     * Rock is crossed in steps bounded by the distance to the nearest cave piece, so a column costs
+     * a few dozen block queries in solid ground.
+     */
+    public int runs(int x, int z, int[] out) {
+        CaveColumn c = this.column(x, z);
+        if (c.roof.part != RiverTunnels.SwalletPart.NONE || c.roof.grottoLo <= c.roof.grottoHi) {
+            return 0;
+        }
+        int top = Math.min(c.top, (int) Math.ceil(c.surface) - 1);
+        int max = out.length / RUN_FIELDS;
+        int n = 0;
+        int start = Integer.MIN_VALUE;
+        double room = 0.0;
+        int y = Math.max(c.bottom, this.minY + 1);
+        int previous = y - 1;
+        while (y <= top && n < max) {
+            double d = this.model.carve(c, y);
+            if (d < 0.0) {
+                if (start == Integer.MIN_VALUE) {
+                    // After a long step the floor may lie below: walk back to it.
+                    while (y - 1 > previous && this.model.carve(c, y - 1) < 0.0) {
+                        y--;
+                    }
+                    start = y;
+                    room = 0.0;
+                }
+                room = Math.max(room, -d);
+                previous = y;
+                y++;
+                continue;
+            }
+            if (start != Integer.MIN_VALUE) {
+                this.emit(c, out, n++, start, y - 1, room, false);
+                start = Integer.MIN_VALUE;
+            }
+            previous = y;
+            // The pieces' distance changes by at most a few blocks per block of height (flattened
+            // tubes, funnels, the fade under the cover); wall noise adds at most 1.45 roughness.
+            double clear = d - 1.45 * c.roughness - 1.5;
+            y += clear > 10.0 ? (int) (clear / 5.0) : 1;
+        }
+        if (start != Integer.MIN_VALUE && n < max) {
+            this.emit(c, out, n++, start, Math.min(y - 1, top), room, true);
+        }
+        return n;
+    }
+
+    private void emit(CaveColumn c, int[] out, int run, int floor, int ceiling, double room, boolean open) {
+        int o = run * RUN_FIELDS;
+        FluidDomains.Domain domain = c.domain(floor);
+        CaveFluid fluid = domain.at(floor);
+        out[o + RUN_FLOOR] = floor;
+        out[o + RUN_CEILING] = ceiling;
+        out[o + RUN_FLUID] = fluid == CaveFluid.WATER ? 1 : (fluid == CaveFluid.LAVA ? 2 : 0);
+        out[o + RUN_LEVEL] = fluid == CaveFluid.AIR ? Integer.MIN_VALUE : domain.level;
+        out[o + RUN_ROOM] = (int) Math.min(100000.0, room * 10.0);
+        int mega = 0;
+        if (c.upperCave.present() && floor >= c.upperCave.low() && floor <= c.upperCave.high()) {
+            mega = 1;
+        } else if (c.deepCave.present() && floor >= c.deepCave.low() && floor <= c.deepCave.high()) {
+            mega = 2;
+        }
+        out[o + RUN_MEGACAVE] = mega;
+        out[o + RUN_OPEN] = open || ceiling >= c.surface - 2.0 ? 1 : 0;
+    }
+
+    /** The rock of a column (see {@code CaveGeology}): karst, fractured and volcanic strength, 0..1 each. */
+    public double[] geology(int x, int z) {
+        CaveGeology.Geology g = this.model.geologyAt(x, z);
+        return new double[] {g.karst(), g.fracture(), g.volcanic()};
+    }
+
     @Override
     public Aquifer.FluidPicker fluidPicker(Aquifer.FluidPicker vanilla) {
         Statuses statuses = this.statuses();

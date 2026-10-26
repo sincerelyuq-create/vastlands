@@ -191,3 +191,15 @@ tasks.register('forestPreview', JavaExec) {
     workingDir = layout.projectDirectory.asFile
     jvmArgs '-Djava.awt.headless=true', '-Xmx6G'
 }
+
+// Renders the natural formations (boulders, tors, spires, arches, driftwood, cave formations)
+// without the game: a gallery of every kind, views of the surface and of the caves, statistics,
+// the cost per chunk and an order check. Arguments: see com.sincerelyuq.vastlands.tools.NaturePreview.
+tasks.register('naturePreview', JavaExec) {
+    group = 'vastlands'
+    description = 'Renders Vastlands natural formations (PNG) and their statistics'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.sincerelyuq.vastlands.tools.NaturePreview'
+    workingDir = layout.projectDirectory.asFile
+    jvmArgs '-Djava.awt.headless=true', '-Xmx6G'
+}

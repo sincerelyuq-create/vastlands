@@ -1,0 +1,7 @@
+{
+  "type": "vastlands:formations",
+  "config": {
+    "layer": "surface",
+    "density": 1.0
+  }
+}

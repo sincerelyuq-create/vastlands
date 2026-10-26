@@ -111,6 +111,9 @@ public final class ForestBlocks {
             }
             stats.trees++;
             boolean swamp = spec.type() == ForestType.SWAMP;
+            // Moss around old giants only where the community grows moss and it suits the soil.
+            double mossEco = spec.has(TreeSpec.MOSS) ? ForestModel.mossEcology(spec.type()) * model.settings().moss() : 0.0;
+            double mossBlend = mossEco > 0.0 ? model.mossBlend(spec.x(), spec.y() - 1, spec.z()) : 0.0;
             for (int k = 0; k < shape.size(); k++) {
                 int p = shape.positions[k];
                 int x = spec.x() + TreeShape.dx(p);
@@ -142,7 +145,7 @@ public final class ForestBlocks {
                 int x = spec.x() + TreeShape.dx(shape.groundColumns[g]);
                 int z = spec.z() + TreeShape.dz(shape.groundColumns[g]);
                 if (x >= minX && x <= maxX && z >= minZ && z <= maxZ) {
-                    ground(chunk, m, x, spec.y(), z, shape.groundCodes[g]);
+                    ground(chunk, m, x, spec.y(), z, shape.groundCodes[g], mossEco, mossBlend, forests.seed());
                 }
             }
             for (int s = 0; s < shape.shadeColumns.length; s++) {
@@ -179,7 +182,7 @@ public final class ForestBlocks {
         BlockState old = chunk.getBlockState(m);
         boolean water = old.is(Blocks.WATER) && old.getFluidState().isSource();
         switch (kind) {
-            case TreeBlocks.LOG, TreeBlocks.WOOD, TreeBlocks.STEM -> {
+            case TreeBlocks.LOG, TreeBlocks.WOOD, TreeBlocks.STEM, TreeBlocks.STRIPPED, TreeBlocks.ROOT, TreeBlocks.EARTH -> {
                 if (water ? !swamp : !(isOpen(old) || old.getBlock() instanceof LeavesBlock || isCap(old) || givesWay(old))) {
                     return;
                 }
@@ -337,8 +340,12 @@ public final class ForestBlocks {
                 && !state.canBeReplaced() && state.isSolid();
     }
 
-    /** Ground changes around a tree (podzol, rooted and coarse dirt, moss) on the column's top soil. */
-    private static void ground(ChunkAccess chunk, BlockPos.MutableBlockPos m, int x, int y, int z, int code) {
+    /**
+     * Ground changes around a tree (podzol, rooted and coarse dirt, moss) on the column's top soil.
+     * Moss is kept in a share {@code eco} × how well it suits the soil (brown soils take it, grass
+     * by the biome's colour, {@code blend}); elsewhere the column keeps its soil.
+     */
+    private static void ground(ChunkAccess chunk, BlockPos.MutableBlockPos m, int x, int y, int z, int code, double eco, double blend, long seed) {
         for (int yy = y + 3; yy >= y - 5; yy--) {
             m.set(x, yy, z);
             BlockState state = chunk.getBlockState(m);
@@ -347,6 +354,12 @@ public final class ForestBlocks {
             }
             if (state.is(Blocks.GRASS_BLOCK) || state.is(Blocks.DIRT) || state.is(Blocks.COARSE_DIRT) || state.is(Blocks.PODZOL)
                     || state.is(Blocks.ROOTED_DIRT) || state.is(Blocks.MOSS_BLOCK)) {
+                if (code == TreeBlocks.GROUND_MOSS) {
+                    double soil = state.is(Blocks.GRASS_BLOCK) ? blend : Math.max(blend, 0.85);
+                    if (Understory.unit(seed, x, z, 16) >= eco * soil) {
+                        return;
+                    }
+                }
                 BlockState target = switch (code) {
                     case TreeBlocks.GROUND_PODZOL -> Blocks.PODZOL.defaultBlockState();
                     case TreeBlocks.GROUND_COARSE_DIRT -> Blocks.COARSE_DIRT.defaultBlockState();
@@ -379,7 +392,15 @@ public final class ForestBlocks {
                     .setValue(VineBlock.SOUTH, (extra & 4) != 0).setValue(VineBlock.WEST, (extra & 8) != 0);
             case TreeBlocks.COCOA -> Blocks.COCOA.defaultBlockState().setValue(CocoaBlock.FACING, HORIZONTAL[extra & 3]).setValue(CocoaBlock.AGE, Math.min(2, extra >> 2));
             case TreeBlocks.BEE_NEST -> Blocks.BEE_NEST.defaultBlockState().setValue(BeehiveBlock.FACING, HORIZONTAL[extra & 3]);
-            case TreeBlocks.STEM -> Blocks.MUSHROOM_STEM.defaultBlockState().setValue(HugeMushroomBlock.UP, false).setValue(HugeMushroomBlock.DOWN, false);
+            // Stems: extra is the set of sides hidden against other stem blocks (vanilla's rule for faces between blocks of the same kind).
+            case TreeBlocks.STEM -> Blocks.MUSHROOM_STEM.defaultBlockState().setValue(HugeMushroomBlock.UP, false).setValue(HugeMushroomBlock.DOWN, false)
+                    .setValue(HugeMushroomBlock.NORTH, (extra & 1) == 0).setValue(HugeMushroomBlock.EAST, (extra & 2) == 0)
+                    .setValue(HugeMushroomBlock.SOUTH, (extra & 4) == 0).setValue(HugeMushroomBlock.WEST, (extra & 8) == 0);
+            case TreeBlocks.STRIPPED -> stripped(wood).defaultBlockState().setValue(RotatedPillarBlock.AXIS,
+                    extra == TreeBlocks.AXIS_X ? Direction.Axis.X : (extra == TreeBlocks.AXIS_Z ? Direction.Axis.Z : Direction.Axis.Y));
+            case TreeBlocks.ROOT -> Blocks.MANGROVE_ROOTS.defaultBlockState();
+            case TreeBlocks.EARTH -> extra == 0 ? Blocks.ROOTED_DIRT.defaultBlockState() : (extra == 1 ? Blocks.COARSE_DIRT.defaultBlockState() : Blocks.DIRT.defaultBlockState());
+            case TreeBlocks.HANGING_ROOTS -> Blocks.HANGING_ROOTS.defaultBlockState();
             case TreeBlocks.BROWN_CAP, TreeBlocks.RED_CAP -> (TreeBlocks.kind(code) == TreeBlocks.BROWN_CAP ? Blocks.BROWN_MUSHROOM_BLOCK : Blocks.RED_MUSHROOM_BLOCK)
                     .defaultBlockState().setValue(HugeMushroomBlock.NORTH, (extra & 1) != 0).setValue(HugeMushroomBlock.EAST, (extra & 2) != 0)
                     .setValue(HugeMushroomBlock.SOUTH, (extra & 4) != 0).setValue(HugeMushroomBlock.WEST, (extra & 8) != 0)
@@ -398,6 +419,18 @@ public final class ForestBlocks {
             case DARK_OAK -> Blocks.DARK_OAK_LOG;
             case JUNGLE -> Blocks.JUNGLE_LOG;
             case ACACIA -> Blocks.ACACIA_LOG;
+            case MUSHROOM -> Blocks.MUSHROOM_STEM;
+        };
+    }
+
+    static Block stripped(Wood wood) {
+        return switch (wood) {
+            case OAK -> Blocks.STRIPPED_OAK_LOG;
+            case BIRCH -> Blocks.STRIPPED_BIRCH_LOG;
+            case SPRUCE -> Blocks.STRIPPED_SPRUCE_LOG;
+            case DARK_OAK -> Blocks.STRIPPED_DARK_OAK_LOG;
+            case JUNGLE -> Blocks.STRIPPED_JUNGLE_LOG;
+            case ACACIA -> Blocks.STRIPPED_ACACIA_LOG;
             case MUSHROOM -> Blocks.MUSHROOM_STEM;
         };
     }
@@ -518,6 +551,9 @@ public final class ForestBlocks {
             for (int c = 0; c < 16; c++) {
                 cells[c] = model.sample(minX + (c & 3) * 4 + 2, minZ + (c >> 2) * 4 + 2, false);
             }
+            // How well moss suits each cell's grass (its biome's colour), looked up when first needed.
+            double[] blends = new double[16];
+            java.util.Arrays.fill(blends, Double.NaN);
             BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
             for (int j = 0; j < 16; j++) {
                 for (int i = 0; i < 16; i++) {
@@ -549,19 +585,32 @@ public final class ForestBlocks {
                         continue;
                     }
                     double canopy = Math.min(1.0, shade[j << 4 | i] / 4.0);
-                    BlockState plant = choose(s, canopy, x, z, seed, amount, ground);
-                    if (plant == null) {
-                        continue;
+                    int cell = (j >> 2) * 4 + (i >> 2);
+                    if (Double.isNaN(blends[cell])) {
+                        blends[cell] = model.mossBlend(x, y, z);
                     }
-                    if (plant.is(Blocks.MOSS_BLOCK)) {
-                        m.set(x, y, z);
-                        chunk.setBlockState(m, plant, Block.UPDATE_CLIENTS);
-                        long h = hash(seed, x, z, 9);
-                        if ((h & 3) != 0) {
+                    int soil = floor(s, canopy, x, z, seed, model.settings(), ground, blends[cell]);
+                    if (soil == MOSS_BLOCK || soil == MOSS_EDGE) {
+                        if (soil == MOSS_BLOCK) {
+                            m.set(x, y, z);
+                            chunk.setBlockState(m, Blocks.MOSS_BLOCK.defaultBlockState(), Block.UPDATE_CLIENTS);
+                        }
+                        // A carpet at the clump's edge, and now and then on its core.
+                        if (soil == MOSS_EDGE || (hash(seed, x, z, 9) & 7) == 0) {
                             m.set(x, y + 1, z);
                             chunk.setBlockState(m, Blocks.MOSS_CARPET.defaultBlockState(), Block.UPDATE_CLIENTS);
                         }
                         stats.plants++;
+                        continue;
+                    }
+                    if (soil != NO_CHANGE) {
+                        ground = soil == PODZOL ? Blocks.PODZOL.defaultBlockState() : (soil == COARSE ? Blocks.COARSE_DIRT.defaultBlockState() : Blocks.MUD.defaultBlockState());
+                        m.set(x, y, z);
+                        chunk.setBlockState(m, ground, Block.UPDATE_CLIENTS);
+                        stats.plants++;
+                    }
+                    BlockState plant = choose(s, canopy, x, z, seed, amount, ground);
+                    if (plant == null) {
                         continue;
                     }
                     BlockPos at = new BlockPos(x, y + 1, z);
@@ -608,6 +657,72 @@ public final class ForestBlocks {
             return (a * (1 - tx) + b * tx) * (1 - tz) + (c * (1 - tx) + d * tx) * tz;
         }
 
+        static final int NO_CHANGE = 0;
+        static final int MOSS_BLOCK = 1;
+        static final int MOSS_EDGE = 2;
+        static final int PODZOL = 3;
+        static final int COARSE = 4;
+        static final int MUD = 5;
+
+        /**
+         * The top soil of a column: moss, a dark floor of podzol and coarse dirt, mud, or unchanged.
+         *
+         * <p>Moss grows in small clumps (~3 blocks) gathered in colonies (~23 blocks), where the
+         * community grows moss ({@link ForestModel#mossEcology}: old growth taiga most, the dark
+         * forest little), on old, wet, shaded ground, and only as far as it suits the soil: brown
+         * soils (podzol, coarse dirt, mud) take it, grass only as far as moss blends into the
+         * biome's grass colour ({@code blend}), so bright moss stays off the dark grass of dark
+         * forests and swamps (swamps keep a little at the water's edge). Weak spots get a thin
+         * carpet, only the cores of dense clumps moss blocks. Dark forests get podzol patches and
+         * specks of coarse dirt under their closed canopy instead; swamps mud at the water.
+         */
+        static int floor(ForestSample s, double canopy, int x, int z, long seed, ForestSettings settings, BlockState ground, double blend) {
+            ForestType type = s.type();
+            if (s.temperature() < -0.45) {
+                return NO_CHANGE;
+            }
+            boolean grass = ground.is(Blocks.GRASS_BLOCK);
+            boolean brown = ground.is(Blocks.PODZOL) || ground.is(Blocks.COARSE_DIRT) || ground.is(Blocks.MUD) || ground.is(Blocks.ROOTED_DIRT);
+            double eco = ForestModel.mossEcology(type) * settings.moss();
+            if (eco > 0.0 && (grass || brown)) {
+                double wet = Math.max(smooth(-0.1, 0.6, s.moisture()), 0.8 * s.riparian());
+                double soil = grass ? Math.max(blend, type == ForestType.SWAMP ? 0.3 * s.riparian() : 0.0) : Math.max(blend, 0.85);
+                double chance = eco * (0.35 + 0.65 * s.old()) * wet * (0.4 + 0.6 * canopy) * soil;
+                if (chance > 0.004) {
+                    double colony = smooth(0.5, 0.72, patch(seed, x, z, 23.0, 10));
+                    if (colony > 0.0) {
+                        double clump = patch(seed, x, z, 3.3, 11);
+                        double threshold = 1.0 - 0.55 * Math.min(1.0, chance) * colony;
+                        if (clump > threshold) {
+                            return clump > threshold + 0.1 && clump > 0.55 ? MOSS_BLOCK : MOSS_EDGE;
+                        }
+                    }
+                }
+            }
+            if (!grass) {
+                return NO_CHANGE;
+            }
+            // A dark floor under closed canopies: podzol patches, specks of coarse dirt (dark forests most).
+            if (type == ForestType.DARK || type.closed() && canopy >= 1.0 && s.old() > 0.6) {
+                double strength = type == ForestType.DARK ? 1.0 : 0.35;
+                if (patch(seed, x, z, 6.5, 12) > 1.0 - (0.22 + 0.12 * canopy) * strength) {
+                    return PODZOL;
+                }
+                if (unit(seed, x, z, 13) < 0.025 * canopy * strength) {
+                    return COARSE;
+                }
+            }
+            if (type == ForestType.SWAMP && s.riparian() > 0.55 && patch(seed, x, z, 5.0, 15) > 0.62) {
+                return MUD;
+            }
+            return NO_CHANGE;
+        }
+
+        private static double smooth(double a, double b, double v) {
+            double t = Math.max(0.0, Math.min(1.0, (v - a) / (b - a)));
+            return t * t * (3.0 - 2.0 * t);
+        }
+
         private static BlockState choose(ForestSample s, double canopy, int x, int z, long seed, double amount, BlockState ground) {
             ForestType type = s.type();
             double u = unit(seed, x, z, 1) / amount;
@@ -617,13 +732,10 @@ public final class ForestBlocks {
             double clump = 0.35 + 1.3 * patch(seed, x, z, 6.0, 2);
             // Deep shade under a closed canopy keeps the floor sparse.
             double thin = canopy >= 1.0 && s.density() > 0.8 ? 0.55 : 1.0;
+            // Mushrooms come up in groups, more of them on podzol.
+            double fungi = (0.25 + 3.0 * smooth(0.62, 0.85, patch(seed, x, z, 5.0, 14))) * (ground.is(Blocks.PODZOL) ? 2.0 : 1.0);
             if (snowy) {
                 return u < 0.035 * clump * thin ? Blocks.FERN.defaultBlockState() : null;
-            }
-            // Moss on old, wet ground.
-            if ((s.old() > 0.35 || type == ForestType.DARK || type == ForestType.SWAMP) && moist > 0.45
-                    && patch(seed, x, z, 7.0, 3) > 0.78 - 0.12 * s.old() && ground.is(Blocks.GRASS_BLOCK)) {
-                return Blocks.MOSS_BLOCK.defaultBlockState();
             }
             switch (type) {
                 case TEMPERATE, FLOWER, BIRCH, OLD_BIRCH, DARK, SWAMP -> {
@@ -639,7 +751,7 @@ public final class ForestBlocks {
                         return Blocks.FERN.defaultBlockState();
                     }
                     u -= fern;
-                    double mushroom = (type == ForestType.DARK ? 0.02 : 0.006) * canopy * thin;
+                    double mushroom = (type == ForestType.DARK ? 0.02 : 0.006) * canopy * thin * fungi;
                     if (u < mushroom && canopy >= 0.75) {
                         return (hash(seed, x, z, 6) & 1) == 0 ? Blocks.BROWN_MUSHROOM.defaultBlockState() : Blocks.RED_MUSHROOM.defaultBlockState();
                     }
@@ -664,7 +776,7 @@ public final class ForestBlocks {
                         return Blocks.SHORT_GRASS.defaultBlockState();
                     }
                     u -= grass;
-                    double mushroom = 0.004 * canopy;
+                    double mushroom = 0.004 * canopy * fungi;
                     return u < mushroom && canopy >= 0.75 ? Blocks.BROWN_MUSHROOM.defaultBlockState() : null;
                 }
                 case JUNGLE, SPARSE_JUNGLE -> {

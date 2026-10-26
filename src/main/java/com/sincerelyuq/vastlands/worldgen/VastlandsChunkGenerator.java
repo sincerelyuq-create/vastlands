@@ -193,6 +193,9 @@ public class VastlandsChunkGenerator extends NoiseBasedChunkGenerator {
             if (context.systems().forests() instanceof VastlandsForests forests) {
                 info.add("Vastlands forest: " + forests.describe(pos.getX(), pos.getZ()));
             }
+            if (context.systems().nature() instanceof com.sincerelyuq.vastlands.worldgen.nature.VastlandsNature nature) {
+                info.add("Vastlands nature: " + nature.describe(pos.getX(), pos.getY(), pos.getZ()));
+            }
         }, () -> info.add("Vastlands: no generation context (noise settings contain no Vastlands stage)"));
     }
 }
