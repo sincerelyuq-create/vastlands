@@ -54,7 +54,8 @@ stone forests; in the caves pointed dripstone groups, stalagmites, stalactites a
 giant dripstones and spike fields, root curtains and moss gardens in lush caves, sculk mounds and
 pillars in the deep dark (no sensors or shriekers), calcite and amethyst, basalt columns over lava,
 rubble, pendants and rock pillars, submerged rocks and islets in cave lakes; ordinary caves partly
-bare; formations never block a river, a fall, a cave mouth or a structure. See PROGRESS.md.
+bare; formations never block a river, a fall, a cave mouth or a structure; and optional integration
+of Sincerelyuq's Biomes and Sincerelyuq's Overhaul (below). See PROGRESS.md.
 
 Using it
 
@@ -75,6 +76,29 @@ Using it
   (`vastlands:nature/surface/mountain`, `desert`, `badlands`, `temperate` ... or `none` for none) or
   a cave profile tag (`vastlands:nature/cave/dripstone`, `lush`, `deep_dark`, `crystal`,
   `volcanic` ...); untagged biomes are judged by their convention tags and climate.
+
+Sincerelyuq's Biomes and Sincerelyuq's Overhaul (optional)
+
+Both mods work with Vastlands as one world; neither is required, and nothing changes without them.
+Put either or both jars into `mods/` next to Vastlands and create a new Vastlands world:
+
+- Sincerelyuq's Biomes: Vastlands places all eight of its biomes by its own geography: painted
+  strata on warm mountain ranges and their high hills, ashen wastes on the volcanic hotspots of dry
+  country, bone dunes as sand seas (with real dunes across the wind) in the hottest deserts, lotus
+  pools in warm, humid lowlands and floodplains, the twilight thicket in temperate, humid forest
+  country (with dusk trees grown by the Vastlands forests); underground the amethyst caves and the
+  smoldering cave take the crystal and volcanic cave provinces, the bioluminescent depths half of
+  the warm, humid lush and dripstone provinces of the middle and deep caves. Each gets its own
+  formations (lumen mushrooms of many forms, crystal gardens and spires, spinel pools, vents,
+  geothermal fields, fissures with ash vents). F3 shows the "Vastlands region" fields.
+- Sincerelyuq's Overhaul: its structures keep their placement; some also appear in the biomes
+  above where they fit, and starts on bad sites (a slope, a river, a flooded cave, the sanctum's
+  doorstep) are dropped. Natural formations, trees and dunes step aside for every structure.
+- Both mods' own placement still applies in vanilla world types. Details: ARCHITECTURE.md,
+  Integration; results and known limits: PROGRESS.md.
+
+To check a world in development: copy the jars into `run/mods/` and use `tools/worldcheck`
+(`generate.py`, then `integrationcheck.py`, `naturecheck.py`, `biomecheck.py`).
 
 Building
 

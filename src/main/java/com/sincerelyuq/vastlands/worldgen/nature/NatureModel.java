@@ -407,6 +407,16 @@ public final class NatureModel {
         if (s.water.wet() || s.ground < this.seaLevel - 2) {
             return;
         }
+        if (s.style == SurfaceStyle.ASHEN && s.slope < 0.45 && r.chance(0.55)) {
+            // Fumaroles: ash vents on level, dry ground.
+            int y = s.ground + 1;
+            if (!this.clearSurface(c.x, c.z, y, 5.0, false) || this.relief(c.x, c.z, 4.0, r.next() * Math.PI) > 2.5) {
+                return;
+            }
+            this.set(c, new FormationSpec(this.specKey(c, 0), FormationKind.ASH_VENTS, c.x, c.z, y, 1.0, r.range(1.5, 3.5), r.between(1, 3), 0,
+                    Rock.BASALT, flags, r.nextLong()), 5.0);
+            return;
+        }
         boolean cluster = r.chance(s.style == SurfaceStyle.MOUNTAIN || s.style == SurfaceStyle.STONY_SHORE || s.style == SurfaceStyle.DESERT ? 0.45 : 0.3);
         int y = s.ground + 1;
         if (cluster) {

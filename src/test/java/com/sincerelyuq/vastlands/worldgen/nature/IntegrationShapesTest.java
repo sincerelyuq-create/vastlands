@@ -16,8 +16,9 @@ import org.junit.jupiter.api.Test;
  * The formations of Sincerelyuq's Biomes' biomes (Agent 7) in made-up caves and ground: lumen
  * mushrooms always fit their cave whole (cap included) or are left out, pools hold their fluid
  * (rock or more pool beside and under every fluid cell), fissures cut only into the ground with a
- * bottom under every cut, vents carry the eruptive block at their top only, crystals stay in the
- * open cave, and every kind gives the same shape twice.
+ * bottom under every cut, vents carry the eruptive smoldering magma only in their crater's wall
+ * under the rim (never open above, where it would erupt by itself), crystals stay in the open
+ * cave, and every kind gives the same shape twice.
  */
 class IntegrationShapesTest {
     /** A cave room {@code height} blocks high over a floor at y 0 (open y 0..height-1), its ceiling waved by {@code wave}. */
@@ -169,6 +170,34 @@ class IntegrationShapesTest {
     }
 
     @Test
+    void ashVentsSitOnMagmaInTheGround() {
+        Random random = new Random(19);
+        Room flat = new Room(0, 0, 0);
+        for (int k = 0; k < 200; k++) {
+            int n = 1 + random.nextInt(3);
+            FormationSpec spec = new FormationSpec(k, FormationKind.ASH_VENTS, 0, 0, 64, 1.0, 1.5 + random.nextDouble() * 2, n, 0, Rock.BASALT, 0,
+                    random.nextLong());
+            FormationShape shape = FormationShapes.shape(spec, flat);
+            java.util.Map<Integer, Integer> cells = new java.util.HashMap<>();
+            for (int i = 0; i < shape.size(); i++) {
+                cells.put(shape.positions[i], shape.codes[i]);
+            }
+            int vents = 0;
+            for (int i = 0; i < shape.size(); i++) {
+                if (!isMod(shape.codes[i], ModBlock.ASH_VENT)) {
+                    continue;
+                }
+                vents++;
+                int p = shape.positions[i];
+                assertEquals(-1, FormationShape.dy(p), "an ash vent off the ground's top");
+                Integer below = cells.get(FormationShape.pack(FormationShape.dx(p), -2, FormationShape.dz(p)));
+                assertTrue(below != null && FormationBlocks.kind(below) == FormationBlocks.MAGMA, "an ash vent without magma under it");
+            }
+            assertTrue(vents >= 1 && vents <= n, vents + " vents of " + n);
+        }
+    }
+
+    @Test
     void ventsAndCrystalsKeepTheirRules() {
         Random random = new Random(17);
         for (int k = 0; k < 300; k++) {
@@ -201,10 +230,20 @@ class IntegrationShapesTest {
                 }
             }
             if (kind == FormationKind.MAGMA_VENT) {
-                assertEquals(1, smoldering, "a vent's smoldering magma");
+                assertTrue(smoldering >= 1, "a vent without smoldering magma");
+                IntOpenHashSet solids = new IntOpenHashSet();
+                for (int i = 0; i < shape.size(); i++) {
+                    if (FormationBlocks.isSolid(shape.codes[i])) {
+                        solids.add(shape.positions[i]);
+                    }
+                }
                 for (int i = 0; i < shape.size(); i++) {
                     if (isMod(shape.codes[i], ModBlock.SMOLDERING_MAGMA)) {
-                        assertEquals(top, FormationShape.dy(shape.positions[i]), "smoldering magma below the vent's top");
+                        int p = shape.positions[i];
+                        // In the crater's wall under the rim: never open above (it would erupt by itself).
+                        assertTrue(solids.contains(FormationShape.pack(FormationShape.dx(p), FormationShape.dy(p) + 1, FormationShape.dz(p))),
+                                "smoldering magma open above");
+                        assertEquals(top - 1, FormationShape.dy(p), "smoldering magma not under the rim");
                     }
                 }
             } else {

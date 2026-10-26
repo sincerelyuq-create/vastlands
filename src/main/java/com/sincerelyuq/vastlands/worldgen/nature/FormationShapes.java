@@ -94,6 +94,7 @@ final class FormationShapes {
             case GIANT_CRYSTAL -> giantCrystal(c);
             case MAGMA_VENT -> magmaVent(c);
             case GEOTHERMAL_FIELD -> geothermalField(c);
+            case ASH_VENTS -> ashVents(c);
         }
         return b.build();
     }
@@ -1962,29 +1963,61 @@ final class FormationShapes {
     }
 
     /**
-     * Smoldering caves: a vent: a low cone of magma-veined blackstone and basalt with a crater of
-     * magma, smoldering magma at its heart (the mod's eruptive block, so a vent may blow), hot
-     * ground around it.
+     * Smoldering caves: a vent: a low cone of magma-veined rock with a crater at its top: a pit two
+     * blocks deep over a floor of magma, the mod's smoldering magma glowing in the pit's walls under
+     * the rim. Smoldering magma erupts by itself only when open above (an explosion, then lava), so
+     * it is never placed open above: a vent stays quiet until a player breaks its rim. Hot ground
+     * around it.
      */
     private static void magmaVent(Ctx c) {
         double radius = c.spec.radius();
-        double height = Math.max(1.5, c.spec.height());
-        int h = (int) Math.round(height);
-        for (int dy = -1; dy <= h; dy++) {
-            double t = Math.max(0.0, dy) / height;
-            disc(c, 0, dy, 0, Math.max(0.6, radius * (1.0 - 0.75 * t)), 0.5, 0, dy < 0 ? EMBED : 0);
-        }
+        int h = Math.max(2, (int) Math.round(Math.max(2.0, c.spec.height())));
+        int pit = radius >= 3.2 ? 1 : 0;
+        cone(c, 0, 0, 0, h, radius, pit + 1.4);
         footAll(c, 4);
-        // The crater: magma under smoldering magma at the top of the cone.
-        c.b.force(0, h, 0, FormationBlocks.mod(ModBlock.SMOLDERING_MAGMA));
-        c.b.force(0, h - 1, 0, FormationBlocks.code(FormationBlocks.MAGMA, 0));
-        for (int k = 0; k < 4; k++) {
-            Direction d = NatureBlocks.horizontal(k);
-            if (c.b.isSolid(d.getStepX(), h, d.getStepZ()) && c.r.chance(0.6)) {
-                c.b.force(d.getStepX(), h, d.getStepZ(), FormationBlocks.code(FormationBlocks.MAGMA, 0));
+        crater(c, 0, h, 0, pit);
+        hotGround(c, radius + 2.5, 0.55);
+    }
+
+    /**
+     * A cone of rock standing on a floor (the first open layer {@code floor}, its foot sunk one block
+     * into the ground) up to {@code top}, its radius narrowing to {@code topRadius}.
+     */
+    private static void cone(Ctx c, int x, int floor, int z, int top, double radius, double topRadius) {
+        for (int dy = floor - 1; dy <= top; dy++) {
+            double t = Math.max(0.0, dy - floor) / Math.max(1.0, top - floor);
+            double rr = Math.max(topRadius, radius - (radius - topRadius) * t);
+            disc(c, x, dy, z, rr, 0.5, 0, dy < floor ? EMBED : 0);
+        }
+    }
+
+    /**
+     * The crater of a vent whose top layer is {@code top}: a pit of radius {@code pit} (0: one
+     * column, 1: three by three) two blocks deep, magma at its floor, smoldering magma (or magma) in
+     * the cells of its walls one below the rim, each under a rim block, so none is open above.
+     */
+    private static void crater(Ctx c, int x, int top, int z, int pit) {
+        int magma = FormationBlocks.code(FormationBlocks.MAGMA, 0);
+        int smoldering = FormationBlocks.mod(ModBlock.SMOLDERING_MAGMA);
+        for (int dz = -pit; dz <= pit; dz++) {
+            for (int dx = -pit; dx <= pit; dx++) {
+                c.b.remove(x + dx, top, z + dz);
+                c.b.remove(x + dx, top - 1, z + dz);
+                c.b.force(x + dx, top - 2, z + dz, magma);
             }
         }
-        hotGround(c, radius + 2.5, 0.55);
+        int placed = 0;
+        for (int dz = -pit - 1; dz <= pit + 1; dz++) {
+            for (int dx = -pit - 1; dx <= pit + 1; dx++) {
+                boolean wall = (Math.abs(dx) == pit + 1) != (Math.abs(dz) == pit + 1);
+                if (!wall || !c.b.isSolid(x + dx, top, z + dz) || !c.b.isSolid(x + dx, top - 1, z + dz)) {
+                    continue;
+                }
+                boolean glow = placed == 0 || c.r.chance(0.55);
+                c.b.force(x + dx, top - 1, z + dz, glow ? smoldering : magma);
+                placed += glow ? 1 : 0;
+            }
+        }
     }
 
     /** Magma, blackstone and basalt set into the floor around a point (snapped), thinning to the edge. */
@@ -2022,13 +2055,11 @@ final class FormationShapes {
             if (base == Integer.MIN_VALUE) {
                 continue;
             }
-            double vr = c.r.range(1.5, 3.2);
-            int vh = (int) Math.round(c.r.range(1.5, Math.min(6.0, c.spec.height())));
-            for (int dy = -1; dy <= vh; dy++) {
-                double t = Math.max(0.0, dy) / Math.max(1.0, vh);
-                disc(c, ox, base + dy, oz, Math.max(0.6, vr * (1.0 - 0.7 * t)), 0.5, 0, dy < 0 ? EMBED : 0);
-            }
-            c.b.force(ox, base + vh, oz, FormationBlocks.mod(ModBlock.SMOLDERING_MAGMA));
+            double vr = c.r.range(2.0, 3.6);
+            int vh = Math.max(2, (int) Math.round(c.r.range(2.0, Math.min(6.0, Math.max(2.0, c.spec.height())))));
+            int pit = vr >= 3.2 ? 1 : 0;
+            cone(c, ox, base, oz, base + vh, vr, pit + 1.4);
+            crater(c, ox, base + vh, oz, pit);
             for (int dz = -4; dz <= 4; dz++) {
                 for (int dx = -4; dx <= 4; dx++) {
                     if (c.b.isSolid(ox + dx, base, oz + dz)) {
@@ -2122,5 +2153,46 @@ final class FormationShapes {
             c.b.force(vx, ground, vz, vent | EMBED);
             c.b.force(vx, ground - 1, vz, magma | EMBED);
         }
+    }
+
+    /**
+     * Ashen wastes: fumaroles: one to three of Sincerelyuq's Biomes' ash vents (hot ash, damage)
+     * within a few blocks, each over magma in a ring of basalt and smooth basalt set into the ground
+     * with a few raised blocks, as the mod builds them; each on its own column's ground.
+     */
+    private static void ashVents(Ctx c) {
+        int n = Math.max(1, c.spec.span());
+        double spread = c.spec.radius();
+        int vent = FormationBlocks.mod(ModBlock.ASH_VENT);
+        int magma = FormationBlocks.code(FormationBlocks.MAGMA, 0);
+        int basalt = FormationBlocks.code(FormationBlocks.BASALT, 0);
+        int smooth = FormationBlocks.code(FormationBlocks.SMOOTH_BASALT, 0);
+        for (int k = 0; k < n; k++) {
+            double a = c.r.next() * Math.PI * 2;
+            double d = k == 0 ? 0.0 : c.r.range(1.5, spread + 1.0);
+            int vx = (int) Math.round(Math.cos(a) * d);
+            int vz = (int) Math.round(Math.sin(a) * d);
+            int ground = c.ground(vx, vz);
+            for (int dz = -2; dz <= 2; dz++) {
+                for (int dx = -2; dx <= 2; dx++) {
+                    int d2 = dx * dx + dz * dz;
+                    int g = c.ground(vx + dx, vz + dz);
+                    int there = c.b.get(vx + dx, g, vz + dz);
+                    if (d2 == 0 || d2 > 5 || FormationBlocks.kind(there) == FormationBlocks.MOD && FormationBlocks.modBlock(there) == ModBlock.ASH_VENT) {
+                        continue;
+                    }
+                    if (Math.abs(g - ground) > 1) {
+                        continue;
+                    }
+                    c.b.force(vx + dx, g, vz + dz, (c.r.chance(0.33) ? smooth : basalt) | EMBED);
+                    if (d2 <= 2 && c.r.chance(0.5)) {
+                        c.b.solid(vx + dx, g + 1, vz + dz, basalt);
+                    }
+                }
+            }
+            c.b.force(vx, ground, vz, vent | EMBED);
+            c.b.force(vx, ground - 1, vz, magma | EMBED);
+        }
+        footAll(c, 3);
     }
 }

@@ -166,15 +166,19 @@ def check(path, compare=None):
     loose_inner = loose & inner
     by_block = Counter()
     examples = []
+    per_block = {}
     ys, zs, xs = np.nonzero(loose_inner)
     for y, z, x in zip(ys, zs, xs):
         b = short[v.ids[y, z, x]]
         by_block[b] += 1
+        at = [int(x) + v.origin[0], int(y) + MIN_Y, int(z) + v.origin[1], b]
         if len(examples) < 20:
-            examples.append([int(x) + v.origin[0], int(y) + MIN_Y, int(z) + v.origin[1], b])
+            examples.append(at)
+        if len(per_block.setdefault(b, [])) < 3:
+            per_block[b].append(at[:3])
     report = {"world": path, "blocks": int(v.ids.size), "solid": int(solid.sum()), "support rounds": rounds,
               "floating (16+ inside)": int(loose_inner.sum()), "floating by block": dict(by_block.most_common()),
-              "floating examples": examples}
+              "floating examples": examples, "floating examples by block": per_block}
 
     # Pointed dripstone: attachment and tips.
     pd = v.table(lambda n, p: n == "minecraft:pointed_dripstone")

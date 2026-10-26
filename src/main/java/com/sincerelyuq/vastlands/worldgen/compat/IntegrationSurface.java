@@ -108,67 +108,75 @@ public final class IntegrationSurface {
         SurfaceRules.ConditionSource deepUnderFloor = SurfaceRules.stoneDepthCheck(0, true, 6, CaveSurface.FLOOR);
         SurfaceRules.ConditionSource onCeiling = SurfaceRules.stoneDepthCheck(0, false, CaveSurface.CEILING);
         SurfaceRules.ConditionSource dry = SurfaceRules.waterBlockCheck(-1, 0);
-        List<SurfaceRules.RuleSource> rules = new ArrayList<>();
+        // Cheap conditions first, the biome last: a biome condition looks the biome up again at
+        // every height of every column it is tested on (vanilla's rules test theirs only near the
+        // surface), so the surface biomes are tested only above the preliminary surface and the
+        // cave biomes only on cave floors and ceilings.
+        List<SurfaceRules.RuleSource> surface = new ArrayList<>();
 
         // Painted strata: bands on steep ground and above the valley line, the mod's own palette.
         SurfaceRules.RuleSource bands = driftingBands();
-        rules.add(SurfaceRules.ifTrue(SurfaceRules.isBiome(PAINTED_STRATA), SurfaceRules.ifTrue(SurfaceRules.abovePreliminarySurface(), SurfaceRules.sequence(
+        surface.add(SurfaceRules.ifTrue(SurfaceRules.isBiome(PAINTED_STRATA), SurfaceRules.sequence(
                 SurfaceRules.ifTrue(SurfaceRules.yBlockCheck(VerticalAnchor.absolute(VALLEY_LINE), 2), bands),
                 SurfaceRules.ifTrue(SurfaceRules.steep(), bands),
                 SurfaceRules.ifTrue(onFloor, SurfaceRules.sequence(SurfaceRules.ifTrue(dry, state(Blocks.GRASS_BLOCK)), state(Blocks.GRAVEL))),
-                SurfaceRules.ifTrue(underFloor, state(Blocks.DIRT))))));
+                SurfaceRules.ifTrue(underFloor, state(Blocks.DIRT)))));
 
         // Ashen wastes: ash over tuff; bare volcanic rock on steep slopes and in streaks.
         SurfaceRules.RuleSource bareRock = SurfaceRules.sequence(
                 SurfaceRules.ifTrue(SurfaceRules.noiseCondition(Noises.GRAVEL, -0.12, 0.18), state(Blocks.SMOOTH_BASALT)),
                 SurfaceRules.ifTrue(SurfaceRules.noiseCondition(Noises.PATCH, 0.15), state(Blocks.BLACKSTONE)),
                 state(Blocks.BASALT));
-        rules.add(SurfaceRules.ifTrue(SurfaceRules.isBiome(ASHEN_WASTES), SurfaceRules.ifTrue(SurfaceRules.abovePreliminarySurface(), SurfaceRules.sequence(
+        surface.add(SurfaceRules.ifTrue(SurfaceRules.isBiome(ASHEN_WASTES), SurfaceRules.sequence(
                 SurfaceRules.ifTrue(SurfaceRules.steep(), bareRock),
                 SurfaceRules.ifTrue(SurfaceRules.noiseCondition(Noises.CALCITE, -0.045, 0.045), bareRock),
                 SurfaceRules.ifTrue(onFloor, SurfaceRules.sequence(SurfaceRules.ifTrue(dry, SurfaceRules.state(ash)), state(Blocks.GRAVEL))),
-                SurfaceRules.ifTrue(underFloor, state(Blocks.TUFF))))));
+                SurfaceRules.ifTrue(underFloor, state(Blocks.TUFF)))));
 
         // Bone dunes: sand over sandstone.
-        rules.add(SurfaceRules.ifTrue(SurfaceRules.isBiome(BONE_DUNES), SurfaceRules.ifTrue(SurfaceRules.abovePreliminarySurface(), SurfaceRules.sequence(
+        surface.add(SurfaceRules.ifTrue(SurfaceRules.isBiome(BONE_DUNES), SurfaceRules.sequence(
                 SurfaceRules.ifTrue(onFloor, state(Blocks.SAND)),
                 SurfaceRules.ifTrue(underFloor, state(Blocks.SAND)),
-                SurfaceRules.ifTrue(deepUnderFloor, state(Blocks.SANDSTONE))))));
+                SurfaceRules.ifTrue(deepUnderFloor, state(Blocks.SANDSTONE)))));
 
         // Lotus pools and the twilight thicket: grass over dirt.
-        rules.add(SurfaceRules.ifTrue(SurfaceRules.isBiome(LOTUS_POOLS), SurfaceRules.ifTrue(SurfaceRules.abovePreliminarySurface(), SurfaceRules.sequence(
+        surface.add(SurfaceRules.ifTrue(SurfaceRules.isBiome(LOTUS_POOLS), SurfaceRules.sequence(
                 SurfaceRules.ifTrue(onFloor, SurfaceRules.sequence(SurfaceRules.ifTrue(dry, state(Blocks.GRASS_BLOCK)), state(Blocks.CLAY))),
-                SurfaceRules.ifTrue(underFloor, state(Blocks.DIRT))))));
-        rules.add(SurfaceRules.ifTrue(SurfaceRules.isBiome(TWILIGHT_THICKET), SurfaceRules.ifTrue(SurfaceRules.abovePreliminarySurface(), SurfaceRules.sequence(
+                SurfaceRules.ifTrue(underFloor, state(Blocks.DIRT)))));
+        surface.add(SurfaceRules.ifTrue(SurfaceRules.isBiome(TWILIGHT_THICKET), SurfaceRules.sequence(
                 SurfaceRules.ifTrue(onFloor, SurfaceRules.sequence(SurfaceRules.ifTrue(dry, state(Blocks.GRASS_BLOCK)), state(Blocks.GRAVEL))),
-                SurfaceRules.ifTrue(underFloor, state(Blocks.DIRT))))));
+                SurfaceRules.ifTrue(underFloor, state(Blocks.DIRT)))));
 
-        // Cave biomes, at any depth above the bedrock floor.
-        List<SurfaceRules.RuleSource> caves = new ArrayList<>();
-        caves.add(SurfaceRules.ifTrue(SurfaceRules.isBiome(AMETHYST_CAVES), SurfaceRules.sequence(
-                SurfaceRules.ifTrue(onFloor, SurfaceRules.sequence(
+        // Cave biomes, at any depth above the bedrock floor: floors, the ground under them, ceilings.
+        SurfaceRules.RuleSource caveFloors = SurfaceRules.sequence(
+                SurfaceRules.ifTrue(SurfaceRules.isBiome(AMETHYST_CAVES), SurfaceRules.sequence(
                         SurfaceRules.ifTrue(SurfaceRules.not(dry), state(Blocks.SMOOTH_BASALT)),
                         SurfaceRules.ifTrue(SurfaceRules.noiseCondition(Noises.CALCITE, -0.05, 0.05), state(Blocks.CALCITE)),
                         SurfaceRules.ifTrue(SurfaceRules.noiseCondition(Noises.PATCH, 0.3), state(Blocks.SMOOTH_BASALT)),
                         state(Blocks.AMETHYST_BLOCK))),
-                SurfaceRules.ifTrue(underFloor, state(Blocks.CALCITE)))));
-        caves.add(SurfaceRules.ifTrue(SurfaceRules.isBiome(SMOLDERING_CAVE), SurfaceRules.sequence(
-                SurfaceRules.ifTrue(onFloor, SurfaceRules.sequence(
+                SurfaceRules.ifTrue(SurfaceRules.isBiome(SMOLDERING_CAVE), SurfaceRules.sequence(
                         SurfaceRules.ifTrue(SurfaceRules.noiseCondition(Noises.PATCH, 0.22), state(Blocks.MAGMA_BLOCK)),
                         SurfaceRules.ifTrue(SurfaceRules.noiseCondition(Noises.PATCH, 0.1), state(Blocks.BLACKSTONE)),
                         SurfaceRules.ifTrue(SurfaceRules.noiseCondition(Noises.GRAVEL, -0.15, 0.15), state(Blocks.BASALT)),
                         state(Blocks.NETHERRACK))),
-                SurfaceRules.ifTrue(underFloor, state(Blocks.NETHERRACK)),
-                SurfaceRules.ifTrue(onCeiling, SurfaceRules.ifTrue(SurfaceRules.noiseCondition(Noises.GRAVEL, -0.2, 0.2), state(Blocks.BASALT))))));
-        caves.add(SurfaceRules.ifTrue(SurfaceRules.isBiome(BIOLUMINESCENT_DEPTHS), SurfaceRules.sequence(
-                SurfaceRules.ifTrue(onFloor, SurfaceRules.sequence(
+                SurfaceRules.ifTrue(SurfaceRules.isBiome(BIOLUMINESCENT_DEPTHS), SurfaceRules.sequence(
                         SurfaceRules.ifTrue(SurfaceRules.not(dry), state(Blocks.CLAY)),
                         SurfaceRules.ifTrue(SurfaceRules.noiseCondition(Noises.PATCH, -0.08), SurfaceRules.state(lumenMoss)),
                         SurfaceRules.ifTrue(SurfaceRules.noiseCondition(Noises.GRAVEL, -0.12, 0.12), state(Blocks.CLAY)),
-                        state(Blocks.TUFF))),
-                SurfaceRules.ifTrue(underFloor, state(Blocks.TUFF)))));
-        rules.add(SurfaceRules.ifTrue(SurfaceRules.yBlockCheck(VerticalAnchor.aboveBottom(6), 0),
-                SurfaceRules.sequence(caves.toArray(SurfaceRules.RuleSource[]::new))));
+                        state(Blocks.TUFF))));
+        SurfaceRules.RuleSource caveUnder = SurfaceRules.sequence(
+                SurfaceRules.ifTrue(SurfaceRules.isBiome(AMETHYST_CAVES), state(Blocks.CALCITE)),
+                SurfaceRules.ifTrue(SurfaceRules.isBiome(SMOLDERING_CAVE), state(Blocks.NETHERRACK)),
+                SurfaceRules.ifTrue(SurfaceRules.isBiome(BIOLUMINESCENT_DEPTHS), state(Blocks.TUFF)));
+        SurfaceRules.RuleSource caveCeilings = SurfaceRules.ifTrue(SurfaceRules.noiseCondition(Noises.GRAVEL, -0.2, 0.2),
+                SurfaceRules.ifTrue(SurfaceRules.isBiome(SMOLDERING_CAVE), state(Blocks.BASALT)));
+
+        List<SurfaceRules.RuleSource> rules = new ArrayList<>();
+        rules.add(SurfaceRules.ifTrue(SurfaceRules.abovePreliminarySurface(), SurfaceRules.sequence(surface.toArray(SurfaceRules.RuleSource[]::new))));
+        rules.add(SurfaceRules.ifTrue(SurfaceRules.yBlockCheck(VerticalAnchor.aboveBottom(6), 0), SurfaceRules.sequence(
+                SurfaceRules.ifTrue(onFloor, caveFloors),
+                SurfaceRules.ifTrue(underFloor, caveUnder),
+                SurfaceRules.ifTrue(onCeiling, caveCeilings))));
         return SurfaceRules.sequence(rules.toArray(SurfaceRules.RuleSource[]::new));
     }
 

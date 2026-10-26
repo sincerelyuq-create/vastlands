@@ -102,7 +102,9 @@ public enum FormationKind {
     /** Smoldering caves: a low vent of blackstone around smoldering magma. */
     MAGMA_VENT(false, 8, false),
     /** Smoldering caves: a geothermal field: magma floor, vents and magma-veined pillars in a great hall. */
-    GEOTHERMAL_FIELD(false, 16, false);
+    GEOTHERMAL_FIELD(false, 16, false),
+    /** Ashen wastes: a few ash vents over magma, each in a ring of basalt (fumaroles on level ground). */
+    ASH_VENTS(true, 7, false);
 
     public static final FormationKind[] VALUES = values();
 
