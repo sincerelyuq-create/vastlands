@@ -44,8 +44,17 @@ forests along rivers with trees leaning over the water, a treeline in the mounta
 wind-shaped krummholz; trees of many shapes from vanilla blocks (branching oaks and birches,
 ancient oaks with flared roots and crowns up to ~28 blocks across, whorled spruces, pines, giant
 spruces, pines and jungle trees, flat-topped acacias and dark oaks), snags, fallen logs, shrubs
-and a forest floor of leaf litter, ferns, moss and mushrooms; nothing grows in rivers, lakes,
-waterfalls or cave openings. See PROGRESS.md.
+and a forest floor of leaf litter, ferns, mushrooms and moss where it suits the grass; deadwood
+(fallen, broken and rotten logs, stumps, uprooted trees) and huge mushrooms of many shapes up to
+giants in old dark forests; nothing grows in rivers, lakes, waterfalls or cave openings; and natural
+formations: boulders, rock clusters, tors, talus, hoodoos and spires, balanced rocks, natural arches,
+islets and sea stacks, driftwood and shore stones, from the local rock (sandstone, banded
+terracotta, granite, limestone, basalt) and the biome, with rare great arches, great spires and
+stone forests; in the caves pointed dripstone groups, stalagmites, stalactites and columns up to
+giant dripstones and spike fields, root curtains and moss gardens in lush caves, sculk mounds and
+pillars in the deep dark (no sensors or shriekers), calcite and amethyst, basalt columns over lava,
+rubble, pendants and rock pillars, submerged rocks and islets in cave lakes; ordinary caves partly
+bare; formations never block a river, a fall, a cave mouth or a structure. See PROGRESS.md.
 
 Using it
 
@@ -53,15 +62,19 @@ Using it
 - Dedicated server: `level-type=vastlands\:vastlands` in `server.properties` before the world is created.
 - The default world types are not changed by the mod.
 - F3 shows "Vastlands terrain", "Vastlands geography", "Vastlands hydrology", "Vastlands caves",
-  "Vastlands cave biome" and "Vastlands forest" lines for the column you stand on (surface,
-  landform, climate, ice, water, the nearest river, the rock and cave water domains, the cave biome
-  slot, and the forest community with its density, age and clearing).
+  "Vastlands cave biome", "Vastlands forest" and "Vastlands nature" lines for the column you stand
+  on (surface, landform, climate, ice, water, the nearest river, the rock and cave water domains,
+  the cave biome slot, the forest community with its density, age and clearing, and the natural
+  formations nearby).
 - Other mods' cave biomes: add them to the biome tags `vastlands:cave/lush`, `dripstone`,
   `deep_dark`, `crystal`, `volcanic` or `other` (a datapack, optional entries); see ARCHITECTURE.md,
   Caves.
 - Other mods' surface biomes: add them to a forest community tag (`vastlands:forest/temperate`,
   `birch`, `dark`, `boreal`, `jungle` ... see ARCHITECTURE.md, Forests) for Vastlands trees there;
-  biomes in no community keep their own trees.
+  biomes in no community keep their own trees. For natural formations, add them to a style tag
+  (`vastlands:nature/surface/mountain`, `desert`, `badlands`, `temperate` ... or `none` for none) or
+  a cave profile tag (`vastlands:nature/cave/dripstone`, `lush`, `deep_dark`, `crystal`,
+  `volcanic` ...); untagged biomes are judged by their convention tags and climate.
 
 Building
 
@@ -80,4 +93,7 @@ see ARCHITECTURE.md, Testing).
 `./gradlew forestPreview --args="--gallery build/forests/g.png --map 288 32 512 1 build/forests/m.png"`
 draws every tree form and an aerial map of a forest; `--view`, `--stats` and more: ARCHITECTURE.md,
 Testing.
+`./gradlew naturePreview --args="--gallery build/nature/g.png --view -12704 -11808 256 build/nature/v.png"`
+draws every natural formation and a view of a square with its formations; `--cave`, `--stats` and
+more: ARCHITECTURE.md, Testing.
 Architecture and contribution notes: ARCHITECTURE.md.

@@ -1205,8 +1205,90 @@ public final class TreeShapes {
                     brownCap(c, caps, BROWN_FLAT, sx, sh, sz, r.range(1.2, 1.7), sk);
                 }
             }
+            connect(c, caps);
             faces(c, caps);
         }
+
+        private static boolean fungal(int code) {
+            int kind = TreeBlocks.kind(code);
+            return kind == TreeBlocks.STEM || kind == TreeBlocks.BROWN_CAP || kind == TreeBlocks.RED_CAP;
+        }
+
+        /** Spreads {@code held} from the queued cells through stems and caps, face to face. */
+        private static void spread(Ctx c, java.util.Set<Integer> held, java.util.ArrayDeque<int[]> queue) {
+            while (!queue.isEmpty()) {
+                int[] p = queue.poll();
+                for (int[] st : STEPS6) {
+                    int x = p[0] + st[0];
+                    int y = p[1] + st[1];
+                    int z = p[2] + st[2];
+                    if (fungal(c.b.get(x, y, z)) && held.add(TreeShape.pack(x, y, z))) {
+                        queue.add(new int[] {x, y, z});
+                    }
+                }
+            }
+        }
+
+        /**
+         * Every cap block held face to face from a stem on the ground: a cell of a rough rim that
+         * touches the cap only at an edge gets a bridging block beside or beneath it (touching the
+         * held cap), else it is dropped.
+         */
+        private static void connect(Ctx c, java.util.List<int[]> caps) {
+            java.util.Set<Integer> held = new java.util.HashSet<>();
+            java.util.ArrayDeque<int[]> queue = new java.util.ArrayDeque<>();
+            int reach = c.spec.form().reach;
+            for (int z = -reach; z <= reach; z++) {
+                for (int x = -reach; x <= reach; x++) {
+                    if (TreeBlocks.kind(c.b.get(x, 0, z)) == TreeBlocks.STEM) {
+                        held.add(TreeShape.pack(x, 0, z));
+                        queue.add(new int[] {x, 0, z});
+                    }
+                }
+            }
+            spread(c, held, queue);
+            for (int k = 0; k < caps.size(); k++) {
+                int[] cell = caps.get(k);
+                int x = cell[0];
+                int y = cell[1];
+                int z = cell[2];
+                if (TreeBlocks.kind(c.b.get(x, y, z)) != cell[3] || held.contains(TreeShape.pack(x, y, z))) {
+                    continue;
+                }
+                // Beside first (the rim keeps its level), then beneath.
+                for (int[] st : BRIDGES) {
+                    int bx = x + st[0];
+                    int by = y + st[1];
+                    int bz = z + st[2];
+                    if (!c.b.isEmpty(bx, by, bz)) {
+                        continue;
+                    }
+                    boolean touches = false;
+                    for (int[] t : STEPS6) {
+                        int nx = bx + t[0];
+                        int ny = by + t[1];
+                        int nz = bz + t[2];
+                        touches |= (nx != x || ny != y || nz != z) && held.contains(TreeShape.pack(nx, ny, nz));
+                    }
+                    if (touches) {
+                        c.b.soft(bx, by, bz, TreeBlocks.code(cell[3], Wood.MUSHROOM, 0));
+                        caps.add(new int[] {bx, by, bz, cell[3]});
+                        held.add(TreeShape.pack(bx, by, bz));
+                        queue.add(new int[] {bx, by, bz});
+                        spread(c, held, queue);
+                        break;
+                    }
+                }
+            }
+            for (int[] cell : caps) {
+                if (TreeBlocks.kind(c.b.get(cell[0], cell[1], cell[2])) == cell[3] && !held.contains(TreeShape.pack(cell[0], cell[1], cell[2]))) {
+                    c.b.force(cell[0], cell[1], cell[2], 0);
+                }
+            }
+        }
+
+        private static final int[][] STEPS6 = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+        private static final int[][] BRIDGES = {{1, 0, 0}, {-1, 0, 0}, {0, 0, 1}, {0, 0, -1}, {0, -1, 0}};
 
         private static void stemCell(Ctx c, int x, int y, int z, int stem, boolean fat, boolean plus) {
             c.b.log(x, y, z, stem);
