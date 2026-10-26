@@ -172,7 +172,7 @@ public final class NatureModel {
                 case BOREAL -> 0.13;
                 case OLD_GROWTH -> 0.2;
                 case SNOWY -> 0.1;
-                case MOUNTAIN -> 0.33;
+                case MOUNTAIN -> 0.22;
                 case WETLAND -> 0.03;
                 case JUNGLE -> 0.05;
                 case SAVANNA -> 0.1;
@@ -196,16 +196,16 @@ public final class NatureModel {
                 default -> 0.0;
             };
             case S_LARGE -> switch (style) {
-                case MOUNTAIN, DESERT -> 0.22;
-                case BADLANDS -> 0.35;
+                case MOUNTAIN, DESERT -> 0.16;
+                case BADLANDS -> 0.25;
                 case STONY_SHORE, BEACH, OCEAN -> 0.2;
                 case SAVANNA -> 0.18;
                 case TEMPERATE, BOREAL, SNOWY, JUNGLE -> 0.06;
                 default -> 0.0;
             };
             case S_WONDER -> switch (style) {
-                case MOUNTAIN, DESERT, BADLANDS, STONY_SHORE -> 0.35;
-                case JUNGLE, SAVANNA, TEMPERATE -> 0.22;
+                case MOUNTAIN, DESERT, BADLANDS, STONY_SHORE -> 0.14;
+                case JUNGLE, SAVANNA, TEMPERATE -> 0.1;
                 default -> 0.0;
             };
             default -> 0.0;
@@ -309,9 +309,10 @@ public final class NatureModel {
             return Rock.LIMESTONE;
         }
         if (style == SurfaceStyle.SNOWY || geo.temperature() < -0.5) {
-            return fracture > 0.4 ? Rock.GRANITE : Rock.PALE;
+            return Rock.PALE;
         }
-        if (style == SurfaceStyle.SAVANNA || fracture > 0.45 || geo.alpine() > 0.6 && geo.mountain() > 0.4) {
+        // Granite in warm, fractured hills; cold peaks keep vanilla's grey stone.
+        if (style == SurfaceStyle.SAVANNA || geo.temperature() > -0.25 && (fracture > 0.45 || geo.alpine() > 0.6 && geo.mountain() > 0.4)) {
             return Rock.GRANITE;
         }
         if (style == SurfaceStyle.STONY_SHORE || style == SurfaceStyle.BEACH || style == SurfaceStyle.RIVER) {
@@ -907,8 +908,9 @@ public final class NatureModel {
                 return this.cave(s, FormationKind.CAVE_ISLET, r.between(1, 2), r.range(2.5, Math.min(6.0, room * 0.6)), depth - 1, rock,
                         flags | (s.profile == CaveProfile.LUSH ? FormationSpec.MOSSY : 0));
             }
-            if (s.u < 0.35) {
-                double height = Math.min(h - 1, depth + r.range(-2.0, 3.0));
+            if (s.u < 0.3) {
+                // A boulder on a deep bed, a pillar breaking the surface of shallower water.
+                double height = depth > 14 ? r.range(2.0, 6.0) : Math.min(h - 1, depth + r.range(-2.0, 3.0));
                 return this.cave(s, FormationKind.SUBMERGED_ROCK, Math.max(1.0, height), r.range(1.2, Math.min(3.0, room * 0.6)), h, rock, flags);
             }
             if (s.profile != CaveProfile.DRIPSTONE) {
@@ -1004,40 +1006,40 @@ public final class NatureModel {
         }
         switch (s.profile) {
             case DRIPSTONE -> {
-                if (s.u < 0.35) {
-                    double radius = Math.min(room * 0.5, Math.max(2.0, h * r.range(0.09, 0.15)));
-                    return this.cave(s, FormationKind.GIANT_DRIPSTONE, r.range(16.0, 40.0), Math.min(8.0, radius), h, rock, flags);
+                if (s.u < 0.12 && h >= 20 && room >= 8) {
+                    double radius = Math.min(room * 0.5, Math.max(3.0, h * r.range(0.1, 0.16)));
+                    return this.cave(s, FormationKind.GIANT_DRIPSTONE, r.range(20.0, 40.0), Math.min(8.0, radius), h, rock, flags);
                 }
-                if (s.u < 0.6) {
+                if (s.u < 0.24) {
                     return this.cave(s, FormationKind.SPIKE_FIELD, Math.min(h * 0.5, 30.0), Math.min(room, r.range(8.0, 12.0)), h, rock, flags);
                 }
             }
             case LUSH -> {
-                if (s.u < 0.3 && h <= 40) {
+                if (s.u < 0.15 && h <= 40) {
                     return this.cave(s, FormationKind.MOSSY_PILLAR, h, Math.min(room * 0.4, r.range(2.0, 4.5)), h, rock, flags);
                 }
-                if (s.u < 0.55 && depth == 0) {
+                if (s.u < 0.4 && depth == 0) {
                     return this.cave(s, FormationKind.MOSS_GARDEN, 0, r.range(5.0, Math.min(8.0, room)), h, rock, flags);
                 }
             }
             case DEEP_DARK -> {
-                if (s.u < 0.25 && h <= 40) {
+                if (s.u < 0.12 && h <= 40) {
                     return this.cave(s, FormationKind.SCULK_PILLAR, h, Math.min(room * 0.4, r.range(2.0, 4.0)), h, Rock.DEEPSLATE, flags);
                 }
-                if (s.u < 0.45) {
+                if (s.u < 0.25) {
                     return this.cave(s, FormationKind.SCULK_MOUND, r.range(2.5, 4.5), r.range(3.5, Math.min(6.0, room * 0.6)), h, Rock.DEEPSLATE, flags);
                 }
             }
             case PLAIN -> {
-                if (s.u < 0.2) {
+                if (s.u < 0.12) {
                     double radius = Math.min(room * 0.8, r.range(4.0, 10.0));
                     return this.cave(s, FormationKind.COLLAPSE, Math.min(h / 3.0, r.range(2.0, 7.0)), radius,
                             h, this.caveRock(s.profile, run.floor, s.geology, true), flags);
                 }
-                if (s.u < 0.3 && h <= 30) {
+                if (s.u < 0.18 && h <= 30) {
                     return this.cave(s, FormationKind.ROCK_PILLAR, h, Math.min(room * 0.4, r.range(2.0, 4.0)), h, rock, flags);
                 }
-                if (s.u < 0.36) {
+                if (s.u < 0.22) {
                     return this.cave(s, FormationKind.SPIKE_FIELD, Math.min(h * 0.4, 16.0), Math.min(room, r.range(7.0, 11.0)), h, rock, flags);
                 }
             }
@@ -1064,15 +1066,15 @@ public final class NatureModel {
         double radius = Math.min(room * 0.45, r.range(5.0, 11.0));
         switch (s.profile) {
             case DRIPSTONE -> {
-                if (s.u < 0.45) {
+                if (s.u < 0.3) {
                     return this.cave(s, FormationKind.GIANT_DRIPSTONE, r.range(40.0, 150.0), Math.min(12.0, radius), h, rock, flags);
                 }
-                if (s.u < 0.7) {
+                if (s.u < 0.42) {
                     return this.cave(s, FormationKind.SPIKE_FIELD, Math.min(h * 0.6, 60.0), Math.min(room, 13.0), h, rock, flags);
                 }
             }
             case PLAIN, DEEP_DARK, LUSH, CRYSTAL, VOLCANIC -> {
-                if (s.u < 0.4 && h <= 140) {
+                if (s.u < 0.25 && h <= 140) {
                     Rock giantRock = s.profile == CaveProfile.CRYSTAL ? Rock.CALCITE : (s.profile == CaveProfile.VOLCANIC ? Rock.BASALT : rock);
                     return this.cave(s, FormationKind.GIANT_COLUMN, h, Math.min(10.0, radius), h, giantRock, flags);
                 }

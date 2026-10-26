@@ -483,8 +483,9 @@ public final class NatureBlocks {
         return switch (palette) {
             case STONE -> v < 0.55 ? Blocks.STONE.defaultBlockState() : (v < 0.8 ? Blocks.ANDESITE.defaultBlockState()
                     : (v < 0.92 ? Blocks.COBBLESTONE.defaultBlockState() : (y < 16 ? Blocks.TUFF.defaultBlockState() : Blocks.STONE.defaultBlockState())));
-            case GRANITE -> v < 0.5 ? Blocks.GRANITE.defaultBlockState() : (v < 0.75 ? Blocks.STONE.defaultBlockState()
-                    : (v < 0.9 ? Blocks.ANDESITE.defaultBlockState() : Blocks.DIORITE.defaultBlockState()));
+            // Mostly stone with granite in patches: a whole pink boulder field looks foreign in vanilla's grey mountains.
+            case GRANITE -> v < 0.42 ? Blocks.STONE.defaultBlockState() : (v < 0.72 ? Blocks.GRANITE.defaultBlockState()
+                    : (v < 0.93 ? Blocks.ANDESITE.defaultBlockState() : Blocks.DIORITE.defaultBlockState()));
             case LIMESTONE -> v < 0.4 ? Blocks.STONE.defaultBlockState() : (v < 0.7 ? Blocks.DIORITE.defaultBlockState()
                     : (v < 0.9 ? Blocks.CALCITE.defaultBlockState() : Blocks.ANDESITE.defaultBlockState()));
             case SANDSTONE -> role == FormationBlocks.CAP || v < 0.2 ? Blocks.SMOOTH_SANDSTONE.defaultBlockState() : Blocks.SANDSTONE.defaultBlockState();

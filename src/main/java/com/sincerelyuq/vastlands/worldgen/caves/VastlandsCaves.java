@@ -343,7 +343,9 @@ public final class VastlandsCaves implements CaveSystem {
             // The pieces' distance changes by at most a few blocks per block of height (flattened
             // tubes, funnels, the fade under the cover); wall noise adds at most 1.45 roughness.
             double clear = d - 1.45 * c.roughness - 1.5;
-            y += clear > 10.0 ? (int) (clear / 5.0) : 1;
+            // No piece in this slab at all (an infinite distance): a short step, the cracks and
+            // megacaves are not indexed by slab.
+            y += Double.isInfinite(clear) ? 6 : (clear > 10.0 ? (int) Math.min(30.0, clear / 5.0) : 1);
         }
         if (start != Integer.MIN_VALUE && n < max) {
             this.emit(c, out, n++, start, Math.min(y - 1, top), room, true);

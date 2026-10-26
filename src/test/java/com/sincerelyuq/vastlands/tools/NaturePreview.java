@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Random;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.imageio.ImageIO;
 
@@ -76,6 +77,7 @@ public final class NaturePreview {
                 case "--find" -> jobs.add(new String[] {"find", args[++i], args[++i]});
                 case "--bench" -> jobs.add(new String[] {"bench", args[++i], args[++i], args[++i]});
                 case "--order" -> jobs.add(new String[] {"order", args[++i], args[++i], args[++i]});
+                case "--runs" -> jobs.add(new String[] {"runs", args[++i], args[++i]});
                 default -> throw new IllegalArgumentException("unknown argument " + args[i]);
             }
         }
@@ -91,6 +93,7 @@ public final class NaturePreview {
                 case "find" -> preview.find(FormationKind.valueOf(job[1].toUpperCase(Locale.ROOT)), Integer.parseInt(job[2]));
                 case "bench" -> preview.bench(Integer.parseInt(job[1]), Integer.parseInt(job[2]), Integer.parseInt(job[3]));
                 case "order" -> orderCheck(seed, Integer.parseInt(job[1]), Integer.parseInt(job[2]), Integer.parseInt(job[3]));
+                case "runs" -> preview.runs(Integer.parseInt(job[1]), Integer.parseInt(job[2]));
                 default -> throw new IllegalStateException(job[0]);
             }
             System.out.printf(Locale.ROOT, "%s: %.1f s%n", job[0], (System.nanoTime() - t0) / 1e9);
@@ -106,7 +109,7 @@ public final class NaturePreview {
     static int rockColor(Rock rock, int y) {
         return switch (rock) {
             case STONE -> 0x7F7F7F;
-            case GRANITE -> 0x9A6B57;
+            case GRANITE -> 0x8C7A72;
             case LIMESTONE -> 0xBDBDB2;
             case SANDSTONE -> 0xD8CB8A;
             case TERRACOTTA -> new int[] {0xA1543A, 0xB0603A, 0x8E3B2E, 0xBA8523, 0xD1B2A1, 0x876B62}[Math.floorMod(y / 2, 6)];
@@ -332,12 +335,15 @@ public final class NaturePreview {
             }
             counts[0]++;
         });
+        Map<String, Integer> kinds = new TreeMap<>();
         this.model.formations(x0, z0, x0 + size - 1, z0 + size - 1, true, spec -> {
             stamp(r, spec, this.model.shape(spec, this.model.world()), x0, z0, x0 + size - 1, z0 + size - 1);
             counts[1]++;
+            kinds.merge(spec.kind() + " " + spec.rock() + " in " + this.biomes.biomeName(spec.x(), spec.y(), spec.z()), 1, Integer::sum);
         });
         write(r.render(size > 200 ? 2 : (size > 110 ? 3 : 4), 0xB8CCE0), file);
         System.out.printf(Locale.ROOT, "wrote %s: %d trees, %d surface formations%n", file, counts[0], counts[1]);
+        kinds.forEach((k, n) -> System.out.printf(Locale.ROOT, "  %4d %s%n", n, k));
     }
 
     /** The caves of a box seen from above with the ceilings cut away: floors by depth, water, formations. */
@@ -426,6 +432,34 @@ public final class NaturePreview {
                     }
                 }
             }
+        }
+    }
+
+    /** The open runs of the cave columns around a point, against a block-by-block scan. */
+    void runs(int cx, int cz) {
+        VastlandsCaves caves = (VastlandsCaves) this.systems.caves();
+        int[] out = new int[16 * VastlandsCaves.RUN_FIELDS];
+        for (int dx = 0; dx < 3; dx++) {
+            int x = cx + dx * 7;
+            int n = caves.runs(x, cz, out);
+            StringBuilder s = new StringBuilder();
+            for (int k = 0; k < n; k++) {
+                int o = k * VastlandsCaves.RUN_FIELDS;
+                s.append(String.format(Locale.ROOT, " [%d..%d fluid %d level %d room %.1f mega %d open %d]", out[o], out[o + 1], out[o + 2], out[o + 3],
+                        out[o + 4] / 10.0, out[o + 5], out[o + 6]));
+            }
+            StringBuilder brute = new StringBuilder();
+            int start = Integer.MIN_VALUE;
+            for (int y = -255; y <= (int) this.systems.surfaceHeight(x, cz); y++) {
+                boolean open = caves.isCave(x, y, cz);
+                if (open && start == Integer.MIN_VALUE) {
+                    start = y;
+                } else if (!open && start != Integer.MIN_VALUE) {
+                    brute.append(' ').append(start).append("..").append(y - 1);
+                    start = Integer.MIN_VALUE;
+                }
+            }
+            System.out.printf(Locale.ROOT, "column %d %d (surface %.1f): runs%s%n  scan%s%n", x, cz, this.systems.surfaceHeight(x, cz), s, brute);
         }
     }
 
