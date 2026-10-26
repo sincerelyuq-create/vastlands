@@ -1875,7 +1875,10 @@ final class FormationShapes {
                 break;
             }
         }
-        int tip = Math.max(1, Math.min(3, (int) Math.round(r0)));
+        int tip = 0;
+        while (tip < Math.max(1, Math.min(3, (int) Math.round(r0))) && c.cave(lastX, by + dir * (lastI + 1 + tip), lastZ)) {
+            tip++;
+        }
         for (int k = 0; k < tip; k++) {
             c.b.decor(lastX, by + dir * (lastI + 1 + k), lastZ, FormationBlocks.mod(ModBlock.AMETHYST_SPIKE, NatureBlocks.spikeState(k, tip, up)));
         }
@@ -2101,10 +2104,20 @@ final class FormationShapes {
         int vents = c.spec.span() >= 2 ? c.r.between(1, 3) : c.r.between(0, 1);
         int vent = FormationBlocks.mod(ModBlock.ASH_VENT);
         for (int k = 0; k < vents; k++) {
+            // On a lip (the crack's own frame, wobble included), never over the crack itself.
             double along = c.r.range(-0.6, 0.6) * half;
-            double side = (c.r.chance(0.5) ? 1 : -1) * (width * 0.5 + 1.8);
-            int vx = (int) Math.round(along * cos - side * sin);
-            int vz = (int) Math.round(along * sin + side * cos);
+            double t = Math.abs(along) / half;
+            double side = (c.r.chance(0.5) ? 1 : -1) * (width * 0.5 * (1.0 - t * t) + 0.3 + 0.9);
+            double shifted = side + 1.2 * Math.sin(along * 0.35 + wobble);
+            int vx = (int) Math.round(along * cos - shifted * sin);
+            int vz = (int) Math.round(along * sin + shifted * cos);
+            double va = vx * cos + vz * sin;
+            double vt = Math.abs(va) / half;
+            double vacross = Math.abs(-vx * sin + vz * cos - 1.2 * Math.sin(va * 0.35 + wobble));
+            double vw = width * 0.5 * (1.0 - vt * vt) + 0.3;
+            if (vt > 1.0 || vacross <= vw || vacross > vw + 1.3) {
+                continue;
+            }
             int ground = c.ground(vx, vz);
             c.b.force(vx, ground, vz, vent | EMBED);
             c.b.force(vx, ground - 1, vz, magma | EMBED);

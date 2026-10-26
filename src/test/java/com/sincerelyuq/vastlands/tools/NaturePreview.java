@@ -134,6 +134,9 @@ public final class NaturePreview {
             case SHORE -> 0x8A8A8A;
             case CALCITE -> 0xDFDFDC;
             case PALE -> 0xBCBCBC;
+            case AMETHYST -> 0x8A63C4;
+            case MAGMATIC -> 0x3A2E2E;
+            case STRATA -> new int[] {0xC98A5E, 0xD9B48A, 0xA35E48, 0xE3CFA6, 0x8E5A4A}[Math.floorMod(y / 3, 5)];
         };
     }
 

@@ -16,8 +16,9 @@ import java.util.Locale;
  * biomes of the same climate), the landform and the rock, with a regional selector noise of its
  * own, so a region covers whole landscapes thousands of blocks across in the places that suit it:
  * <ul>
- *     <li>{@link Region#PAINTED_RANGE}: mountain ranges (vanilla's peak and slope erosion) in warm,
- *     not arid climates, below the snow; some ranges, not all.</li>
+ *     <li>{@link Region#PAINTED_RANGE}: mountain ranges and their high hill country (vanilla's
+ *     peak, slope and upper hill erosion) in warm, semi-arid to humid climates, below the snow;
+ *     some ranges, not all.</li>
  *     <li>{@link Region#VOLCANIC_WASTE}: the volcanic hotspots of the rock (the caves' volcanic
  *     field, under which the hot caves lie) in warm, dry country off the high ranges.</li>
  *     <li>{@link Region#DUNE_SEA}: the hottest, most arid deserts of dry provinces, flat and far
@@ -125,6 +126,10 @@ public final class RegionalBiomes {
         return d;
     }
 
+    Land land() {
+        return this.land;
+    }
+
     TerrainColumn column(int x, int z) {
         return this.land.column(x, z);
     }
@@ -148,15 +153,17 @@ public final class RegionalBiomes {
         }
         return switch (region) {
             case PAINTED_RANGE -> {
-                // Vanilla's peaks and slopes (erosion E0/E1), warm and not arid, below the snow.
-                double mountains = 1.0 - smoothstep(-0.42, -0.28, c.climateErosion());
+                // Vanilla's peaks, slopes and the high hill country around them (erosion E0..E2, the
+                // tablelands and foothills where the bands show best), warm, below the snow.
+                double mountains = 1.0 - smoothstep(-0.3, -0.12, c.climateErosion());
                 double warm = smoothstep(0.08, 0.22, g.seaLevelTemperature()) * (1.0 - smoothstep(0.75, 0.9, g.seaLevelTemperature()));
-                double moist = smoothstep(-0.3, -0.05, h);
-                double belowSnow = smoothstep(-0.4, -0.2, t);
+                // Semi-arid slopes too (the painted hills of the real world are).
+                double moist = smoothstep(-0.5, -0.25, h);
+                double belowSnow = smoothstep(-0.5, -0.3, t);
                 if (mountains * warm * moist * belowSnow <= 0.0) {
                     yield 0.0;
                 }
-                double ranges = smoothstep(-0.1, 0.25, NoiseMath.fbm(this.painted, x / 6500.0, z / 6500.0, 2, 0.5));
+                double ranges = smoothstep(-0.25, 0.1, NoiseMath.fbm(this.painted, x / 6500.0, z / 6500.0, 2, 0.5));
                 yield land * mountains * warm * moist * belowSnow * ranges;
             }
             case VOLCANIC_WASTE -> {
