@@ -25,6 +25,7 @@ public final class PreviewForestBiomes implements ForestModel.Biomes {
     private final GenerationSystems systems;
     private final Map<String, Integer> categories = new HashMap<>();
 
+
     public PreviewForestBiomes(GenerationSystems systems) {
         this.systems = systems;
         for (ForestType type : ForestType.VALUES) {
@@ -73,5 +74,11 @@ public final class PreviewForestBiomes implements ForestModel.Biomes {
     public int category(int x, int y, int z) {
         String id = this.biome(x, y, z).location().toString();
         return this.categories.getOrDefault(id, ForestModel.NONE);
+    }
+
+    /** How well moss blends into the vanilla biome's grass (its colour from the biome's climate, {@link PreviewBiomeTraits}). */
+    @Override
+    public double mossBlend(int x, int y, int z) {
+        return PreviewBiomeTraits.mossBlend(this.biome(x, y, z).location().getPath());
     }
 }

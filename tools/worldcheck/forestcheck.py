@@ -12,7 +12,9 @@ Reads every block from Y 30 up of a world made by generate.py and reports:
   of logs (26 neighbours): a body with no log on ground or in water floats. Bodies and leaves
   within 16 blocks of the square's edge are left out (their trees may stand outside it);
 - trees per chunk, trunk heights (highest tree block above the base within 2 columns), canopy cover
-  (land columns with leaves or logs above the ground), the forest floor (plants, leaf litter, moss);
+  (land columns with leaves or logs above the ground), the forest floor (plants, leaf litter, moss)
+  and the top soil (the highest ground block of land columns: grass, moss blocks, podzol, coarse
+  dirt, mud, boulders ...), overall and under tree cover;
 - seams: how often a tree block (log, leaves) has a tree block beside it, inside chunks against
   across chunk borders (a tree cut at a border would lower the border figure).
 
@@ -115,6 +117,8 @@ def load(path):
     pers = np.zeros((height, nz, nx), dtype=np.uint8)
     plants = Counter()
     names = {}
+    # Ground blocks by name (index into GROUND_NAMES), for the composition of the top soil.
+    gid = np.zeros((height, nz, nx), dtype=np.uint16)
     for (cx, cz), nbt in chunks.items():
         ox = (cx - lo_x) * 16
         oz = (cz - lo_z) * 16
@@ -128,6 +132,7 @@ def load(path):
             pw = np.array([i[1] for i in info], dtype=np.uint8)
             pd = np.array([i[2] for i in info], dtype=np.uint8)
             pp = np.array([i[3] for i in info], dtype=np.uint8)
+            pg = np.array([ground_id(i[4]) if i[0] == GROUND else 0 for i in info], dtype=np.uint16)
             if len(pk) == 1 or "data" not in states:
                 idx = np.zeros(4096, dtype=np.int32)
             else:
@@ -136,13 +141,24 @@ def load(path):
             lo = max(y0, LOW_Y)
             sl = slice(lo - y0, 16)
             dst = slice(lo - LOW_Y, y0 + 16 - LOW_Y)
-            for arr, pal in ((kind, pk), (wood, pw), (dist, pd), (pers, pp)):
+            for arr, pal in ((kind, pk), (wood, pw), (dist, pd), (pers, pp), (gid, pg)):
                 arr[dst, oz:oz + 16, ox:ox + 16] = pal[idx].reshape(16, 16, 16)[sl]
             counts = np.bincount(idx.reshape(16, 16, 16)[sl].reshape(-1), minlength=len(info))
             for i, (k, _, _, _, nm) in enumerate(info):
                 if nm is not None and k in (PLANT, DECOR, MUSHROOM_BLOCK) and counts[i]:
                     plants[nm] += int(counts[i])
-    return meta, kind, wood, dist, pers, plants, (lo_x * 16, lo_z * 16)
+    return meta, kind, wood, dist, pers, plants, (lo_x * 16, lo_z * 16), gid
+
+
+GROUND_NAMES = ["?"]
+
+
+def ground_id(short):
+    if short is None:
+        return 0
+    if short not in GROUND_NAMES:
+        GROUND_NAMES.append(short)
+    return GROUND_NAMES.index(short)
 
 
 def recompute_distance(kind):
@@ -173,9 +189,9 @@ def main():
     p.add_argument("--png")
     p.add_argument("--compare", help="another world of the same square: share of identical tree blocks (16+ blocks inside the square)")
     args = p.parse_args()
-    meta, kind, wood, dist, pers, plants, (bx, bz) = load(args.world)
+    meta, kind, wood, dist, pers, plants, (bx, bz), gid = load(args.world)
     if args.compare:
-        _, kind2, wood2, _, _, _, _ = load(args.compare)
+        _, kind2, wood2, _, _, _, _, _ = load(args.compare)
         hh = min(kind.shape[0], kind2.shape[0])
         a = np.isin(kind[:hh], [LOG_Y, LOG_H, WOOD, LEAVES, MUSHROOM_BLOCK])
         b = np.isin(kind2[:hh], [LOG_Y, LOG_H, WOOD, LEAVES, MUSHROOM_BLOCK])
@@ -311,6 +327,16 @@ def main():
     land = ~water_col | (ground_top >= 0)
     report["canopy"] = {"columns with tree cover": round(float((canopy_col & land).sum()) / max(1, land.sum()), 4)}
     report["floor and decorations"] = dict(plants.most_common(30))
+    # The top soil: the highest ground block of every land column (not under water).
+    zz, xx = np.nonzero((ground_top >= 0) & ~water_col)
+    tops_ids = gid[ground_top[zz, xx], zz, xx]
+    top_counts = Counter(GROUND_NAMES[int(i)] for i in tops_ids)
+    land_columns = max(1, len(zz))
+    report["top soil"] = {k: [v, round(v / land_columns, 4)] for k, v in top_counts.most_common(14)}
+    covered = canopy_col[zz, xx]
+    under = Counter(GROUND_NAMES[int(i)] for i in tops_ids[covered])
+    report["top soil under tree cover"] = {k: [v, round(v / max(1, int(covered.sum())), 4)] for k, v in under.most_common(10)}
+    report["moss blocks (all heights from Y %d)" % LOW_Y] = int((gid == GROUND_NAMES.index("moss_block")).sum()) if "moss_block" in GROUND_NAMES else 0
 
     # Seams: tree blocks with a tree block beside them, inside chunks vs across borders.
     tree = trunk_like | leaves

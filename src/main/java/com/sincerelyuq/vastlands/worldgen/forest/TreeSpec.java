@@ -18,7 +18,8 @@ package com.sincerelyuq.vastlands.worldgen.forest;
  * @param windX   prevailing wind (unit vector), x: wind-shaped trees grow downwind
  * @param windZ   the same, z
  * @param vines   0..1, how many vines hang on the trunk and from the crown
- * @param flags   {@link #COCOA}, {@link #BEES}, {@link #MOSS}, {@link #PODZOL}, {@link #ROOTS}
+ * @param flags   {@link #COCOA}, {@link #BEES}, {@link #MOSS}, {@link #PODZOL}, {@link #ROOTS}, {@link #RED},
+ *                {@link #ROT}, a shape variant ({@link #style}) and a fallen log's step ({@link #step})
  * @param type    the forest community it belongs to
  * @param seed    the random details of its shape
  */
@@ -32,8 +33,27 @@ public record TreeSpec(long key, int x, int z, int y, TreeForm form, Wood wood, 
     public static final int PODZOL = 8;
     /** Rooted and coarse dirt around a flared trunk. */
     public static final int ROOTS = 16;
+    /** Giant mushrooms: a red cap (else brown). */
+    public static final int RED = 32;
+    /** Deadwood on wet ground: mushrooms and moss on the log (rotting wood). */
+    public static final int ROT = 64;
+    /** Bits 8..11: the variant of a procedural shape (mushroom cap styles, deadwood kinds). */
+    public static final int STYLE_SHIFT = 8;
+    /** Bits 12..13: a fallen log's second piece one block up (1) or down (2) from the first. */
+    public static final int STEP_SHIFT = 12;
 
     public boolean has(int flag) {
         return (this.flags & flag) != 0;
+    }
+
+    /** The shape variant (see {@link #STYLE_SHIFT}). */
+    public int style() {
+        return (this.flags >>> STYLE_SHIFT) & 15;
+    }
+
+    /** A fallen log's step between its pieces: 0, +1 or -1. */
+    public int step() {
+        int s = (this.flags >>> STEP_SHIFT) & 3;
+        return s == 1 ? 1 : (s == 2 ? -1 : 0);
     }
 }

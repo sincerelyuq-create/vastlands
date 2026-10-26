@@ -8,6 +8,7 @@ import com.sincerelyuq.vastlands.worldgen.system.CaveSystem;
 import com.sincerelyuq.vastlands.worldgen.system.ForestSystem;
 import com.sincerelyuq.vastlands.worldgen.system.GenerationSetup;
 import com.sincerelyuq.vastlands.worldgen.system.HydrologySystem;
+import com.sincerelyuq.vastlands.worldgen.system.NatureSystem;
 import com.sincerelyuq.vastlands.worldgen.system.TerrainSystem;
 import com.sincerelyuq.vastlands.worldgen.terrain.TerrainColumn;
 import java.util.List;
@@ -32,11 +33,12 @@ public final class VastlandsForests implements ForestSystem {
     @Nullable
     private volatile Object boundTo;
 
-    public VastlandsForests(GenerationSetup setup, TerrainSystem terrain, HydrologySystem hydrology, CaveSystem caves) {
-        this(setup, terrain, hydrology, caves, ForestSettings.DEFAULT);
+    public VastlandsForests(GenerationSetup setup, TerrainSystem terrain, HydrologySystem hydrology, CaveSystem caves, NatureSystem nature) {
+        this(setup, terrain, hydrology, caves, nature, ForestSettings.DEFAULT);
     }
 
-    public VastlandsForests(GenerationSetup setup, TerrainSystem terrain, HydrologySystem hydrology, CaveSystem caves, ForestSettings settings) {
+    public VastlandsForests(GenerationSetup setup, TerrainSystem terrain, HydrologySystem hydrology, CaveSystem caves, NatureSystem nature,
+                           ForestSettings settings) {
         this.seed = setup.random("forests").fromHashOf("forest_model").nextLong();
         this.seaLevel = setup.seaLevel();
         this.settings = settings;
@@ -76,6 +78,11 @@ public final class VastlandsForests implements ForestSystem {
             @Override
             public boolean isCave(int x, int y, int z) {
                 return cave != null && cave.isCave(x, y, z);
+            }
+
+            @Override
+            public boolean clearOfFormations(int x, int z, double trunk, double crown) {
+                return nature.clearOfFormations(x, z, trunk, crown);
             }
         };
     }

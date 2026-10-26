@@ -1,0 +1,11 @@
+{
+  "values": [
+    "#minecraft:is_overworld",
+    {"id": "#vastlands:cave/lush", "required": false},
+    {"id": "#vastlands:cave/dripstone", "required": false},
+    {"id": "#vastlands:cave/deep_dark", "required": false},
+    {"id": "#vastlands:cave/crystal", "required": false},
+    {"id": "#vastlands:cave/volcanic", "required": false},
+    {"id": "#vastlands:cave/other", "required": false}
+  ]
+}

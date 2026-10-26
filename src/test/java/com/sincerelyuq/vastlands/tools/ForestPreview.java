@@ -43,7 +43,7 @@ import javax.imageio.ImageIO;
  *     <li>{@code --explain LAYER I J X Z N}: why a lattice cell has or lacks a tree (site checks,
  *     yield to neighbours), for chunks found by {@code --order}.</li>
  * </ul>
- * Options: {@code --seed S}, {@code --gallery-seed S}. Biomes come from vanilla's table on the
+ * Options: {@code --seed S}, {@code --gallery-seed S}, {@code --gallery-kind trees|mushrooms|deadwood}. Biomes come from vanilla's table on the
  * router's climate parameters ({@link PreviewForestBiomes}).
  */
 public final class ForestPreview {
@@ -52,6 +52,8 @@ public final class ForestPreview {
     private final ForestModel model;
     private final PreviewForestBiomes biomes;
     long gallerySeed;
+    /** {@code trees} (every form), {@code mushrooms} (every cap style) or {@code deadwood}. */
+    String galleryKind = "trees";
 
     ForestPreview(long seed) {
         GenerationSetup setup = new GenerationSetup(seed, WorldHeight.MIN_Y, WorldHeight.HEIGHT, 63);
@@ -65,11 +67,13 @@ public final class ForestPreview {
     public static void main(String[] args) throws IOException {
         long seed = 20261018L;
         long gallery = 0L;
+        String galleryKind = "trees";
         List<String[]> jobs = new ArrayList<>();
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
                 case "--seed" -> seed = Long.parseLong(args[++i]);
                 case "--gallery-seed" -> gallery = Long.parseLong(args[++i]);
+                case "--gallery-kind" -> galleryKind = args[++i];
                 case "--gallery" -> jobs.add(new String[] {"gallery", args[++i]});
                 case "--view" -> jobs.add(new String[] {"view", args[++i], args[++i], args[++i], args[++i]});
                 case "--map" -> jobs.add(new String[] {"map", args[++i], args[++i], args[++i], args[++i], args[++i]});
@@ -87,6 +91,7 @@ public final class ForestPreview {
         }
         ForestPreview preview = new ForestPreview(seed);
         preview.gallerySeed = gallery;
+        preview.galleryKind = galleryKind;
         for (String[] job : jobs) {
             long t0 = System.nanoTime();
             switch (job[0]) {
@@ -164,6 +169,10 @@ public final class ForestPreview {
             case TreeBlocks.RED_CAP -> 0xB02222;
             case TreeBlocks.MOSS_CARPET -> 0x597A2E;
             case TreeBlocks.MUSHROOM -> TreeBlocks.extra(code) == 0 ? 0x9A7556 : 0xC03030;
+            case TreeBlocks.STRIPPED -> IsoRenderer.shade(logColor(wood), 1.35);
+            case TreeBlocks.ROOT -> 0x4C3B2A;
+            case TreeBlocks.EARTH -> TreeBlocks.extra(code) == 0 ? 0x906850 : (TreeBlocks.extra(code) == 1 ? 0x775639 : 0x866043);
+            case TreeBlocks.HANGING_ROOTS -> 0xA08868;
             default -> 0xFF00FF;
         };
         double f = 0.9 + 0.2 * ((jitter >>> 40) & 255) / 255.0;
@@ -199,6 +208,27 @@ public final class ForestPreview {
                 {TreeForm.BUSH, Wood.JUNGLE, 3.0, 2.2}, {TreeForm.SNAG, Wood.OAK, 7.0, 1.0}, {TreeForm.FALLEN, Wood.BIRCH, 6.0, 1.0},
                 {TreeForm.HUGE_BROWN_MUSHROOM, Wood.MUSHROOM, 6.0, 3.0}, {TreeForm.HUGE_RED_MUSHROOM, Wood.MUSHROOM, 6.0, 2.0},
         };
+        if (this.galleryKind.equals("mushrooms")) {
+            int s = TreeSpec.STYLE_SHIFT;
+            forms = new Object[][] {
+                    {TreeForm.HUGE_BROWN_MUSHROOM, Wood.MUSHROOM, 6.0, 3.0, 0 << s}, {TreeForm.HUGE_BROWN_MUSHROOM, Wood.MUSHROOM, 7.0, 3.8, 1 << s},
+                    {TreeForm.HUGE_BROWN_MUSHROOM, Wood.MUSHROOM, 5.0, 5.0, 2 << s}, {TreeForm.HUGE_BROWN_MUSHROOM, Wood.MUSHROOM, 10.0, 4.2, 3 << s},
+                    {TreeForm.HUGE_BROWN_MUSHROOM, Wood.MUSHROOM, 6.0, 3.8, 4 << s}, {TreeForm.HUGE_RED_MUSHROOM, Wood.MUSHROOM, 6.0, 2.3, 0 << s},
+                    {TreeForm.HUGE_RED_MUSHROOM, Wood.MUSHROOM, 11.0, 1.9, 1 << s}, {TreeForm.HUGE_RED_MUSHROOM, Wood.MUSHROOM, 6.0, 4.0, 2 << s},
+                    {TreeForm.HUGE_RED_MUSHROOM, Wood.MUSHROOM, 7.0, 3.0, 4 << s}, {TreeForm.GIANT_MUSHROOM, Wood.MUSHROOM, 13.0, 6.2, 3 << s},
+                    {TreeForm.GIANT_MUSHROOM, Wood.MUSHROOM, 12.0, 6.0, 1 << s}, {TreeForm.GIANT_MUSHROOM, Wood.MUSHROOM, 12.0, 5.6, TreeSpec.RED | 3 << s},
+                    {TreeForm.GIANT_MUSHROOM, Wood.MUSHROOM, 12.0, 5.0, TreeSpec.RED}, {TreeForm.HUGE_BROWN_MUSHROOM, Wood.MUSHROOM, 8.0, 3.2, 0 << s},
+                    {TreeForm.HUGE_RED_MUSHROOM, Wood.MUSHROOM, 8.0, 2.6, 0 << s}, {TreeForm.HUGE_BROWN_MUSHROOM, Wood.MUSHROOM, 4.0, 4.4, 2 << s},
+            };
+        } else if (this.galleryKind.equals("deadwood")) {
+            int s = TreeSpec.STYLE_SHIFT;
+            forms = new Object[][] {
+                    {TreeForm.FALLEN, Wood.OAK, 6.0, 1.0, TreeSpec.MOSS}, {TreeForm.FALLEN, Wood.SPRUCE, 7.0, 1.0, 1 << s | 1 << TreeSpec.STEP_SHIFT},
+                    {TreeForm.FALLEN, Wood.DARK_OAK, 7.0, 1.0, 2 << s | TreeSpec.ROT | TreeSpec.MOSS}, {TreeForm.FALLEN, Wood.SPRUCE, 8.0, 1.0, 3 << s | TreeSpec.MOSS},
+                    {TreeForm.STUMP, Wood.OAK, 2.0, 1.0, TreeSpec.MOSS}, {TreeForm.STUMP, Wood.BIRCH, 3.0, 1.0, TreeSpec.ROT},
+                    {TreeForm.UPROOTED, Wood.SPRUCE, 6.0, 3.0, TreeSpec.MOSS}, {TreeForm.DEBRIS, Wood.OAK, 2.0, 2.0, 0},
+            };
+        }
         int columns = 4;
         int rowsPerSheet = 2;
         int tile = 640;
@@ -212,10 +242,12 @@ public final class ForestPreview {
                 int n = sheetIndex * perSheet + m;
                 Object[] f = forms[n];
                 TreeForm form = (TreeForm) f[0];
-                TreeSpec spec = new TreeSpec(n + this.gallerySeed * 1000L, 0, 0, 0, form, (Wood) f[1], (double) f[2], (double) f[3], 0.4, -0.3, 1.0, 0.0,
+                int flags = f.length > 4 ? (int) f[4]
+                        : (form == TreeForm.TALL_JUNGLE ? TreeSpec.COCOA : (form == TreeForm.BROADLEAF ? TreeSpec.BEES : TreeSpec.MOSS));
+                double lean = form.mushroom() ? 1.3 : 0.4;
+                TreeSpec spec = new TreeSpec(n + this.gallerySeed * 1000L, 0, 0, 0, form, (Wood) f[1], (double) f[2], (double) f[3], lean, -0.75 * lean, 1.0, 0.0,
                         form == TreeForm.TALL_JUNGLE || form == TreeForm.MEGA_JUNGLE || form == TreeForm.SWAMP ? 0.7 : 0.0,
-                        form == TreeForm.TALL_JUNGLE ? TreeSpec.COCOA : (form == TreeForm.BROADLEAF ? TreeSpec.BEES : TreeSpec.MOSS),
-                        ForestType.TEMPERATE, 1234L + n * 7919L + this.gallerySeed * 104729L);
+                        flags, ForestType.TEMPERATE, 1234L + n * 7919L + this.gallerySeed * 104729L);
                 TreeShape shape = this.model.shape(spec);
                 IsoRenderer r = new IsoRenderer();
                 int ground = Math.max(4, shape.radius() + 1);

@@ -1,6 +1,7 @@
 package com.sincerelyuq.vastlands.worldgen.forest;
 
 import com.sincerelyuq.vastlands.Vastlands;
+import com.sincerelyuq.vastlands.worldgen.biome.BiomeColors;
 import com.sincerelyuq.vastlands.worldgen.context.GenerationContext;
 import java.util.Map;
 import java.util.Optional;
@@ -29,6 +30,7 @@ public final class ForestBiomes implements ForestModel.Biomes {
     private final BiomeSource source;
     private final Climate.Sampler sampler;
     private final Map<Holder<Biome>, Integer> categories = new ConcurrentHashMap<>();
+    private final Map<Holder<Biome>, Double> blends = new ConcurrentHashMap<>();
 
     public ForestBiomes(BiomeSource source, Climate.Sampler sampler) {
         this.source = source;
@@ -67,6 +69,12 @@ public final class ForestBiomes implements ForestModel.Biomes {
         return this.categories.computeIfAbsent(this.biome(x, y, z), ForestBiomes::category);
     }
 
+    /** How well moss blends into the grass of the biome at a block: from the biome's grass colour (see {@link BiomeColors}). */
+    @Override
+    public double mossBlend(int x, int y, int z) {
+        return this.blends.computeIfAbsent(this.biome(x, y, z), h -> BiomeColors.mossBlend(h.value()));
+    }
+
     /**
      * The world's forests, bound to its biomes on first use, or empty outside Vastlands worlds
      * (or where another system replaced the forests).
@@ -77,6 +85,8 @@ public final class ForestBiomes implements ForestModel.Biomes {
             return Optional.empty();
         }
         BiomeSource source = generator.getBiomeSource();
+        // The trees keep clear of the natural formations: bind those to the world first.
+        com.sincerelyuq.vastlands.worldgen.nature.NatureBiomes.nature(level, generator);
         if (forests.model() == null || forests.boundTo() != source) {
             forests.bind(source, new ForestBiomes(source, level.getLevel().getChunkSource().randomState().sampler()));
         }

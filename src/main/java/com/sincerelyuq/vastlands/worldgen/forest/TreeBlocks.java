@@ -17,6 +17,10 @@ package com.sincerelyuq.vastlands.worldgen.forest;
  *     <li>{@link #STEM}, {@link #BROWN_CAP}, {@link #RED_CAP}: huge mushrooms; extra holds the cap's
  *     faces (1 north, 2 east, 4 south, 8 west, 16 up, 32 down; a set bit shows the cap);</li>
  *     <li>{@link #MOSS_CARPET}, {@link #MUSHROOM} (extra 0 brown, 1 red): on fallen logs.</li>
+ *     <li>{@link #STRIPPED}: a stripped log (rotting wood without its bark); extra is the axis.</li>
+ *     <li>{@link #ROOT}: tangled roots (vanilla's mangrove roots) of root plates and exposed roots.</li>
+ *     <li>{@link #EARTH}: soil held in a root plate (extra 0 rooted dirt, 1 coarse dirt, 2 dirt).</li>
+ *     <li>{@link #HANGING_ROOTS}: hanging roots under a root plate.</li>
  * </ul>
  */
 public final class TreeBlocks {
@@ -31,6 +35,10 @@ public final class TreeBlocks {
     public static final int RED_CAP = 9;
     public static final int MOSS_CARPET = 10;
     public static final int MUSHROOM = 11;
+    public static final int STRIPPED = 12;
+    public static final int ROOT = 13;
+    public static final int EARTH = 14;
+    public static final int HANGING_ROOTS = 15;
 
     public static final int AXIS_Y = 0;
     public static final int AXIS_X = 1;
@@ -61,15 +69,22 @@ public final class TreeBlocks {
         return code >>> 9;
     }
 
-    /** Logs and wood: what leaves count their distance from. */
+    /** Logs and wood: what leaves count their distance from (vanilla's {@code #logs}, stripped logs included). */
     public static boolean isLog(int code) {
         int kind = code & 31;
-        return kind == LOG || kind == WOOD;
+        return kind == LOG || kind == WOOD || kind == STRIPPED;
     }
 
-    /** Blocks that hold up vines and leaves (logs, wood, leaves, mushroom blocks). */
+    /** Blocks that hold up vines and leaves (logs, wood, leaves, mushroom blocks, root plates). */
     public static boolean isSolid(int code) {
         int kind = code & 31;
-        return kind == LOG || kind == WOOD || kind == LEAVES || kind == STEM || kind == BROWN_CAP || kind == RED_CAP;
+        return kind == LOG || kind == WOOD || kind == LEAVES || kind == STEM || kind == BROWN_CAP || kind == RED_CAP || kind == STRIPPED
+                || kind == ROOT || kind == EARTH;
+    }
+
+    /** Placed like logs (into air, plants and snow; never into water outside swamps). */
+    public static boolean isBody(int code) {
+        int kind = code & 31;
+        return kind == LOG || kind == WOOD || kind == STEM || kind == STRIPPED || kind == ROOT || kind == EARTH;
     }
 }

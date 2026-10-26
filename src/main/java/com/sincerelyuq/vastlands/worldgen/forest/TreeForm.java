@@ -35,11 +35,23 @@ public enum TreeForm {
     SWAMP(3.6, 10),
     /** A dead standing trunk without leaves. */
     SNAG(2.0, 5),
-    /** A fallen log on the forest floor, sometimes beside its stump. */
+    /** A fallen log on the forest floor, sometimes beside its stump, sometimes broken or rotting. */
     FALLEN(2.2, 11),
-    /** Huge mushrooms keep a canopy's width from trees, so caps and crowns rarely tangle. */
-    HUGE_BROWN_MUSHROOM(4.6, 6),
-    HUGE_RED_MUSHROOM(4.0, 5);
+    /**
+     * Huge mushrooms keep a canopy's width from trees, so caps and crowns rarely tangle. Their
+     * shapes are procedural (flat, umbrella, wide, tiered and lopsided brown caps; round, tall,
+     * flattened and bell-shaped red ones; stems that lean and curve, thick stems under big caps).
+     */
+    HUGE_BROWN_MUSHROOM(4.6, 8),
+    HUGE_RED_MUSHROOM(4.0, 7),
+    /** A broken-off stump: a short snapped trunk, sometimes with a bark collar and moss or mushrooms on top. */
+    STUMP(1.8, 3),
+    /** A wind-thrown tree: the log with its root plate standing up at one end. */
+    UPROOTED(2.4, 10),
+    /** Woody debris: fallen branches lying across each other. */
+    DEBRIS(1.5, 5),
+    /** A rare giant mushroom of either colour (tiered brown caps, great red bells) on a thick stem. */
+    GIANT_MUSHROOM(7.0, 11);
 
     /**
      * Spacing radius: two trees stand at least the mean of their spacings apart (trunk to trunk),
@@ -66,6 +78,16 @@ public enum TreeForm {
 
     /** Lies on or hugs the ground rather than standing up (no crown, no leaf litter shade). */
     public boolean lowGrowth() {
-        return this == BUSH || this == FALLEN || this == KRUMMHOLZ;
+        return this == BUSH || this == FALLEN || this == KRUMMHOLZ || this == STUMP || this == UPROOTED || this == DEBRIS;
+    }
+
+    /** Deadwood of the floor lattice: lies on the ground (fallen logs, stumps, root plates, branches). */
+    public boolean deadwood() {
+        return this == FALLEN || this == STUMP || this == UPROOTED || this == DEBRIS;
+    }
+
+    /** Huge and giant mushrooms. */
+    public boolean mushroom() {
+        return this == HUGE_BROWN_MUSHROOM || this == HUGE_RED_MUSHROOM || this == GIANT_MUSHROOM;
     }
 }

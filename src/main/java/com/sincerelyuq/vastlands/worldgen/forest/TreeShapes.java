@@ -44,11 +44,33 @@ public final class TreeShapes {
             case SWAMP -> swamp(c);
             case SNAG -> snag(c);
             case FALLEN -> fallen(c);
-            case HUGE_BROWN_MUSHROOM -> hugeMushroom(c, true);
-            case HUGE_RED_MUSHROOM -> hugeMushroom(c, false);
+            case HUGE_BROWN_MUSHROOM -> Mushrooms.build(c, false, false);
+            case HUGE_RED_MUSHROOM -> Mushrooms.build(c, true, false);
+            case GIANT_MUSHROOM -> Mushrooms.build(c, c.spec.has(TreeSpec.RED), true);
+            case STUMP -> stump(c);
+            case UPROOTED -> uprooted(c);
+            case DEBRIS -> debris(c);
         }
         return b.build();
     }
+
+    /** Brown cap styles of huge mushrooms ({@code TreeSpec.style}). */
+    static final int BROWN_FLAT = 0;
+    static final int BROWN_UMBRELLA = 1;
+    static final int BROWN_WIDE = 2;
+    static final int BROWN_TIERED = 3;
+    static final int BROWN_LOPSIDED = 4;
+    /** Red cap styles of huge mushrooms. */
+    static final int RED_DOME = 0;
+    static final int RED_TALL = 1;
+    static final int RED_FLATTENED = 2;
+    static final int RED_BELL = 3;
+    static final int RED_LOBED = 4;
+    /** Fallen log styles. */
+    static final int LOG_PLAIN = 0;
+    static final int LOG_BROKEN = 1;
+    static final int LOG_ROTTEN = 2;
+    static final int LOG_GIANT = 3;
 
     /** Drawing state of one tree. */
     private static final class Ctx {
@@ -887,76 +909,638 @@ public final class TreeShapes {
         }
     }
 
+    // ---------------------------------------------------------------- deadwood
+
+    /**
+     * A fallen log along x or z, often beside the stump it broke from. Styles: plain; broken (a
+     * block missing where it snapped, the far piece resting one block up or down where the ground
+     * steps, {@code TreeSpec.step}); rotten (holes, stripped blocks without bark, mushrooms and moss
+     * on wet ground); giant (a 2 x 2 trunk of an old giant beside its 2 x 2 stump). Every block of
+     * the lowest layer rests on level ground (the model checks it, see {@code ForestModel.fallenFits}).
+     */
     private static void fallen(Ctx c) {
+        int style = c.spec.style();
+        boolean giant = style == LOG_GIANT;
         boolean alongX = c.r.chance(0.5);
         int sign = c.r.chance(0.5) ? 1 : -1;
         int length = (int) Math.round(c.spec.height());
         int start = 1;
-        if (c.r.chance(0.6)) {
-            // Stump with a gap, like vanilla's fallen trees.
-            int stump = c.r.between(1, 2);
+        int w = giant ? 2 : 1;
+        if (c.r.chance(giant ? 0.85 : 0.6)) {
+            // The stump it broke from, a gap, then the log (like vanilla's fallen trees).
+            int stump = c.r.between(1, giant ? 3 : 2);
             for (int y = 0; y < stump; y++) {
-                c.b.log(0, y, 0, c.log);
+                for (int a = 0; a < w; a++) {
+                    for (int b = 0; b < w; b++) {
+                        c.b.log(a, y, b, c.log);
+                    }
+                }
             }
-            start = 2;
+            start = giant ? 3 : 2;
         }
         int axis = alongX ? TreeBlocks.AXIS_X : TreeBlocks.AXIS_Z;
         int code = c.log(axis);
+        int stripped = TreeBlocks.code(TreeBlocks.STRIPPED, c.wood, axis);
         int moss = TreeBlocks.code(TreeBlocks.MOSS_CARPET, c.wood, 0);
+        int brown = TreeBlocks.code(TreeBlocks.MUSHROOM, c.wood, 0);
+        int red = TreeBlocks.code(TreeBlocks.MUSHROOM, c.wood, 1);
+        int split = style == LOG_BROKEN ? breakIndex(c.spec.height(), c.spec.seed()) : Integer.MAX_VALUE;
+        int step = c.spec.step();
+        boolean rotten = style == LOG_ROTTEN || c.spec.has(TreeSpec.ROT) && c.r.chance(0.5);
         for (int k = start; k < start + length; k++) {
+            if (k == split) {
+                continue;
+            }
+            int dy = k > split ? step : 0;
+            boolean hole = rotten && k > start && k < start + length - 1 && c.r.chance(0.14);
+            for (int a = 0; a < w; a++) {
+                for (int up = 0; up < w; up++) {
+                    if (hole && (up == w - 1 || w == 1)) {
+                        continue;
+                    }
+                    int x = alongX ? k * sign : a;
+                    int z = alongX ? a : k * sign;
+                    c.b.log(x, dy + up, z, rotten && c.r.chance(0.35) ? stripped : code);
+                }
+            }
+            if (hole) {
+                continue;
+            }
+            // On top: moss on wet ground, mushrooms on rotting wood.
+            for (int a = 0; a < w; a++) {
+                int x = alongX ? k * sign : a;
+                int z = alongX ? a : k * sign;
+                if (c.spec.has(TreeSpec.MOSS) && c.r.chance(rotten ? 0.55 : 0.45)) {
+                    c.b.soft(x, dy + w, z, moss);
+                } else if (c.spec.has(TreeSpec.ROT) && c.r.chance(0.1)) {
+                    c.b.soft(x, dy + w, z, c.r.chance(0.7) ? brown : red);
+                }
+            }
+        }
+    }
+
+    /** Index along a broken log where it snapped (the block left out), from its length and shape seed. */
+    static int breakIndex(double height, long seed) {
+        int length = (int) Math.round(height);
+        return 3 + (int) Long.remainderUnsigned(seed >>> 40, Math.max(1, length - 3));
+    }
+
+    /** A snapped stump: a short trunk, sometimes a bark collar, a weathered top with moss or mushrooms. */
+    private static void stump(Ctx c) {
+        int h = Math.max(1, (int) Math.round(c.spec.height()));
+        for (int y = 0; y < h; y++) {
+            boolean weathered = y == h - 1 && h >= 2 && c.r.chance(0.45);
+            c.b.log(0, y, 0, weathered ? TreeBlocks.code(TreeBlocks.STRIPPED, c.wood, TreeBlocks.AXIS_Y) : c.log);
+        }
+        if (c.r.chance(0.5)) {
+            int bark = c.barkWood();
+            for (int f = 0; f < 4; f++) {
+                if (c.r.chance(0.45)) {
+                    c.b.log(TreeShape.Builder.FACE_X[f], 0, TreeShape.Builder.FACE_Z[f], bark);
+                }
+            }
+        }
+        if (c.spec.has(TreeSpec.MOSS) && c.r.chance(0.6)) {
+            c.b.soft(0, h, 0, TreeBlocks.code(TreeBlocks.MOSS_CARPET, c.wood, 0));
+        } else if (c.spec.has(TreeSpec.ROT) && c.r.chance(0.4)) {
+            c.b.soft(0, h, 0, TreeBlocks.code(TreeBlocks.MUSHROOM, c.wood, c.r.chance(0.7) ? 0 : 1));
+        }
+    }
+
+    /**
+     * A wind-thrown tree: the trunk lies on the ground, its root plate stands up at the base end as a
+     * disc of earth and tangled roots across the trunk's axis, with roots sticking out behind it.
+     */
+    private static void uprooted(Ctx c) {
+        boolean alongX = c.r.chance(0.5);
+        int sign = c.r.chance(0.5) ? 1 : -1;
+        int plate = c.r.between(2, 3);
+        double px = 0.0;
+        double pu = plate;
+        int earthRooted = TreeBlocks.code(TreeBlocks.EARTH, c.wood, 0);
+        int earthCoarse = TreeBlocks.code(TreeBlocks.EARTH, c.wood, 1);
+        int earthDirt = TreeBlocks.code(TreeBlocks.EARTH, c.wood, 2);
+        int roots = TreeBlocks.code(TreeBlocks.ROOT, c.wood, 0);
+        for (int a = -plate - 1; a <= plate + 1; a++) {
+            for (int u = 0; u <= 2 * plate + 1; u++) {
+                double d = Math.hypot(a - px, (u - pu) * 1.08);
+                double limit = plate + 0.35 + 0.7 * (c.lump(a * 1.3, u * 1.3, 0) - 0.5);
+                if (d > limit) {
+                    continue;
+                }
+                int x = alongX ? 0 : a;
+                int z = alongX ? a : 0;
+                int cell;
+                if (d > limit - 0.85) {
+                    cell = c.hash(a, u, 5) < 0.6 ? roots : earthCoarse;
+                } else {
+                    double h = c.hash(a, u, 7);
+                    cell = h < 0.45 ? earthRooted : (h < 0.8 ? earthDirt : roots);
+                }
+                c.b.log(x, u, z, cell);
+                // Roots torn out of the back of the plate.
+                if (c.hash(a, u, 11) < 0.18 && d < limit - 0.5) {
+                    c.b.log(alongX ? -sign : a, u, alongX ? a : -sign, roots);
+                }
+            }
+        }
+        // Hanging roots under the plate's overhang on the trunk side.
+        int hanging = TreeBlocks.code(TreeBlocks.HANGING_ROOTS, c.wood, 0);
+        for (int a = -1; a <= 1; a++) {
+            int u = 1 + c.r.nextInt(2);
+            int x = alongX ? sign : a;
+            int z = alongX ? a : sign;
+            if (c.r.chance(0.4) && c.b.isEmpty(x, u, z) && TreeBlocks.isSolid(c.b.get(alongX ? 0 : a, u + 1, alongX ? a : 0))) {
+                c.b.soft(x, u, z, hanging);
+            }
+        }
+        int length = (int) Math.round(c.spec.height());
+        int axis = alongX ? TreeBlocks.AXIS_X : TreeBlocks.AXIS_Z;
+        int code = c.log(axis);
+        int moss = TreeBlocks.code(TreeBlocks.MOSS_CARPET, c.wood, 0);
+        for (int k = 1; k <= length; k++) {
             int x = alongX ? k * sign : 0;
             int z = alongX ? 0 : k * sign;
             c.b.log(x, 0, z, code);
-            if (c.spec.has(TreeSpec.MOSS) && c.r.chance(0.45)) {
+            if (c.spec.has(TreeSpec.MOSS) && c.r.chance(0.35)) {
                 c.b.soft(x, 1, z, moss);
             }
         }
     }
 
-    /** Huge mushrooms exactly as vanilla builds them (stem, flat brown cap or red dome). */
-    private static void hugeMushroom(Ctx c, boolean brown) {
-        int height = Math.max(4, (int) Math.round(c.spec.height()));
-        int stem = TreeBlocks.code(TreeBlocks.STEM, Wood.MUSHROOM, 0);
-        for (int y = 0; y < height; y++) {
-            c.b.log(0, y, 0, stem);
-        }
-        int kind = brown ? TreeBlocks.BROWN_CAP : TreeBlocks.RED_CAP;
-        if (brown) {
-            int r = 3;
-            for (int x = -r; x <= r; x++) {
-                for (int z = -r; z <= r; z++) {
-                    boolean west = x == -r;
-                    boolean east = x == r;
-                    boolean north = z == -r;
-                    boolean south = z == r;
-                    boolean edgeX = west || east;
-                    boolean edgeZ = north || south;
-                    if (edgeX && edgeZ) {
-                        continue;
-                    }
-                    boolean w = west || edgeZ && x == 1 - r;
-                    boolean e = east || edgeZ && x == r - 1;
-                    boolean n = north || edgeX && z == 1 - r;
-                    boolean s = south || edgeX && z == r - 1;
-                    int faces = (n ? 1 : 0) | (e ? 2 : 0) | (s ? 4 : 0) | (w ? 8 : 0) | 16;
-                    c.b.force(x, height, z, TreeBlocks.code(kind, Wood.MUSHROOM, faces));
+    /** Woody debris: two to four fallen branches lying across each other. */
+    private static void debris(Ctx c) {
+        int pieces = c.r.between(2, 4);
+        boolean[] ground = new boolean[9 * 9];
+        for (int p = 0; p < pieces; p++) {
+            boolean alongX = c.r.chance(0.5);
+            int length = c.r.between(2, 4);
+            int ox = c.r.between(-2, 2);
+            int oz = c.r.between(-2, 2);
+            int axis = alongX ? TreeBlocks.AXIS_X : TreeBlocks.AXIS_Z;
+            int code = c.log(axis);
+            // A branch crossing one that lies on the ground rests on it.
+            boolean crosses = false;
+            for (int k = 0; k < length; k++) {
+                int x = ox + (alongX ? k - length / 2 : 0);
+                int z = oz + (alongX ? 0 : k - length / 2);
+                if (Math.abs(x) <= 4 && Math.abs(z) <= 4 && ground[(x + 4) * 9 + z + 4]) {
+                    crosses = true;
                 }
             }
-        } else {
-            int radius = 2;
-            for (int y = height - 3; y <= height; y++) {
-                int j = y < height ? radius : radius - 1;
-                int k = radius - 2;
-                for (int x = -j; x <= j; x++) {
-                    for (int z = -j; z <= j; z++) {
-                        boolean edgeX = x == -j || x == j;
-                        boolean edgeZ = z == -j || z == j;
-                        if (y >= height || edgeX != edgeZ) {
-                            boolean up = y >= height - 1;
-                            int faces = (z < -k ? 1 : 0) | (x > k ? 2 : 0) | (z > k ? 4 : 0) | (x < -k ? 8 : 0) | (up ? 16 : 0);
-                            c.b.force(x, y, z, TreeBlocks.code(kind, Wood.MUSHROOM, faces));
+            int dy = crosses && p > 0 ? 1 : 0;
+            for (int k = 0; k < length; k++) {
+                int x = ox + (alongX ? k - length / 2 : 0);
+                int z = oz + (alongX ? 0 : k - length / 2);
+                if (Math.abs(x) > 4 || Math.abs(z) > 4) {
+                    continue;
+                }
+                if (dy == 1 && !TreeBlocks.isLog(c.b.get(x, 0, z)) && !ground[(x + 4) * 9 + z + 4]) {
+                    // Over open ground beside the branch it rests on: keep it face to face with that one.
+                    c.b.log(x, 1, z, code);
+                    continue;
+                }
+                c.b.log(x, dy, z, code);
+                if (dy == 0) {
+                    ground[(x + 4) * 9 + z + 4] = true;
+                }
+            }
+            // A tuft of leaves at the end of a fresh branch.
+            if (c.wood != Wood.MUSHROOM && c.r.chance(0.3)) {
+                int ex = ox + (alongX ? length - length / 2 : 0);
+                int ez = oz + (alongX ? 0 : length - length / 2);
+                if (Math.abs(ex) <= 4 && Math.abs(ez) <= 4) {
+                    c.b.soft(ex, dy, ez, c.leaves);
+                    c.b.soft(ex, dy + 1, ez, c.leaves);
+                }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- huge mushrooms
+
+    /**
+     * Procedural huge mushrooms from vanilla's mushroom blocks. A stem (thin; thickened at the
+     * foot under big caps; 2 x 2 under giants) rises along a gentle curve to its cap. A cap is a
+     * volume (flat layers for brown, a dome for red) of which only the shell is kept, open below
+     * like vanilla's red domes, so the stem stands inside it. Faces follow vanilla's rule (a face
+     * between two blocks of the same mushroom block is hidden): the cap's skin outwards and
+     * upwards, pores underneath and on the inside; stems show their bark on the sides.
+     *
+     * <p>Brown styles: flat (vanilla's), umbrella (a skirt under the rim), wide (a short stem
+     * under a massive cap), tiered (two caps on one stem), lopsided (an oval, tilted cap off the
+     * stem). Red: dome (vanilla's), tall (a narrow cap on a long stem), flattened, bell (a great
+     * flared bell, giants) and lobed (a wavy rim). Some carry small mushrooms at their foot.
+     */
+    private static final class Mushrooms {
+        private Mushrooms() {
+        }
+
+        static void build(Ctx c, boolean red, boolean giant) {
+            TreeRandom r = c.r;
+            int style = c.spec.style();
+            int height = Math.max(3, (int) Math.round(c.spec.height()));
+            double radius = Math.max(1.2, c.spec.crown());
+            boolean fat = giant && radius >= 4.5;
+            boolean plus = !fat && radius >= 3.8 && height >= 5;
+            // The stem's top leans by the spec's lean, less under big caps; a gentle sideways bow.
+            double maxLean = giant ? 1.0 : (radius > 4.2 ? 1.2 : 2.0);
+            double lx = Math.max(-maxLean, Math.min(maxLean, c.spec.leanX()));
+            double lz = Math.max(-maxLean, Math.min(maxLean, c.spec.leanZ()));
+            double bowA = r.next() * Math.PI * 2;
+            double bow = fat ? 0.0 : r.range(0.0, 0.7);
+            double bx = Math.cos(bowA) * bow;
+            double bz = Math.sin(bowA) * bow;
+            int stem = TreeBlocks.code(TreeBlocks.STEM, Wood.MUSHROOM, 0);
+            int top = height - 1;
+            int px = 0;
+            int pz = 0;
+            for (int y = 0; y <= top; y++) {
+                double t = top <= 0 ? 0.0 : y / (double) top;
+                int nx = (int) Math.round(lx * Math.pow(t, 1.5) + bx * Math.sin(Math.PI * t));
+                int nz = (int) Math.round(lz * Math.pow(t, 1.5) + bz * Math.sin(Math.PI * t));
+                // A sideways step is taken at the level below, one axis at a time, so every stem
+                // block stands face to face on the one below it.
+                boolean thick = plus && y - 1 < height * 0.45;
+                if (y > 0 && nx != px) {
+                    stemCell(c, nx, y - 1, pz, stem, fat, thick);
+                }
+                if (y > 0 && nz != pz) {
+                    stemCell(c, nx, y - 1, nz, stem, fat, thick);
+                }
+                stemCell(c, nx, y, nz, stem, fat, plus && y < height * 0.45);
+                px = nx;
+                pz = nz;
+            }
+            double cx = px + (fat ? 0.5 : 0.0);
+            double cz = pz + (fat ? 0.5 : 0.0);
+            java.util.List<int[]> caps = new java.util.ArrayList<>();
+            int kind = red ? TreeBlocks.RED_CAP : TreeBlocks.BROWN_CAP;
+            if (red) {
+                redCap(c, caps, style, cx, height, cz, radius, kind, giant);
+            } else {
+                brownCap(c, caps, style, cx, height, cz, radius, kind);
+            }
+            // Small mushrooms at the foot: a cluster of sizes. Under raised brown caps they may
+            // stand beneath the rim; red domes reach low, so theirs stand outside it.
+            int satellites = giant ? r.between(1, 3) : (r.chance(0.2) ? 1 : 0);
+            int limit = c.spec.form().reach - 2;
+            for (int s = 0; s < satellites; s++) {
+                double a = r.next() * Math.PI * 2;
+                double d = red ? 1.25 * radius + r.range(1.8, 2.6) : r.range(2.3, 3.4) + (giant ? 0.35 * radius : 0.0);
+                int sx = (int) Math.round(Math.cos(a) * d);
+                int sz = (int) Math.round(Math.sin(a) * d);
+                if (!c.b.isEmpty(sx, 0, sz) || Math.abs(sx) > limit || Math.abs(sz) > limit) {
+                    continue;
+                }
+                int sh = r.between(2, 4);
+                for (int y = 0; y < sh; y++) {
+                    c.b.log(sx, y, sz, stem);
+                }
+                boolean sred = r.chance(0.8) ? red : !red;
+                int sk = sred ? TreeBlocks.RED_CAP : TreeBlocks.BROWN_CAP;
+                if (sred) {
+                    redCap(c, caps, RED_DOME, sx, sh + 1, sz, r.range(1.2, 1.6), sk, false);
+                } else {
+                    brownCap(c, caps, BROWN_FLAT, sx, sh, sz, r.range(1.2, 1.7), sk);
+                }
+            }
+            connect(c, caps);
+            faces(c, caps);
+        }
+
+        private static boolean fungal(int code) {
+            int kind = TreeBlocks.kind(code);
+            return kind == TreeBlocks.STEM || kind == TreeBlocks.BROWN_CAP || kind == TreeBlocks.RED_CAP;
+        }
+
+        /** Spreads {@code held} from the queued cells through stems and caps, face to face. */
+        private static void spread(Ctx c, java.util.Set<Integer> held, java.util.ArrayDeque<int[]> queue) {
+            while (!queue.isEmpty()) {
+                int[] p = queue.poll();
+                for (int[] st : STEPS6) {
+                    int x = p[0] + st[0];
+                    int y = p[1] + st[1];
+                    int z = p[2] + st[2];
+                    if (fungal(c.b.get(x, y, z)) && held.add(TreeShape.pack(x, y, z))) {
+                        queue.add(new int[] {x, y, z});
+                    }
+                }
+            }
+        }
+
+        /**
+         * Every cap block held face to face from a stem on the ground: a cell of a rough rim that
+         * touches the cap only at an edge gets a bridging block beside or beneath it (touching the
+         * held cap), else it is dropped.
+         */
+        private static void connect(Ctx c, java.util.List<int[]> caps) {
+            java.util.Set<Integer> held = new java.util.HashSet<>();
+            java.util.ArrayDeque<int[]> queue = new java.util.ArrayDeque<>();
+            int reach = c.spec.form().reach;
+            for (int z = -reach; z <= reach; z++) {
+                for (int x = -reach; x <= reach; x++) {
+                    if (TreeBlocks.kind(c.b.get(x, 0, z)) == TreeBlocks.STEM) {
+                        held.add(TreeShape.pack(x, 0, z));
+                        queue.add(new int[] {x, 0, z});
+                    }
+                }
+            }
+            spread(c, held, queue);
+            for (int k = 0; k < caps.size(); k++) {
+                int[] cell = caps.get(k);
+                int x = cell[0];
+                int y = cell[1];
+                int z = cell[2];
+                if (TreeBlocks.kind(c.b.get(x, y, z)) != cell[3] || held.contains(TreeShape.pack(x, y, z))) {
+                    continue;
+                }
+                // Beside first (the rim keeps its level), then beneath.
+                for (int[] st : BRIDGES) {
+                    int bx = x + st[0];
+                    int by = y + st[1];
+                    int bz = z + st[2];
+                    if (!c.b.isEmpty(bx, by, bz)) {
+                        continue;
+                    }
+                    boolean touches = false;
+                    for (int[] t : STEPS6) {
+                        int nx = bx + t[0];
+                        int ny = by + t[1];
+                        int nz = bz + t[2];
+                        touches |= (nx != x || ny != y || nz != z) && held.contains(TreeShape.pack(nx, ny, nz));
+                    }
+                    if (touches) {
+                        c.b.soft(bx, by, bz, TreeBlocks.code(cell[3], Wood.MUSHROOM, 0));
+                        caps.add(new int[] {bx, by, bz, cell[3]});
+                        held.add(TreeShape.pack(bx, by, bz));
+                        queue.add(new int[] {bx, by, bz});
+                        spread(c, held, queue);
+                        break;
+                    }
+                }
+            }
+            for (int[] cell : caps) {
+                if (TreeBlocks.kind(c.b.get(cell[0], cell[1], cell[2])) == cell[3] && !held.contains(TreeShape.pack(cell[0], cell[1], cell[2]))) {
+                    c.b.force(cell[0], cell[1], cell[2], 0);
+                }
+            }
+        }
+
+        private static final int[][] STEPS6 = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+        private static final int[][] BRIDGES = {{1, 0, 0}, {-1, 0, 0}, {0, 0, 1}, {0, 0, -1}, {0, -1, 0}};
+
+        private static void stemCell(Ctx c, int x, int y, int z, int stem, boolean fat, boolean plus) {
+            c.b.log(x, y, z, stem);
+            if (fat) {
+                c.b.log(x + 1, y, z, stem);
+                c.b.log(x, y, z + 1, stem);
+                c.b.log(x + 1, y, z + 1, stem);
+            } else if (plus) {
+                for (int f = 0; f < 4; f++) {
+                    c.b.log(x + TreeShape.Builder.FACE_X[f], y, z + TreeShape.Builder.FACE_Z[f], stem);
+                }
+            }
+        }
+
+        /** Flat caps: one or two layers of a rounded square or oval, a skirt, a tilt. */
+        private static void brownCap(Ctx c, java.util.List<int[]> caps, int style, double cx, int height, double cz, double radius, int kind) {
+            TreeRandom r = c.r;
+            double power = r.range(2.6, 3.6);
+            switch (style) {
+                case BROWN_UMBRELLA -> {
+                    layer(c, caps, cx, height, cz, radius, radius, 0.0, power, 0.35, kind, 0.0, 0);
+                    // The skirt: the rim turned down one block.
+                    layer(c, caps, cx, height - 1, cz, radius, radius, 0.0, power, 0.35, kind, 0.72, 0);
+                    if (radius >= 3.0 && r.chance(0.6)) {
+                        layer(c, caps, cx, height + 1, cz, radius * 0.4, radius * 0.4, 0.0, 2.2, 0.3, kind, 0.0, 0);
+                    }
+                }
+                case BROWN_WIDE -> {
+                    // A broad shelf with a low hump over the stem.
+                    layer(c, caps, cx, height, cz, radius, radius * r.range(0.85, 1.0), r.next() * Math.PI, power, 0.45, kind, 0.0, 0);
+                    layer(c, caps, cx, height + 1, cz, radius * 0.45, radius * 0.45, 0.0, 2.2, 0.3, kind, 0.0, 0);
+                }
+                case BROWN_TIERED -> {
+                    int gap = radius >= 4.5 ? 4 : 3;
+                    layer(c, caps, cx, height - gap, cz, radius, radius, 0.0, power, 0.4, kind, 0.0, 0);
+                    double upper = radius * r.range(0.5, 0.65);
+                    layer(c, caps, cx, height, cz, upper, upper, 0.0, power, 0.35, kind, 0.0, 0);
+                    if (radius >= 4.0) {
+                        layer(c, caps, cx, height - gap - 1, cz, radius, radius, 0.0, power, 0.4, kind, 0.78, 0);
+                    }
+                }
+                case BROWN_LOPSIDED -> {
+                    double ratio = r.range(0.62, 0.85);
+                    double angle = r.next() * Math.PI;
+                    // Shifted off the stem towards its lean, and tilted down on that side.
+                    double lean = Math.hypot(c.spec.leanX(), c.spec.leanZ());
+                    double ox = lean > 1e-6 ? c.spec.leanX() / lean * radius * 0.25 : 0.0;
+                    double oz = lean > 1e-6 ? c.spec.leanZ() / lean * radius * 0.25 : 0.0;
+                    layer(c, caps, cx + ox, height, cz + oz, radius, radius * ratio, angle, power, 0.6, kind, 0.0, 1);
+                }
+                default -> layer(c, caps, cx, height, cz, radius, radius, 0.0, power, 0.3, kind, 0.0, 0);
+            }
+        }
+
+        /**
+         * One cap layer at y: cells inside a rotated superellipse of radii rx, rz whose edge is pushed
+         * by noise; with {@code rim} > 0 only its outer ring (q above rim); {@code tilt} 1 drops the
+         * half beyond 0.4 of the radius on the far side one block.
+         */
+        private static void layer(Ctx c, java.util.List<int[]> caps, double cx, int y, double cz, double rx, double rz, double angle, double power,
+                                  double rough, int kind, double rim, int tilt) {
+            int ri = (int) Math.ceil(Math.max(rx, rz) + 1.5);
+            double cos = Math.cos(angle);
+            double sin = Math.sin(angle);
+            double tiltA = c.r.next() * Math.PI * 2;
+            for (int z = (int) Math.floor(cz) - ri; z <= (int) Math.ceil(cz) + ri; z++) {
+                for (int x = (int) Math.floor(cx) - ri; x <= (int) Math.ceil(cx) + ri; x++) {
+                    double ex = x - cx;
+                    double ez = z - cz;
+                    double u = (ex * cos + ez * sin) / Math.max(0.6, rx + 0.5);
+                    double v = (-ex * sin + ez * cos) / Math.max(0.6, rz + 0.5);
+                    double q = Math.pow(Math.pow(Math.abs(u), power) + Math.pow(Math.abs(v), power), 1.0 / power);
+                    double limit = 1.0 + rough * (c.lump(x * 1.4, y * 2.0, z * 1.4) - 0.5) * 0.5;
+                    if (q > limit || q < rim * limit) {
+                        continue;
+                    }
+                    int yy = y;
+                    if (tilt == 1 && (ex * Math.cos(tiltA) + ez * Math.sin(tiltA)) > 0.4 * Math.max(rx, rz)) {
+                        yy = y - 1;
+                    }
+                    capCell(c, caps, x, yy, z, kind);
+                }
+            }
+        }
+
+        /**
+         * Domes: the cap's volume layer by layer (radius from the rim up by a superellipse profile,
+         * a flared rim for bells, a wavy rim for lobed caps), then only its shell.
+         */
+        private static void redCap(Ctx c, java.util.List<int[]> caps, int style, double cx, int height, double cz, double radius, int kind, boolean giant) {
+            TreeRandom r = c.r;
+            int layers;
+            double power;
+            double flare = 0.0;
+            double lobes = 0.0;
+            switch (style) {
+                case RED_TALL -> {
+                    layers = (int) Math.round(radius * 2.0 + 1.5);
+                    power = 2.0;
+                }
+                case RED_FLATTENED -> {
+                    layers = Math.max(2, (int) Math.round(radius * 0.5 + 1.0));
+                    power = 3.2;
+                }
+                case RED_BELL -> {
+                    layers = (int) Math.round(radius * 0.95 + 1.0);
+                    power = 2.2;
+                    flare = 0.2;
+                }
+                case RED_LOBED -> {
+                    layers = (int) Math.round(radius + 1.2);
+                    power = 2.5;
+                    lobes = 0.16;
+                }
+                default -> {
+                    // Vanilla's dome; a giant's is lower for its width.
+                    layers = (int) Math.round(giant ? radius * 0.75 + 1.5 : radius + 1.6);
+                    power = giant ? 2.2 : 2.4;
+                }
+            }
+            // Clean round domes (vanilla's look); lumpier rims on the larger and lobed caps.
+            double rough = style == RED_DOME && !giant ? 0.15 : Math.min(0.35, 0.12 * radius);
+            int rim = height - layers + 1;
+            double phase = r.next() * Math.PI * 2;
+            int ri = (int) Math.ceil(radius * (1.0 + flare + lobes) + 1.5);
+            int x0 = (int) Math.floor(cx) - ri;
+            int z0 = (int) Math.floor(cz) - ri;
+            int side = 2 * ri + 2;
+            boolean[] volume = new boolean[side * side * (layers + 2)];
+            for (int k = 0; k < layers; k++) {
+                double t = k / (double) layers;
+                double rr = radius * Math.pow(1.0 - Math.pow(t, power), 1.0 / power) * (1.0 + flare * Math.pow(1.0 - t, 4.0));
+                for (int dz = 0; dz < side; dz++) {
+                    for (int dx = 0; dx < side; dx++) {
+                        double ex = x0 + dx - cx;
+                        double ez = z0 + dz - cz;
+                        double a = Math.atan2(ez, ex);
+                        double limit = rr * (1.0 + lobes * Math.sin(3.0 * a + phase)) + 0.45 + rough * (c.lump((x0 + dx) * 1.3, (rim + k) * 1.5, (z0 + dz) * 1.3) - 0.5);
+                        if (ex * ex + ez * ez <= limit * limit) {
+                            volume[(k * side + dz) * side + dx] = true;
                         }
                     }
+                }
+            }
+            for (int k = 0; k < layers; k++) {
+                for (int dz = 0; dz < side; dz++) {
+                    for (int dx = 0; dx < side; dx++) {
+                        if (!volume[(k * side + dz) * side + dx]) {
+                            continue;
+                        }
+                        // The shell: cells with open space above or beside them (the dome is open below).
+                        boolean shell = k == layers - 1 || !volume[((k + 1) * side + dz) * side + dx];
+                        for (int f = 0; f < 4 && !shell; f++) {
+                            int nx = dx + TreeShape.Builder.FACE_X[f];
+                            int nz = dz + TreeShape.Builder.FACE_Z[f];
+                            shell = nx < 0 || nz < 0 || nx >= side || nz >= side || !volume[(k * side + nz) * side + nx];
+                        }
+                        if (shell) {
+                            capCell(c, caps, x0 + dx, rim + k, z0 + dz, kind);
+                        }
+                    }
+                }
+            }
+        }
+
+        private static void capCell(Ctx c, java.util.List<int[]> caps, int x, int y, int z, int kind) {
+            if (c.b.isEmpty(x, y, z)) {
+                c.b.soft(x, y, z, TreeBlocks.code(kind, Wood.MUSHROOM, 0));
+                caps.add(new int[] {x, y, z, kind});
+            }
+        }
+
+        /**
+         * Faces as vanilla's mushroom blocks keep them: hidden against a block of the same kind;
+         * otherwise caps show their skin upwards and outwards (away from their stem) and pores below
+         * and inwards; stems hide the sides that touch other stem blocks.
+         */
+        private static void faces(Ctx c, java.util.List<int[]> caps) {
+            for (int[] cell : caps) {
+                int x = cell[0];
+                int y = cell[1];
+                int z = cell[2];
+                int kind = cell[3];
+                if (TreeBlocks.kind(c.b.get(x, y, z)) != kind) {
+                    continue;
+                }
+                // The cap's axis: the nearest stem column below the cap (its own stem).
+                double ax = 0.0;
+                double az = 0.0;
+                double best = Double.POSITIVE_INFINITY;
+                for (int dz = -6; dz <= 6; dz++) {
+                    for (int dx = -6; dx <= 6; dx++) {
+                        if (dx * dx + dz * dz < best && TreeBlocks.kind(c.b.get(x + dx, y - 1, z + dz)) == TreeBlocks.STEM) {
+                            best = dx * dx + dz * dz;
+                            ax = x + dx;
+                            az = z + dz;
+                        }
+                    }
+                }
+                if (best == Double.POSITIVE_INFINITY) {
+                    for (int dy = 2; dy <= 8 && best == Double.POSITIVE_INFINITY; dy++) {
+                        for (int dz = -6; dz <= 6; dz++) {
+                            for (int dx = -6; dx <= 6; dx++) {
+                                if (dx * dx + dz * dz < best && TreeBlocks.kind(c.b.get(x + dx, y - dy, z + dz)) == TreeBlocks.STEM) {
+                                    best = dx * dx + dz * dz;
+                                    ax = x + dx;
+                                    az = z + dz;
+                                }
+                            }
+                        }
+                    }
+                }
+                int faces = 0;
+                for (int f = 0; f < 4; f++) {
+                    int fx = TreeShape.Builder.FACE_X[f];
+                    int fz = TreeShape.Builder.FACE_Z[f];
+                    if (TreeBlocks.kind(c.b.get(x + fx, y, z + fz)) == kind) {
+                        continue;
+                    }
+                    double out = (x - ax) * fx + (z - az) * fz;
+                    if (out >= 0.0) {
+                        faces |= 1 << f;
+                    }
+                }
+                if (TreeBlocks.kind(c.b.get(x, y + 1, z)) != kind) {
+                    faces |= 16;
+                }
+                c.b.force(x, y, z, TreeBlocks.code(kind, Wood.MUSHROOM, faces));
+            }
+            // Stems: sides against other stem blocks hidden.
+            for (int y = 0; y < TreeShape.Builder.MAX_Y; y++) {
+                boolean any = false;
+                for (int z = -TreeShape.REACH + 1; z < TreeShape.REACH; z++) {
+                    for (int x = -TreeShape.REACH + 1; x < TreeShape.REACH; x++) {
+                        int code = c.b.get(x, y, z);
+                        if (TreeBlocks.kind(code) != TreeBlocks.STEM) {
+                            continue;
+                        }
+                        any = true;
+                        int hidden = 0;
+                        for (int f = 0; f < 4; f++) {
+                            if (TreeBlocks.kind(c.b.get(x + TreeShape.Builder.FACE_X[f], y, z + TreeShape.Builder.FACE_Z[f])) == TreeBlocks.STEM) {
+                                hidden |= 1 << f;
+                            }
+                        }
+                        if (hidden != 0) {
+                            c.b.force(x, y, z, TreeBlocks.code(TreeBlocks.STEM, Wood.MUSHROOM, hidden));
+                        }
+                    }
+                }
+                if (!any && y > 20) {
+                    break;
                 }
             }
         }

@@ -135,7 +135,7 @@ class ForestModelTest {
                     case DARK_OAK -> Wood.DARK_OAK;
                     case TALL_JUNGLE, MEGA_JUNGLE -> Wood.JUNGLE;
                     case ACACIA -> Wood.ACACIA;
-                    case HUGE_BROWN_MUSHROOM, HUGE_RED_MUSHROOM -> Wood.MUSHROOM;
+                    case HUGE_BROWN_MUSHROOM, HUGE_RED_MUSHROOM, GIANT_MUSHROOM -> Wood.MUSHROOM;
                     default -> Wood.values()[r.nextInt(6)];
                 };
                 double height = switch (form) {
@@ -193,6 +193,112 @@ class ForestModelTest {
             }
         }
         Vastlands.LOGGER.info("ForestModelTest: {} shapes, {} leaves, all within reach and at their recomputed distance", shapes, leaves);
+    }
+
+    /**
+     * Huge mushrooms of every cap style, lean and size: faces as vanilla shows them (no face
+     * between two blocks of the same kind, gills hidden underneath, a cap's top open to the sky),
+     * every block held by a stem standing on the ground, within reach; and caps of many sizes.
+     */
+    @Test
+    void mushroomsShowVanillaFacesAndHoldTogether() {
+        int[][] steps = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+        int shapes = 0;
+        java.util.Set<Integer> heights = new java.util.TreeSet<>();
+        java.util.Set<Integer> widths = new java.util.TreeSet<>();
+        for (TreeForm form : new TreeForm[] {TreeForm.HUGE_BROWN_MUSHROOM, TreeForm.HUGE_RED_MUSHROOM, TreeForm.GIANT_MUSHROOM}) {
+            for (int style = 0; style < 5; style++) {
+                for (int red = 0; red < 2; red++) {
+                    if (form != TreeForm.GIANT_MUSHROOM && (red == 1) != (form == TreeForm.HUGE_RED_MUSHROOM)) {
+                        continue;
+                    }
+                    for (int n = 0; n < 24; n++) {
+                        Random r = new Random(n * 7919L + style * 31L + form.ordinal() * 1009L + red);
+                        boolean giant = form == TreeForm.GIANT_MUSHROOM;
+                        double height = giant ? 10 + r.nextDouble() * 6 : (red == 1 ? 5 + r.nextInt(9) : 4 + r.nextInt(8));
+                        double crown = giant ? 4.6 + r.nextDouble() * 2.4 : (red == 1 ? 2.0 + r.nextDouble() * 1.8 : 2.6 + r.nextDouble() * 3.0);
+                        int flags = (red == 1 ? TreeSpec.RED : 0) | style << TreeSpec.STYLE_SHIFT;
+                        TreeSpec spec = new TreeSpec(2_000_000L + shapes, 0, 0, 0, form, Wood.MUSHROOM, height, crown, r.nextDouble() * 5 - 2.5,
+                                r.nextDouble() * 5 - 2.5, 1, 0, 0, flags, ForestType.DARK, r.nextLong());
+                        TreeShape shape = TreeShapes.shape(spec);
+                        shapes++;
+                        String what = form + " style " + style + (red == 1 ? " red" : " brown") + " #" + n;
+                        assertTrue(shape.radius() <= ForestModel.reach(spec), what + ": reach " + shape.radius());
+                        Map<Integer, Integer> code = new HashMap<>();
+                        for (int k = 0; k < shape.size(); k++) {
+                            code.put(shape.positions[k], shape.codes[k]);
+                        }
+                        ArrayDeque<Integer> queue = new ArrayDeque<>();
+                        java.util.Set<Integer> held = new java.util.HashSet<>();
+                        int body = 0;
+                        int capMin = Integer.MAX_VALUE;
+                        int capMax = Integer.MIN_VALUE;
+                        for (int k = 0; k < shape.size(); k++) {
+                            int p = shape.positions[k];
+                            int c = shape.codes[k];
+                            int kind = TreeBlocks.kind(c);
+                            if (kind != TreeBlocks.STEM && kind != TreeBlocks.BROWN_CAP && kind != TreeBlocks.RED_CAP) {
+                                continue;
+                            }
+                            body++;
+                            int x = TreeShape.dx(p);
+                            int y = TreeShape.dy(p);
+                            int z = TreeShape.dz(p);
+                            int faces = TreeBlocks.extra(c);
+                            for (int f = 0; f < 4; f++) {
+                                Integer side = code.get(TreeShape.pack(x + TreeShape.Builder.FACE_X[f], y, z + TreeShape.Builder.FACE_Z[f]));
+                                boolean same = side != null && TreeBlocks.kind(side) == kind;
+                                if (kind == TreeBlocks.STEM) {
+                                    assertEquals(same, (faces & 1 << f) != 0, what + ": stem side " + f + " hidden flag at " + x + " " + y + " " + z);
+                                } else {
+                                    assertTrue(!same || (faces & 1 << f) == 0, what + ": cap face " + f + " shown against its own kind at " + x + " " + y + " " + z);
+                                }
+                            }
+                            if (kind != TreeBlocks.STEM) {
+                                Integer above = code.get(TreeShape.pack(x, y + 1, z));
+                                boolean covered = above != null && TreeBlocks.kind(above) == kind;
+                                assertEquals(!covered, (faces & 16) != 0, what + ": cap top at " + x + " " + y + " " + z);
+                                assertEquals(0, faces & 32, what + ": gills shown as a cap face at " + x + " " + y + " " + z);
+                                capMin = Math.min(capMin, x);
+                                capMax = Math.max(capMax, x);
+                            }
+                            if (kind == TreeBlocks.STEM && y == 0) {
+                                held.add(p);
+                                queue.add(p);
+                            }
+                        }
+                        assertTrue(!queue.isEmpty(), what + ": no stem on the ground");
+                        while (!queue.isEmpty()) {
+                            int p = queue.poll();
+                            for (int[] st : steps) {
+                                int q = TreeShape.pack(TreeShape.dx(p) + st[0], TreeShape.dy(p) + st[1], TreeShape.dz(p) + st[2]);
+                                Integer c = code.get(q);
+                                int kind = c == null ? 0 : TreeBlocks.kind(c);
+                                if ((kind == TreeBlocks.STEM || kind == TreeBlocks.BROWN_CAP || kind == TreeBlocks.RED_CAP) && held.add(q)) {
+                                    queue.add(q);
+                                }
+                            }
+                        }
+                        if (body != held.size()) {
+                            StringBuilder loose = new StringBuilder();
+                            for (int k = 0; k < shape.size(); k++) {
+                                int kind = TreeBlocks.kind(shape.codes[k]);
+                                if ((kind == TreeBlocks.STEM || kind == TreeBlocks.BROWN_CAP || kind == TreeBlocks.RED_CAP) && !held.contains(shape.positions[k])) {
+                                    loose.append(' ').append(TreeShape.dx(shape.positions[k])).append(',').append(TreeShape.dy(shape.positions[k])).append(',')
+                                            .append(TreeShape.dz(shape.positions[k])).append(kind == TreeBlocks.STEM ? "s" : "c");
+                                }
+                            }
+                            throw new AssertionError(what + " (height " + height + ", crown " + crown + "): blocks not held by a stem on the ground:" + loose);
+                        }
+                        heights.add(shape.height);
+                        widths.add(capMax - capMin + 1);
+                    }
+                }
+            }
+        }
+        Vastlands.LOGGER.info("ForestModelTest: {} mushrooms, heights {}, cap widths {}", shapes, heights, widths);
+        assertTrue(heights.size() >= 10 && widths.size() >= 8, "mushrooms too alike: heights " + heights + " widths " + widths);
+        assertTrue(heights.stream().mapToInt(Integer::intValue).max().orElse(0) >= 14, "no giant mushrooms: " + heights);
     }
 
     @Test

@@ -22,8 +22,8 @@ class GenerationSetupTest {
     }
 
     @Test
-    void allFourSystemsAreImplemented() {
+    void allSystemsAreImplemented() {
         GenerationSystems systems = GenerationSystems.create(new GenerationSetup(42L, -256, 768, 63));
-        assertEquals("terrain=vastlands hydrology=vastlands caves=vastlands forests=vastlands", systems.describe());
+        assertEquals("terrain=vastlands hydrology=vastlands caves=vastlands nature=vastlands forests=vastlands", systems.describe());
     }
 }

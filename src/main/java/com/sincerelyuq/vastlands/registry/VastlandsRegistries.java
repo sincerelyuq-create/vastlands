@@ -9,6 +9,7 @@ import com.sincerelyuq.vastlands.worldgen.density.StageDensityFunction;
 import com.sincerelyuq.vastlands.worldgen.density.TerrainParameterFunction;
 import com.sincerelyuq.vastlands.worldgen.forest.ForestFeature;
 import com.sincerelyuq.vastlands.worldgen.forest.VanillaTrees;
+import com.sincerelyuq.vastlands.worldgen.nature.NatureFeature;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.world.level.biome.BiomeSource;
 import net.minecraft.world.level.chunk.ChunkGenerator;
@@ -45,6 +46,9 @@ public final class VastlandsRegistries {
 
     /** {@code "type": "vastlands:forest"}: the Vastlands forests of a chunk (configured feature {@code vastlands:forest}). */
     public static final DeferredHolder<Feature<?>, ForestFeature> FOREST = FEATURES.register("forest", ForestFeature::new);
+
+    /** {@code "type": "vastlands:formations"}: the natural formations of a chunk (configured features {@code vastlands:surface_formations}, {@code vastlands:cave_formations}). */
+    public static final DeferredHolder<Feature<?>, NatureFeature> FORMATIONS = FEATURES.register("formations", NatureFeature::new);
 
     /** Appended to vanilla's tree features in Vastlands worlds: positions where Vastlands grows the trees are dropped. */
     public static final DeferredHolder<PlacementModifierType<?>, PlacementModifierType<VanillaTrees.Filter>> OUTSIDE_FORESTS =
