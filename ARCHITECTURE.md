@@ -1534,10 +1534,15 @@ The block step (`NatureBlocks`, `NatureFeature`):
   Plants and attached blocks only where vanilla's `canSurvive` holds. Feet and hangers, then the
   snapped stacks. Blocks are written without neighbour updates, like vanilla's features.
 - Structures (`StructureGuard`): a formation is left out whole if its footprint meets a piece of
-  any structure starting within 7 chunks (villages, ruins, ancient cities, mineshafts, trial
-  chambers, strongholds, other mods' and datapacks' structures): surface ones by their horizontal
-  extent with a margin of 2, cave ones in 3D with a margin of 3. Every chunk the formation reaches
-  sees the same structures.
+  any structure (villages, ruins, ancient cities, mineshafts, trial chambers, strongholds, other
+  mods' and datapacks' structures) starting within 7 chunks of its root chunk (through that
+  chunk's structure references), surface ones by their horizontal extent with a margin of 2, cave
+  ones in 3D with a margin of 3. During features a region reads structure references only 1 chunk
+  away and starts 8 away (`ChunkPyramid`: FEATURES needs CARVERS at 1, STRUCTURE_STARTS at 8), so a
+  formation reaching more than 16 blocks from its root (great arches, stone forests: the root may
+  be 2 chunks away) checks every start within 6 chunks of its root instead. Every chunk the
+  formation reaches sees the same structures. (Found in game: the first version asked for the
+  references of a root chunk 2 chunks away and crashed the server in a badlands square.)
 - `density` in the feature config leaves out a share of formations by their identity (the same in
   every chunk).
 

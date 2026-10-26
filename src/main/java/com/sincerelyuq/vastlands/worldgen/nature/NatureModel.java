@@ -80,6 +80,11 @@ public final class NatureModel {
     /** Horizontal reach of each layer's formations (the largest of its kinds'). */
     private static final int[] REACH = {8, 14, 16, 32, 6, 10, 16, 16};
     private static final int MAX_RUNS = 16;
+
+    /** The horizontal reach of a layer's formations (tests). */
+    static int reach(int layer) {
+        return REACH[layer];
+    }
     /** The most a footprint may extend past its root (for queries of footprints near a point). */
     private static final double MAX_FOOTPRINT = 34.0;
 

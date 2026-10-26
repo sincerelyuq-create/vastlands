@@ -102,6 +102,22 @@ class NatureModelTest {
         assertEquals(0, differ.get(), "chunks whose formations depend on the query order or thread");
     }
 
+    /**
+     * What the block step may read: during features a region holds structure references 1 chunk
+     * away and starts 8 away. Formations reaching at most 16 blocks read their root chunk's
+     * references and starts 7 chunks from it; wider ones (root up to 2 chunks away) starts 6
+     * chunks from it. A kind reaching beyond 32 blocks would need chunks no region has.
+     */
+    @Test
+    void formationsStayWithinWhatADecoratingRegionCanRead() {
+        for (FormationKind kind : FormationKind.values()) {
+            assertTrue(kind.reach <= 32, kind + " reaches " + kind.reach + " blocks: its root could be 3 chunks from a chunk it reaches");
+        }
+        for (int layer = 0; layer < NatureModel.LAYERS; layer++) {
+            assertTrue(NatureModel.reach(layer) <= 32, "layer " + layer + " reaches " + NatureModel.reach(layer));
+        }
+    }
+
     private static long key(int x, int y, int z) {
         return (long) x << 38 ^ (long) (z & 0x3FFFFFF) << 12 ^ (y & 0xFFF);
     }

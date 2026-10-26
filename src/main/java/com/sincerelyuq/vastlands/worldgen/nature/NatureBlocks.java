@@ -56,9 +56,10 @@ import net.minecraft.world.level.levelgen.structure.StructureStart;
  *     <li>Snapped stacks (plants, carpets, veins, rubble on cave floors and ceilings) find the
  *     floor or ceiling of their own column near their height and move there together.</li>
  *     <li>Structures: a formation is left out whole if its footprint meets a piece of any
- *     structure starting within 7 chunks of the formation's own chunk (villages, ruins, ancient
- *     cities, mineshafts, trial chambers, other mods' and datapacks' structures); surface ones by
- *     their horizontal extent (some pieces move up and down when placed), cave ones in 3D.</li>
+ *     structure starting within 7 chunks of the formation's own chunk (6 for the wonders that
+ *     reach beyond the neighbouring chunks: villages, ruins, ancient cities, mineshafts, trial
+ *     chambers, other mods' and datapacks' structures); surface ones by their horizontal extent
+ *     (some pieces move up and down when placed), cave ones in 3D.</li>
  * </ul>
  * Rock is picked from the formation's palette by position (smooth patches of each stone, moss on
  * the exposed faces of weathered rock, sculk on deep dark rock), so every chunk picks the same.
@@ -511,14 +512,24 @@ public final class NatureBlocks {
     /**
      * Keeps formations out of structures: a formation is left out whole if its blocks' extent (two
      * blocks wider; three for caves) meets a piece of any structure starting within 7 chunks of the
-     * formation's own chunk. Every chunk a formation reaches sees the same structures (they are
-     * within the 8 chunks a decorating region can read), so every chunk decides the same.
+     * formation's own chunk (found through that chunk's structure references), or for a formation
+     * reaching more than 16 blocks from its root within 6 chunks (every start there). Every chunk a
+     * formation reaches sees the same structures (they are within what a decorating region can
+     * read: references 1 chunk away, starts 8), so every chunk decides the same.
      */
     static final class StructureGuard {
         private static final int START_RANGE = 7;
+        /**
+         * Starts searched around the root of a formation that reaches beyond the neighbouring chunks
+         * (a root up to 2 chunks from the decorated chunk): during features a region reads structure
+         * starts up to 8 chunks away and structure references only 1 away, so every chunk such a
+         * formation reaches can read the starts within 6 chunks of its root, and nothing more.
+         */
+        private static final int WIDE_RANGE = 6;
         private final WorldGenLevel level;
         private final boolean surface;
         private final Map<Long, List<BoundingBox>> pieces = new HashMap<>();
+        private final Map<Long, List<BoundingBox>> widePieces = new HashMap<>();
 
         StructureGuard(WorldGenLevel level, boolean surface) {
             this.level = level;
@@ -528,7 +539,10 @@ public final class NatureBlocks {
         boolean blocked(FormationSpec spec, FormationShape shape) {
             int cx = spec.x() >> 4;
             int cz = spec.z() >> 4;
-            List<BoundingBox> boxes = this.pieces.computeIfAbsent(ChunkPos.asLong(cx, cz), k -> this.collect(cx, cz));
+            // A formation within 16 blocks of every chunk it reaches has its root chunk among their neighbours.
+            boolean wide = spec.kind().reach > 16;
+            List<BoundingBox> boxes = wide ? this.widePieces.computeIfAbsent(ChunkPos.asLong(cx, cz), k -> this.collectWide(cx, cz))
+                    : this.pieces.computeIfAbsent(ChunkPos.asLong(cx, cz), k -> this.collect(cx, cz));
             if (boxes.isEmpty()) {
                 return false;
             }
@@ -567,6 +581,27 @@ public final class NatureBlocks {
                     }
                     for (StructurePiece piece : s.getPieces()) {
                         boxes.add(piece.getBoundingBox());
+                    }
+                }
+            }
+            return boxes;
+        }
+
+        /** The pieces of every structure starting within {@link #WIDE_RANGE} chunks of a root chunk. */
+        private List<BoundingBox> collectWide(int cx, int cz) {
+            List<BoundingBox> boxes = new ArrayList<>();
+            for (int dz = -WIDE_RANGE; dz <= WIDE_RANGE; dz++) {
+                for (int dx = -WIDE_RANGE; dx <= WIDE_RANGE; dx++) {
+                    ChunkAccess holder = this.level.getChunk(cx + dx, cz + dz, ChunkStatus.STRUCTURE_STARTS, false);
+                    if (holder == null) {
+                        continue;
+                    }
+                    for (StructureStart s : holder.getAllStarts().values()) {
+                        if (s.isValid()) {
+                            for (StructurePiece piece : s.getPieces()) {
+                                boxes.add(piece.getBoundingBox());
+                            }
+                        }
                     }
                 }
             }
