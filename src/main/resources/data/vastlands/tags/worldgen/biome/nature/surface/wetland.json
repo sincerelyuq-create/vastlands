@@ -1,6 +1,10 @@
 {
   "values": [
     "minecraft:swamp",
-    "minecraft:mangrove_swamp"
+    "minecraft:mangrove_swamp",
+    {
+      "id": "sincerelyuqs_biomes:lotus_pools",
+      "required": false
+    }
   ]
 }

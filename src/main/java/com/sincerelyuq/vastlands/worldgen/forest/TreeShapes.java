@@ -51,6 +51,10 @@ public final class TreeShapes {
             case UPROOTED -> uprooted(c);
             case DEBRIS -> debris(c);
         }
+        if (c.wood == Wood.DUSK && !spec.form().deadwood() && spec.form() != TreeForm.SNAG) {
+            // The twilight thicket's trees hang strands of leaves under their crowns.
+            b.hangLeaves(spec.form() == TreeForm.BUSH ? 0.05 : 0.14, spec.seed() ^ 0x4475736BL);
+        }
         return b.build();
     }
 
@@ -894,6 +898,10 @@ public final class TreeShapes {
     }
 
     private static void snag(Ctx c) {
+        if (c.wood == Wood.CHARRED) {
+            charred(c);
+            return;
+        }
         double height = c.spec.height();
         int top = (int) Math.round(height);
         double curveX = c.r.range(-0.5, 0.5);
@@ -906,6 +914,50 @@ public final class TreeShapes {
             double a = c.r.next() * Math.PI * 2;
             double len = c.r.range(1.0, 2.2);
             logLine(c, p[0], hs, p[1], p[0] + Math.cos(a) * len, hs + len * 0.5, p[1] + Math.sin(a) * len);
+        }
+    }
+
+    /**
+     * A burnt tree (the ashen wastes): a trunk that leans and curves more than a living one, its
+     * top snapped off, dead branches of different lengths reaching out and up, some broken short;
+     * now and then a fork into two leaders, the bigger ones a heavier trunk at the base.
+     */
+    private static void charred(Ctx c) {
+        double height = c.spec.height();
+        int top = (int) Math.round(height);
+        double curveX = c.r.range(-1.1, 1.1);
+        double curveZ = c.r.range(-1.1, 1.1);
+        trunk(c, top, curveX, curveZ);
+        if (height >= 10 && c.r.chance(0.6)) {
+            // A heavier base: bark blocks beside the trunk's foot.
+            for (int k = 0; k < 4; k++) {
+                if (c.r.chance(0.55)) {
+                    int dx = k == 0 ? 1 : (k == 1 ? -1 : 0);
+                    int dz = k == 2 ? 1 : (k == 3 ? -1 : 0);
+                    int h = c.r.between(1, 2);
+                    for (int y = 0; y < h; y++) {
+                        c.b.log(dx, y, dz, c.barkWood());
+                    }
+                }
+            }
+        }
+        if (height >= 8 && c.r.chance(0.3)) {
+            // Two leaders from a fork two thirds up.
+            double hs = top * c.r.range(0.55, 0.75);
+            double[] p = trunkAt(c, hs, top, curveX, curveZ);
+            double a = c.r.next() * Math.PI * 2;
+            double len = c.r.range(2.5, Math.max(3.0, top * 0.35));
+            logLine(c, p[0], hs, p[1], p[0] + Math.cos(a) * len * 0.6, hs + len, p[1] + Math.sin(a) * len * 0.6);
+        }
+        int branches = height < 5 ? c.r.between(0, 1) : c.r.between(2, 5);
+        for (int k = 0; k < branches; k++) {
+            double hs = top * c.r.range(0.35, 0.9);
+            double[] p = trunkAt(c, hs, top, curveX, curveZ);
+            double a = c.r.next() * Math.PI * 2;
+            // Mostly broken short; a few long dead limbs, rising or drooping.
+            double len = c.r.chance(0.3) ? c.r.range(2.5, 4.5) : c.r.range(1.0, 2.2);
+            double rise = c.r.range(-0.25, 0.7) * len;
+            logLine(c, p[0], hs, p[1], p[0] + Math.cos(a) * len, hs + rise, p[1] + Math.sin(a) * len);
         }
     }
 

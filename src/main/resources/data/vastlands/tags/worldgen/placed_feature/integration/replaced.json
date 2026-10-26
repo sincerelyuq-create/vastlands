@@ -1,0 +1,48 @@
+{
+  "values": [
+    {
+      "id": "sincerelyuqs_biomes:giant_lumen",
+      "required": false
+    },
+    {
+      "id": "sincerelyuqs_biomes:depths_floor",
+      "required": false
+    },
+    {
+      "id": "sincerelyuqs_biomes:lumen_pond",
+      "required": false
+    },
+    {
+      "id": "sincerelyuqs_biomes:amethyst_caves_floor",
+      "required": false
+    },
+    {
+      "id": "sincerelyuqs_biomes:amethyst_caves_ceiling",
+      "required": false
+    },
+    {
+      "id": "sincerelyuqs_biomes:amethyst_spike",
+      "required": false
+    },
+    {
+      "id": "sincerelyuqs_biomes:amethyst_spike_ceiling",
+      "required": false
+    },
+    {
+      "id": "sincerelyuqs_biomes:amethyst_caves_lake",
+      "required": false
+    },
+    {
+      "id": "sincerelyuqs_biomes:smoldering_forge",
+      "required": false
+    },
+    {
+      "id": "sincerelyuqs_biomes:sand_dune",
+      "required": false
+    },
+    {
+      "id": "sincerelyuqs_biomes:ash_vent",
+      "required": false
+    }
+  ]
+}

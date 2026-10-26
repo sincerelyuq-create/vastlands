@@ -133,6 +133,11 @@ public final class CaveModel {
         return this.biomes.at(x, y, z, this.ground.surface(x, z));
     }
 
+    /** True if a block lies in a luminous cave province or megacave (see {@link CaveBiomes#luminous}). */
+    boolean luminous(int x, int y, int z) {
+        return this.biomes.luminous(x, y, z, this.ground.surface(x, z));
+    }
+
     public int seaTop() {
         return this.seaTop;
     }

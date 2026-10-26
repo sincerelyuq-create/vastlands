@@ -46,7 +46,17 @@ public enum ForestType {
     /** Snowy slopes: a few stunted trees at the treeline. */
     ALPINE(0.07, 0.6, 0.2),
     /** Wooded badlands: small oaks on dry plateaus. */
-    DRY(0.26, 0.6, 0.2);
+    DRY(0.26, 0.6, 0.2),
+    /**
+     * Sincerelyuq's Biomes' twilight thicket: a dense old forest of dusk trees (young, mature and
+     * ancient, slender and broad, hanging leaves) with huge mushrooms in patches.
+     */
+    DUSK(0.92, 0.0, 0.8),
+    /**
+     * Sincerelyuq's Biomes' ashen wastes: what a fire left: scattered charred snags and stumps,
+     * fallen burnt logs, here and there a stand of dead trees.
+     */
+    CHARRED(0.14, 0.75, 0.5);
 
     public static final ForestType[] VALUES = values();
     public static final int COUNT = VALUES.length;

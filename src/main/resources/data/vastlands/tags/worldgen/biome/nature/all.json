@@ -1,11 +1,53 @@
 {
   "values": [
     "#minecraft:is_overworld",
-    {"id": "#vastlands:cave/lush", "required": false},
-    {"id": "#vastlands:cave/dripstone", "required": false},
-    {"id": "#vastlands:cave/deep_dark", "required": false},
-    {"id": "#vastlands:cave/crystal", "required": false},
-    {"id": "#vastlands:cave/volcanic", "required": false},
-    {"id": "#vastlands:cave/other", "required": false}
+    {
+      "id": "#vastlands:cave/lush",
+      "required": false
+    },
+    {
+      "id": "#vastlands:cave/dripstone",
+      "required": false
+    },
+    {
+      "id": "#vastlands:cave/deep_dark",
+      "required": false
+    },
+    {
+      "id": "#vastlands:cave/crystal",
+      "required": false
+    },
+    {
+      "id": "#vastlands:cave/volcanic",
+      "required": false
+    },
+    {
+      "id": "#vastlands:cave/other",
+      "required": false
+    },
+    {
+      "id": "#vastlands:cave/luminous",
+      "required": false
+    },
+    {
+      "id": "#vastlands:region/painted_range",
+      "required": false
+    },
+    {
+      "id": "#vastlands:region/volcanic_waste",
+      "required": false
+    },
+    {
+      "id": "#vastlands:region/dune_sea",
+      "required": false
+    },
+    {
+      "id": "#vastlands:region/wetland",
+      "required": false
+    },
+    {
+      "id": "#vastlands:region/dusk_wood",
+      "required": false
+    }
   ]
 }

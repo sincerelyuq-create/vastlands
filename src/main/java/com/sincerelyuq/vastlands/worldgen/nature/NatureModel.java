@@ -95,6 +95,8 @@ public final class NatureModel {
     private final int seaLevel;
     private final SimplexNoise rockiness;
     private final SimplexNoise richness;
+    /** Groves of lumen mushrooms against open stretches of the bioluminescent depths (~110 blocks). */
+    private final SimplexNoise groves;
     private final ThreadLocal<Caches> caches = ThreadLocal.withInitial(Caches::new);
 
     private static final class Caches {
@@ -112,6 +114,7 @@ public final class NatureModel {
         this.seaLevel = seaLevel;
         this.rockiness = new SimplexNoise(seed + 1);
         this.richness = new SimplexNoise(seed + 2);
+        this.groves = new SimplexNoise(seed + 3);
     }
 
     public NatureSettings settings() {
@@ -188,9 +191,14 @@ public final class NatureModel {
                 case OCEAN -> 0.0;
                 case MUSHROOM -> 0.01;
                 case NONE -> 0.0;
+                case ASHEN -> 0.12;
+                case STRATA -> 0.18;
+                case DUNES -> 0.015;
             };
             case S_MEDIUM -> switch (style) {
                 case MOUNTAIN -> 0.5;
+                case STRATA -> 0.45;
+                case ASHEN -> 0.16;
                 case BADLANDS -> 0.36;
                 case SAVANNA -> 0.14;
                 case DESERT -> 0.12;
@@ -202,6 +210,8 @@ public final class NatureModel {
             };
             case S_LARGE -> switch (style) {
                 case MOUNTAIN, DESERT -> 0.16;
+                case STRATA -> 0.22;
+                case ASHEN -> 0.1;
                 case BADLANDS -> 0.25;
                 case STONY_SHORE, BEACH, OCEAN -> 0.2;
                 case SAVANNA -> 0.18;
@@ -209,7 +219,8 @@ public final class NatureModel {
                 default -> 0.0;
             };
             case S_WONDER -> switch (style) {
-                case MOUNTAIN, DESERT, BADLANDS, STONY_SHORE -> 0.14;
+                case MOUNTAIN, DESERT, BADLANDS, STONY_SHORE, STRATA -> 0.14;
+                case ASHEN -> 0.06;
                 case JUNGLE, SAVANNA, TEMPERATE -> 0.1;
                 default -> 0.0;
             };
@@ -301,11 +312,17 @@ public final class NatureModel {
         double karst = geology[0];
         double fracture = geology[1];
         double volcanic = geology[2];
-        if (style == SurfaceStyle.DESERT) {
+        if (style == SurfaceStyle.DESERT || style == SurfaceStyle.DUNES) {
             return Rock.SANDSTONE;
         }
         if (style == SurfaceStyle.BADLANDS) {
             return Rock.TERRACOTTA;
+        }
+        if (style == SurfaceStyle.STRATA) {
+            return Rock.STRATA;
+        }
+        if (style == SurfaceStyle.ASHEN) {
+            return Rock.BASALT;
         }
         if (volcanic > 0.45) {
             return Rock.BASALT;
@@ -332,7 +349,8 @@ public final class NatureModel {
         if (s.geo.temperature() < -0.45) {
             flags |= FormationSpec.SNOWY;
         }
-        if (s.geo.moisture() < -0.3 || s.style == SurfaceStyle.DESERT || s.style == SurfaceStyle.BADLANDS || s.style == SurfaceStyle.SAVANNA) {
+        if (s.geo.moisture() < -0.3 || s.style == SurfaceStyle.DESERT || s.style == SurfaceStyle.BADLANDS || s.style == SurfaceStyle.SAVANNA
+                || s.style == SurfaceStyle.ASHEN || s.style == SurfaceStyle.DUNES) {
             flags |= FormationSpec.DRY;
         }
         if (s.style.wooded() && s.geo.moisture() > -0.1 && (flags & FormationSpec.SNOWY) == 0) {
@@ -461,8 +479,12 @@ public final class NatureModel {
         double tpi = this.tpi(c.x, c.z, s.ground, 12);
         boolean crest = tpi > 2.5;
         boolean steep = s.slope > 0.65;
-        boolean mountain = s.style == SurfaceStyle.MOUNTAIN;
+        boolean mountain = s.style == SurfaceStyle.MOUNTAIN || s.style == SurfaceStyle.STRATA;
         double u = r.next();
+        if (s.style == SurfaceStyle.ASHEN) {
+            this.ashen(s, y, crest, u);
+            return;
+        }
         if (steep && (mountain || s.style == SurfaceStyle.BOREAL || s.style == SurfaceStyle.SNOWY || s.style == SurfaceStyle.STONY_SHORE) && u < 0.55) {
             double radius = r.range(9.0, 13.0);
             if (!this.clearSurface(c.x, c.z, y, radius, false)) {
@@ -472,7 +494,7 @@ public final class NatureModel {
                     rock == Rock.STONE ? Rock.RUBBLE : rock, flags, r.nextLong()), radius + 1.5);
             return;
         }
-        boolean hoodoos = s.style == SurfaceStyle.BADLANDS || s.style == SurfaceStyle.DESERT;
+        boolean hoodoos = s.style == SurfaceStyle.BADLANDS || s.style == SurfaceStyle.DESERT || s.style == SurfaceStyle.STRATA && r.chance(0.5);
         if (hoodoos && u < (s.style == SurfaceStyle.BADLANDS ? 0.7 : 0.4) || mountain && steep && u < 0.75) {
             double radius = r.range(1.4, 2.8);
             double height = r.range(7.0, 16.0);
@@ -502,6 +524,55 @@ public final class NatureModel {
             this.set(c, new FormationSpec(this.specKey(c, 0), FormationKind.OUTCROP, c.x, c.z, y, height, radius, 0, r.next() * Math.PI,
                     rock == Rock.STONE && mountain ? Rock.GRANITE : rock, flags, r.nextLong()), radius + 2.0);
         }
+    }
+
+    /**
+     * The ashen wastes: volcanic fissures with ash vents along them on level ground (the scars of
+     * the old eruptions), hornitos (small spatter cones of basalt) and lava-rock outcrops on crests.
+     */
+    private void ashen(Site s, int y, boolean crest, double u) {
+        Cand c = s.c;
+        NatureRandom r = s.r;
+        int flags = this.surfaceFlags(s, r);
+        if (u < 0.5 && s.slope < 0.35) {
+            double length = r.range(8.0, 13.0);
+            double angle = r.next() * Math.PI;
+            // The whole fissure on dry, level ground away from caves and falls.
+            if (!this.clearSurface(c.x, c.z, y, length, false) || this.relief(c.x, c.z, length, angle) > 3.5) {
+                return;
+            }
+            this.set(c, new FormationSpec(this.specKey(c, 0), FormationKind.FISSURE, c.x, c.z, y, r.range(2.0, 4.5), length, r.between(1, 3), angle,
+                    Rock.BASALT, flags, r.nextLong()), 2.5);
+            return;
+        }
+        if (u < 0.78) {
+            double radius = r.range(1.4, 2.6);
+            if (s.slope > 0.8 || !this.clearSurface(c.x, c.z, y, radius + 1.5, false)) {
+                return;
+            }
+            this.set(c, new FormationSpec(this.specKey(c, 0), FormationKind.SPIRE, c.x, c.z, y, r.range(3.0, 7.0), radius, 0, 0, Rock.BASALT, flags,
+                    r.nextLong()), radius + 2.0);
+            return;
+        }
+        double radius = r.range(2.5, 5.0);
+        if (s.slope > 1.1 || !this.clearSurface(c.x, c.z, y, radius + 2, false)) {
+            return;
+        }
+        this.set(c, new FormationSpec(this.specKey(c, 0), FormationKind.OUTCROP, c.x, c.z, y, r.range(3.0, crest ? 8.0 : 5.0), radius, 0,
+                r.next() * Math.PI, Rock.BASALT, flags, r.nextLong()), radius + 2.0);
+    }
+
+    /** The greatest height difference of the ground along a line through a column (5 points each side). */
+    private double relief(int x, int z, double half, double angle) {
+        double lo = Double.POSITIVE_INFINITY;
+        double hi = Double.NEGATIVE_INFINITY;
+        for (int k = -5; k <= 5; k++) {
+            double t = half * k / 5.0;
+            double h = this.land.surface(x + (int) Math.round(Math.cos(angle) * t), z + (int) Math.round(Math.sin(angle) * t));
+            lo = Math.min(lo, h);
+            hi = Math.max(hi, h);
+        }
+        return hi - lo;
     }
 
     /** The ground at a column minus the mean ground of 8 points at a distance: positive on crests. */
@@ -540,8 +611,8 @@ public final class NatureModel {
         }
         int y = s.ground + 1;
         double u = r.next();
-        boolean dry = s.style == SurfaceStyle.DESERT || s.style == SurfaceStyle.BADLANDS;
-        if ((dry || s.style == SurfaceStyle.MOUNTAIN || coast) && u < 0.45) {
+        boolean dry = s.style == SurfaceStyle.DESERT || s.style == SurfaceStyle.BADLANDS || s.style == SurfaceStyle.STRATA || s.style == SurfaceStyle.ASHEN;
+        if ((dry || s.style == SurfaceStyle.MOUNTAIN || coast) && u < (s.style == SurfaceStyle.ASHEN ? 0.15 : 0.45)) {
             double half = r.range(6.0, 11.0);
             double rise = r.range(6.0, 12.0);
             double angle = r.next() * Math.PI;
@@ -602,7 +673,7 @@ public final class NatureModel {
                     this.surfaceFlags(s, r), r.nextLong()), radius + 3.0);
             return;
         }
-        if (r.chance(0.55)) {
+        if (s.style != SurfaceStyle.ASHEN && r.chance(0.55)) {
             double half = r.range(14.0, 22.0);
             double rise = r.range(14.0, 28.0);
             double angle = r.next() * Math.PI;
@@ -763,6 +834,11 @@ public final class NatureModel {
         return 0.15 + 1.45 * smoothstep(-0.5, 0.6, NoiseMath.fbm(this.richness, x / 260.0, z / 260.0, 2, 0.5));
     }
 
+    /** 0.4..1.6: groves of lumen mushrooms against open stretches (~110 blocks; bioluminescent depths). */
+    private double grove(CaveSite s) {
+        return 0.4 + 1.2 * smoothstep(-0.35, 0.45, NoiseMath.fbm(this.groves, s.c.x / 110.0, s.c.z / 110.0, 2, 0.5));
+    }
+
     /** An open run of a cave column. */
     private record Run(int floor, int ceiling, int fluid, int level, double room, int megacave, boolean open) {
         int height() {
@@ -786,6 +862,12 @@ public final class NatureModel {
     private Rock caveRock(CaveProfile profile, int y, double[] geology, boolean rubble) {
         if (profile == CaveProfile.DRIPSTONE) {
             return Rock.DRIPSTONE;
+        }
+        if (profile == CaveProfile.AMETHYST) {
+            return Rock.AMETHYST;
+        }
+        if (profile == CaveProfile.SMOLDERING) {
+            return Rock.MAGMATIC;
         }
         if (profile == CaveProfile.CRYSTAL) {
             return Rock.CALCITE;
@@ -841,6 +923,29 @@ public final class NatureModel {
         }
         boolean full = run.depth() >= h;
         switch (s.profile) {
+            case LUMINOUS -> {
+                if (!full && run.depth() == 0 && s.u < 0.34 * this.grove(s)) {
+                    return this.cave(s, FormationKind.LUMEN_GROWTH, 0, r.range(1.5, 3.2), h, Rock.STONE, flags);
+                }
+            }
+            case AMETHYST -> {
+                if (!full && run.depth() == 0 && s.u < 0.4) {
+                    boolean ceiling = h >= 4 && r.chance(0.3);
+                    return this.cave(s, FormationKind.CRYSTAL_GARDEN, Math.min(4.0, h * 0.4), r.range(1.5, 2.8), h, Rock.AMETHYST,
+                            flags | (ceiling ? FormationSpec.CEILING : 0));
+                }
+                if (!full && s.u < 0.5) {
+                    return this.cave(s, FormationKind.CRYSTALS, r.range(1.0, 2.0), r.range(1.3, 2.2), h, Rock.CALCITE, flags);
+                }
+            }
+            case SMOLDERING -> {
+                if (s.u < 0.22) {
+                    return this.cave(s, FormationKind.BASALT_COLUMNS, 0, r.range(1.5, 2.5), h, Rock.BASALT, flags);
+                }
+                if (s.u < 0.36) {
+                    return this.cave(s, FormationKind.RUBBLE, 0, 2.0, h, Rock.MAGMATIC, flags);
+                }
+            }
             case DRIPSTONE -> {
                 if (s.u < 0.55) {
                     return this.cave(s, FormationKind.POINTED_GROUP, 0, 2.0, h, Rock.DRIPSTONE, flags);
@@ -923,6 +1028,49 @@ public final class NatureModel {
             }
         }
         switch (s.profile) {
+            case LUMINOUS -> {
+                double g = this.grove(s);
+                if (depth == 0 && h >= 8 && room >= 3 && s.u < 0.3 * g) {
+                    double height = r.skewed(4.0, Math.min(12.0, h - 4.0), 1.3);
+                    double radius = Math.min(Math.min(6.5, room * 0.8), Math.max(1.8, height * r.range(0.32, 0.8)));
+                    return this.cave(s, FormationKind.LUMEN_MUSHROOM, height, radius, h, Rock.STONE, flags);
+                }
+                if (depth == 0 && h >= 4 && s.u < 0.42 * g) {
+                    return this.cave(s, FormationKind.LUMEN_COLONY, Math.min(6.0, h - 2.0), r.range(2.5, 4.5), h, Rock.STONE, flags);
+                }
+                if (depth == 0 && room >= 5 && s.u < 0.52) {
+                    return this.cave(s, FormationKind.POOL, r.between(1, 2), r.range(2.5, Math.min(5.5, room * 0.7)), h, Rock.STONE, flags);
+                }
+            }
+            case AMETHYST -> {
+                if (s.u < 0.24) {
+                    return this.cave(s, FormationKind.CRYSTALS, r.range(1.5, 3.0), r.range(2.0, Math.min(3.5, room * 0.7)), h, Rock.CALCITE, flags);
+                }
+                if (s.u < 0.38 && h <= 18 && room >= 3) {
+                    double radius = Math.min(room * 0.5, Math.max(1.0, h * r.range(0.08, 0.14) + 0.7));
+                    return this.cave(s, FormationKind.COLUMN, h, radius, h, Rock.AMETHYST, flags);
+                }
+                if (depth == 0 && room >= 5 && h >= 4 && s.u < 0.46) {
+                    return this.cave(s, FormationKind.POOL, 1, r.range(2.5, Math.min(5.0, room * 0.7)), h, Rock.AMETHYST, flags | FormationSpec.SPINEL);
+                }
+                if (depth == 0 && s.u < 0.62) {
+                    boolean ceiling = r.chance(0.35);
+                    return this.cave(s, FormationKind.CRYSTAL_GARDEN, Math.min(5.0, h * 0.4), r.range(2.5, 4.0), h, Rock.AMETHYST,
+                            flags | (ceiling ? FormationSpec.CEILING : 0));
+                }
+            }
+            case SMOLDERING -> {
+                if (depth == 0 && room >= 4 && s.u < 0.14) {
+                    return this.cave(s, FormationKind.MAGMA_VENT, r.range(2.0, Math.min(5.0, h * 0.4)), r.range(2.0, 3.5), h, Rock.MAGMATIC, flags);
+                }
+                if (s.u < 0.34 && h <= 18 && room >= 3) {
+                    return this.cave(s, FormationKind.ROCK_PILLAR, h, Math.min(room * 0.45, r.range(1.2, 2.6)), h, Rock.MAGMATIC, flags);
+                }
+                if (s.u < 0.5) {
+                    double radius = r.range(1.4, Math.min(3.2, room * 0.7));
+                    return this.cave(s, FormationKind.CAVE_BOULDER, radius * r.range(0.6, 0.9), radius, h, Rock.MAGMATIC, flags);
+                }
+            }
             case DRIPSTONE -> {
                 if (s.u < 0.6) {
                     if (h <= 18 && r.chance(0.35)) {
@@ -1010,6 +1158,41 @@ public final class NatureModel {
             }
         }
         switch (s.profile) {
+            case LUMINOUS -> {
+                if (depth == 0 && s.u < 0.35 * this.grove(s)) {
+                    double height = r.range(10.0, Math.min(22.0, h - 6.0));
+                    double radius = Math.min(room * 0.7, r.range(5.0, 10.0));
+                    return this.cave(s, FormationKind.LUMEN_GIANT, height, radius, h, Rock.STONE, flags);
+                }
+                if (depth == 0 && room >= 8 && s.u < 0.45) {
+                    return this.cave(s, FormationKind.POOL, 2, r.range(4.0, Math.min(7.0, room * 0.6)), h, Rock.STONE, flags);
+                }
+            }
+            case AMETHYST -> {
+                if (s.u < 0.3) {
+                    boolean ceiling = r.chance(0.35);
+                    return this.cave(s, FormationKind.CRYSTAL_SPIRES, Math.min(h * 0.5, r.range(6.0, 14.0)), Math.min(room * 0.7, r.range(5.0, 9.0)), h,
+                            Rock.AMETHYST, flags | (ceiling ? FormationSpec.CEILING : 0));
+                }
+                if (depth == 0 && room >= 8 && s.u < 0.4) {
+                    return this.cave(s, FormationKind.POOL, 2, r.range(4.0, Math.min(7.0, room * 0.6)), h, Rock.AMETHYST, flags | FormationSpec.SPINEL);
+                }
+                if (s.u < 0.5 && h <= 40) {
+                    return this.cave(s, FormationKind.COLUMN, h, Math.min(room * 0.4, r.range(2.0, 4.0)), h, Rock.AMETHYST, flags);
+                }
+            }
+            case SMOLDERING -> {
+                if (s.u < 0.25 && h <= 36) {
+                    return this.cave(s, FormationKind.ROCK_PILLAR, h, Math.min(room * 0.4, r.range(2.2, 4.0)), h, Rock.MAGMATIC, flags);
+                }
+                if (depth == 0 && room >= 6 && s.u < 0.33) {
+                    return this.cave(s, FormationKind.MAGMA_VENT, r.range(3.0, 6.0), r.range(3.0, 5.0), h, Rock.MAGMATIC, flags);
+                }
+                if (s.u < 0.42) {
+                    double radius = Math.min(room * 0.8, r.range(4.0, 8.0));
+                    return this.cave(s, FormationKind.COLLAPSE, Math.min(h / 3.0, r.range(2.0, 5.0)), radius, h, Rock.MAGMATIC, flags);
+                }
+            }
             case DRIPSTONE -> {
                 if (s.u < 0.12 && h >= 20 && room >= 8) {
                     double radius = Math.min(room * 0.5, Math.max(3.0, h * r.range(0.1, 0.16)));
@@ -1070,6 +1253,28 @@ public final class NatureModel {
         Rock rock = this.caveRock(s.profile, run.floor, s.geology, false);
         double radius = Math.min(room * 0.45, r.range(5.0, 11.0));
         switch (s.profile) {
+            case LUMINOUS -> {
+                if (run.depth() == 0 && s.u < 0.45) {
+                    double height = r.range(18.0, Math.min(34.0, h - 8.0));
+                    return this.cave(s, FormationKind.LUMEN_GIANT, height, Math.min(room * 0.6, r.range(8.0, 12.5)), h, Rock.STONE, flags);
+                }
+            }
+            case AMETHYST -> {
+                if (s.u < 0.3) {
+                    return this.cave(s, FormationKind.GIANT_CRYSTAL, Math.min(h * 0.7, r.range(20.0, 48.0)), r.range(3.5, 6.5), h, Rock.AMETHYST, flags);
+                }
+                if (s.u < 0.45 && h <= 140) {
+                    return this.cave(s, FormationKind.GIANT_COLUMN, h, Math.min(10.0, radius), h, Rock.AMETHYST, flags);
+                }
+            }
+            case SMOLDERING -> {
+                if (run.depth() == 0 && s.u < 0.3) {
+                    return this.cave(s, FormationKind.GEOTHERMAL_FIELD, r.range(4.0, 8.0), Math.min(room * 0.6, r.range(10.0, 14.0)), h, Rock.MAGMATIC, flags);
+                }
+                if (s.u < 0.5 && h <= 140) {
+                    return this.cave(s, FormationKind.GIANT_COLUMN, h, Math.min(10.0, radius), h, Rock.MAGMATIC, flags);
+                }
+            }
             case DRIPSTONE -> {
                 if (s.u < 0.3) {
                     return this.cave(s, FormationKind.GIANT_DRIPSTONE, r.range(40.0, 150.0), Math.min(12.0, radius), h, rock, flags);
@@ -1096,6 +1301,9 @@ public final class NatureModel {
             case RUBBLE, POINTED_GROUP -> 3.5;
             case SPIKE_FIELD, COLLAPSE, MOSS_GARDEN -> spec.radius() + 2.0;
             case GIANT_DRIPSTONE -> spec.radius() * 1.8 + 4.0;
+            case LUMEN_MUSHROOM, LUMEN_GIANT -> spec.radius() + 2.5;
+            case CRYSTAL_SPIRES, GEOTHERMAL_FIELD, LUMEN_COLONY, POOL -> spec.radius() + 2.0;
+            case GIANT_CRYSTAL -> spec.radius() + 8.0;
             default -> spec.radius() + 1.5;
         };
     }

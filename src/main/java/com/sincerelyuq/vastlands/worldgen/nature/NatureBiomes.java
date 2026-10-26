@@ -32,7 +32,8 @@ import net.minecraft.world.level.chunk.ChunkGenerator;
  * mods' biomes get fitting formations without a list. Underground, plain rock (the surface biome
  * below the ground) is {@link CaveProfile#PLAIN}; a cave biome in no profile tag takes its cave
  * slot's profile (lush caves, dripstone, deep dark, crystal, volcanic) and {@link CaveProfile#OTHER}
- * in the {@code other} slot. Thread-safe.
+ * in the {@code other} slot. Sincerelyuq's Biomes' cave biomes (Agent 7) sit in the slot tags too,
+ * so their own profiles ({@link CaveProfile#FIRST}) are checked first. Thread-safe.
  */
 public final class NatureBiomes implements NatureModel.Biomes {
     private static final TagKey<Biome>[] SURFACE = surfaceTags();
@@ -118,6 +119,11 @@ public final class NatureBiomes implements NatureModel.Biomes {
      * slot ({@code caveBiome}), the slot's; else (plain rock under a surface biome) plain.
      */
     public static CaveProfile profile(Holder<Biome> biome, CaveBiome slot, boolean caveBiome) {
+        for (CaveProfile first : CaveProfile.FIRST) {
+            if (biome.is(CAVE[first.ordinal()])) {
+                return first;
+            }
+        }
         for (int t = 0; t < CAVE.length; t++) {
             if (biome.is(CAVE[t])) {
                 return CaveProfile.VALUES[t];

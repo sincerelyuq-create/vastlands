@@ -1,27 +1,7 @@
 {
   "values": [
     {
-      "id": "sincerelyuqs_biomes:amethyst_caves",
-      "required": false
-    },
-    {
-      "id": "sincerelyuqs_biomes:amethyst_cave",
-      "required": false
-    },
-    {
-      "id": "sincerelyuq_biomes:amethyst_caves",
-      "required": false
-    },
-    {
-      "id": "sincerelyuq_biomes:amethyst_cave",
-      "required": false
-    },
-    {
-      "id": "sincerelyuqsbiomes:amethyst_caves",
-      "required": false
-    },
-    {
-      "id": "sincerelyuqsbiomes:amethyst_cave",
+      "id": "sincerelyuqs_biomes:amethystcaves",
       "required": false
     }
   ]

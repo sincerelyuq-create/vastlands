@@ -1,0 +1,5 @@
+{
+  "type": "vastlands:add_biomes",
+  "structures": "#vastlands:overhaul/ashen_wastes",
+  "biomes": "#vastlands:overhaul/ashen_wastes"
+}

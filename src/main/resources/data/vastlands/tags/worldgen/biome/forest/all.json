@@ -16,6 +16,8 @@
     "#vastlands:forest/highland",
     "#vastlands:forest/grove",
     "#vastlands:forest/alpine",
-    "#vastlands:forest/dry"
+    "#vastlands:forest/dry",
+    "#vastlands:forest/dusk",
+    "#vastlands:forest/charred"
   ]
 }

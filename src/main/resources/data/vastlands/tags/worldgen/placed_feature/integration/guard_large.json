@@ -1,0 +1,12 @@
+{
+  "values": [
+    {
+      "id": "sincerelyuqs_biomes:strata_bridges",
+      "required": false
+    },
+    {
+      "id": "sincerelyuqs_biomes:strata_groves",
+      "required": false
+    }
+  ]
+}

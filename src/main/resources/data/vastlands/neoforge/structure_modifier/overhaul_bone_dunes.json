@@ -1,0 +1,5 @@
+{
+  "type": "vastlands:add_biomes",
+  "structures": "#vastlands:overhaul/bone_dunes",
+  "biomes": "#vastlands:overhaul/bone_dunes"
+}

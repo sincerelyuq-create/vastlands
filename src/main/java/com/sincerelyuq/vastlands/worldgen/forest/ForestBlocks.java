@@ -1,5 +1,7 @@
 package com.sincerelyuq.vastlands.worldgen.forest;
 
+import com.sincerelyuq.vastlands.worldgen.compat.CompatBlocks;
+import com.sincerelyuq.vastlands.worldgen.compat.ModBlock;
 import com.sincerelyuq.vastlands.worldgen.noise.SimplexNoise;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -195,6 +197,10 @@ public final class ForestBlocks {
             }
             case TreeBlocks.LEAVES, TreeBlocks.BROWN_CAP, TreeBlocks.RED_CAP -> {
                 BlockState state = state(code);
+                if (state.isAir()) {
+                    // A leafless wood (charred).
+                    return;
+                }
                 if (water) {
                     if (!swamp || kind != TreeBlocks.LEAVES) {
                         return;
@@ -386,8 +392,9 @@ public final class ForestBlocks {
             case TreeBlocks.LOG -> log(wood).defaultBlockState().setValue(RotatedPillarBlock.AXIS,
                     extra == TreeBlocks.AXIS_X ? Direction.Axis.X : (extra == TreeBlocks.AXIS_Z ? Direction.Axis.Z : Direction.Axis.Y));
             case TreeBlocks.WOOD -> bark(wood).defaultBlockState();
-            case TreeBlocks.LEAVES -> leaves(wood).defaultBlockState().setValue(LeavesBlock.DISTANCE, Math.max(1, Math.min(7, extra)))
-                    .setValue(LeavesBlock.PERSISTENT, false).setValue(LeavesBlock.WATERLOGGED, false);
+            case TreeBlocks.LEAVES -> leaves(wood) instanceof LeavesBlock leaves ? leaves.defaultBlockState()
+                    .setValue(LeavesBlock.DISTANCE, Math.max(1, Math.min(7, extra))).setValue(LeavesBlock.PERSISTENT, false)
+                    .setValue(LeavesBlock.WATERLOGGED, false) : Blocks.AIR.defaultBlockState();
             case TreeBlocks.VINE -> Blocks.VINE.defaultBlockState().setValue(VineBlock.NORTH, (extra & 1) != 0).setValue(VineBlock.EAST, (extra & 2) != 0)
                     .setValue(VineBlock.SOUTH, (extra & 4) != 0).setValue(VineBlock.WEST, (extra & 8) != 0);
             case TreeBlocks.COCOA -> Blocks.COCOA.defaultBlockState().setValue(CocoaBlock.FACING, HORIZONTAL[extra & 3]).setValue(CocoaBlock.AGE, Math.min(2, extra >> 2));
@@ -411,6 +418,12 @@ public final class ForestBlocks {
         };
     }
 
+    /** A block of another mod (its biomes' woods), or a vanilla stand-in if the mod is absent (never used then). */
+    private static Block mod(ModBlock block, Block fallback) {
+        Block b = CompatBlocks.block(block);
+        return b != null ? b : fallback;
+    }
+
     static Block log(Wood wood) {
         return switch (wood) {
             case OAK -> Blocks.OAK_LOG;
@@ -420,6 +433,8 @@ public final class ForestBlocks {
             case JUNGLE -> Blocks.JUNGLE_LOG;
             case ACACIA -> Blocks.ACACIA_LOG;
             case MUSHROOM -> Blocks.MUSHROOM_STEM;
+            case DUSK -> mod(ModBlock.DUSK_LOG, Blocks.OAK_LOG);
+            case CHARRED -> mod(ModBlock.CHARRED_LOG, Blocks.OAK_LOG);
         };
     }
 
@@ -432,6 +447,8 @@ public final class ForestBlocks {
             case JUNGLE -> Blocks.STRIPPED_JUNGLE_LOG;
             case ACACIA -> Blocks.STRIPPED_ACACIA_LOG;
             case MUSHROOM -> Blocks.MUSHROOM_STEM;
+            case DUSK -> mod(ModBlock.DUSK_LOG, Blocks.STRIPPED_OAK_LOG);
+            case CHARRED -> mod(ModBlock.CHARRED_LOG, Blocks.STRIPPED_OAK_LOG);
         };
     }
 
@@ -444,6 +461,8 @@ public final class ForestBlocks {
             case JUNGLE -> Blocks.JUNGLE_WOOD;
             case ACACIA -> Blocks.ACACIA_WOOD;
             case MUSHROOM -> Blocks.MUSHROOM_STEM;
+            case DUSK -> mod(ModBlock.DUSK_LOG, Blocks.OAK_WOOD);
+            case CHARRED -> mod(ModBlock.CHARRED_LOG, Blocks.OAK_WOOD);
         };
     }
 
@@ -456,6 +475,8 @@ public final class ForestBlocks {
             case JUNGLE -> Blocks.JUNGLE_LEAVES;
             case ACACIA -> Blocks.ACACIA_LEAVES;
             case MUSHROOM -> Blocks.BROWN_MUSHROOM_BLOCK;
+            case DUSK -> mod(ModBlock.DUSK_LEAVES, Blocks.OAK_LEAVES);
+            case CHARRED -> Blocks.AIR;
         };
     }
 
@@ -471,13 +492,16 @@ public final class ForestBlocks {
      * horizontal extent counts: vanilla moves some pieces up or down when it places them (scattered
      * features, buried treasure, shipwrecks), so their heights depend on whether their chunk is
      * decorated yet, while their x and z never change. Underground structures (mineshafts,
-     * strongholds, trial chambers, ancient cities, buried ruins) do not keep forests off the ground
-     * above them.
+     * strongholds, trial chambers, ancient cities, buried ruins) keep trees off only where a
+     * piece reaches up to within 3 blocks of the tree's ground (since Agent 7: the entrance of
+     * Sincerelyuq's Biomes' strata sanctum, buried ruins breaking the surface); deeper ones do
+     * not keep forests off the ground above them.
      */
     static final class StructureGuard {
         private static final int START_RANGE = 7;
         private final WorldGenLevel level;
         private final Map<Long, List<BoundingBox>> pieces = new HashMap<>();
+        private final Map<Long, List<BoundingBox>> underground = new HashMap<>();
 
         StructureGuard(WorldGenLevel level) {
             this.level = level;
@@ -486,8 +510,16 @@ public final class ForestBlocks {
         boolean blocked(TreeSpec spec, TreeShape shape) {
             int cx = spec.x() >> 4;
             int cz = spec.z() >> 4;
-            List<BoundingBox> boxes = this.pieces.computeIfAbsent(ChunkPos.asLong(cx, cz), k -> this.collect(cx, cz));
-            if (boxes.isEmpty()) {
+            long key = ChunkPos.asLong(cx, cz);
+            List<BoundingBox> boxes = this.pieces.get(key);
+            if (boxes == null) {
+                List<BoundingBox> deep = new ArrayList<>();
+                boxes = this.collect(cx, cz, deep);
+                this.pieces.put(key, boxes);
+                this.underground.put(key, deep);
+            }
+            List<BoundingBox> deep = this.underground.get(key);
+            if (boxes.isEmpty() && deep.isEmpty()) {
                 return false;
             }
             int x0 = spec.x() + shape.minX - 1;
@@ -499,19 +531,23 @@ public final class ForestBlocks {
                     return true;
                 }
             }
+            for (BoundingBox b : deep) {
+                if (b.maxX() >= x0 && b.minX() <= x1 && b.maxZ() >= z0 && b.minZ() <= z1 && b.maxY() >= spec.y() - 4) {
+                    return true;
+                }
+            }
             return false;
         }
 
-        private List<BoundingBox> collect(int cx, int cz) {
+        /** Surface structures' pieces; underground structures' pieces go to {@code deep}. */
+        private List<BoundingBox> collect(int cx, int cz, List<BoundingBox> deep) {
             List<BoundingBox> boxes = new ArrayList<>();
             ChunkAccess root = this.level.getChunk(cx, cz, ChunkStatus.STRUCTURE_REFERENCES, false);
             if (root == null) {
                 return boxes;
             }
             for (Map.Entry<Structure, LongSet> entry : root.getAllReferences().entrySet()) {
-                if (entry.getKey().step() != GenerationStep.Decoration.SURFACE_STRUCTURES) {
-                    continue;
-                }
+                List<BoundingBox> into = entry.getKey().step() == GenerationStep.Decoration.SURFACE_STRUCTURES ? boxes : deep;
                 for (long start : entry.getValue()) {
                     int sx = ChunkPos.getX(start);
                     int sz = ChunkPos.getZ(start);
@@ -524,7 +560,7 @@ public final class ForestBlocks {
                         continue;
                     }
                     for (StructurePiece piece : s.getPieces()) {
-                        boxes.add(piece.getBoundingBox());
+                        into.add(piece.getBoundingBox());
                     }
                 }
             }
@@ -798,6 +834,25 @@ public final class ForestBlocks {
                         return (hash(seed, x, z, 7) & 1) == 0 ? Blocks.FERN.defaultBlockState() : Blocks.SHORT_GRASS.defaultBlockState();
                     }
                     return null;
+                }
+                case DUSK -> {
+                    // A shaded, damp floor: ferns, mushrooms in groups (more on podzol), grass in the gaps.
+                    double fern = (0.04 + 0.08 * moist * canopy) * clump * thin;
+                    if (u < fern) {
+                        return (hash(seed, x, z, 7) % 4) == 0 ? Blocks.LARGE_FERN.defaultBlockState() : Blocks.FERN.defaultBlockState();
+                    }
+                    u -= fern;
+                    double mushroom = 0.03 * canopy * thin * fungi;
+                    if (u < mushroom && canopy >= 0.5) {
+                        return (hash(seed, x, z, 6) % 3) == 0 ? Blocks.RED_MUSHROOM.defaultBlockState() : Blocks.BROWN_MUSHROOM.defaultBlockState();
+                    }
+                    u -= mushroom;
+                    double grass = (0.02 + 0.1 * (1.0 - canopy) + 0.06 * edge) * clump;
+                    return u < grass ? Blocks.SHORT_GRASS.defaultBlockState() : null;
+                }
+                case CHARRED -> {
+                    // Burnt ground: a dead bush here and there.
+                    return u < 0.006 * clump ? Blocks.DEAD_BUSH.defaultBlockState() : null;
                 }
                 default -> {
                     return null;

@@ -1,0 +1,16 @@
+{
+  "values": [
+    {
+      "id": "sincerelyuq:redstone_bunch",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:redstone_bunch_2",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:last_camp",
+      "required": false
+    }
+  ]
+}

@@ -17,7 +17,7 @@ package com.sincerelyuq.vastlands.worldgen.nature;
  * @param angle  the direction of its long axis (radians), where it has one
  * @param rock   the palette of its stone
  * @param flags  {@link #MOSSY}, {@link #SCULK}, {@link #FLOODED}, {@link #LAVA}, {@link #SNOWY}, {@link #DRY},
- *               {@link #DRIPSTONE}, {@link #CEILING}, {@link #LUSH}
+ *               {@link #DRIPSTONE}, {@link #CEILING}, {@link #LUSH}, {@link #SPINEL}
  * @param seed   the random details of its shape
  */
 public record FormationSpec(long key, FormationKind kind, int x, int z, int y, double height, double radius, int span, double angle, Rock rock,
@@ -40,6 +40,8 @@ public record FormationSpec(long key, FormationKind kind, int x, int z, int y, d
     public static final int CEILING = 128;
     /** Clothed in moss blocks (lush caves) rather than weathered with mossy stone. */
     public static final int LUSH = 256;
+    /** A pool of lavender spinel rather than water (amethyst caves). */
+    public static final int SPINEL = 512;
 
     public boolean has(int flag) {
         return (this.flags & flag) != 0;

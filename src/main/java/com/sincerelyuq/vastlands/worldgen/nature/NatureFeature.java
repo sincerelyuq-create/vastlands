@@ -18,7 +18,8 @@ import net.minecraft.world.level.levelgen.feature.configurations.FeatureConfigur
  * {@code #vastlands:nature/all} (the overworld) by two biome modifiers, so they run once per chunk:
  * {@code vastlands:surface_formations} ({@code vastlands:nature}) in the local modifications, after
  * vanilla's boulders and before structures and vegetation (which grow around the formations) and
- * the forests (whose trees keep clear of them); {@code vastlands:cave_formations}
+ * the forests (whose trees keep clear of them), then the dunes of the dune sea ({@link DuneSand});
+ * {@code vastlands:cave_formations}
  * ({@code vastlands:nature_caves}) at the end of the underground decoration, after vanilla's
  * dripstone clusters, pointed dripstone and sculk patches (a dripstone cluster's pools replace floor
  * blocks: run before them, a stalagmite lost its foot and floated) and before the lush caves'
@@ -61,6 +62,10 @@ public final class NatureFeature extends Feature<NatureFeature.Config> {
         long t0 = System.nanoTime();
         NatureBlocks.Stats stats = NatureBlocks.decorate(level, level.getChunk(context.origin()), nature.get(), context.config().surface(),
                 context.config().density());
+        if (context.config().surface() && nature.get().model() != null) {
+            // The dune sea's dunes (Agent 7), after the formations: see DuneSand.
+            stats.blocks += DuneSand.build(level, level.getChunk(context.origin()), context.chunkGenerator(), nature.get().model());
+        }
         long nanos = NANOS.addAndGet(System.nanoTime() - t0);
         long formations = FORMATIONS.addAndGet(stats.formations);
         long chunks = CHUNKS.incrementAndGet();

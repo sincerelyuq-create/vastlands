@@ -24,7 +24,22 @@ public enum CaveProfile {
     /** Other mods' cave biomes in no tag: a little rubble only. */
     OTHER,
     /** No formations. */
-    NONE;
+    NONE,
+    /**
+     * Sincerelyuq's Biomes' amethyst caves: crystal gardens of amethyst spikes, crystal spires and
+     * columns, rare giant crystals, pools of lavender spinel in floor hollows.
+     */
+    AMETHYST,
+    /** Sincerelyuq's Biomes' smoldering cave: magma-veined pillars and outcrops, vents, geothermal fields. */
+    SMOLDERING,
+    /**
+     * Sincerelyuq's Biomes' bioluminescent depths: lumen mushrooms of many forms and sizes, young
+     * colonies, glowing moss and bulbs, ponds in floor hollows.
+     */
+    LUMINOUS;
+
+    /** The profiles of other mods' biomes, checked before the others (their biomes also sit in the slot tags). */
+    static final CaveProfile[] FIRST = {AMETHYST, SMOLDERING, LUMINOUS};
 
     public static final CaveProfile[] VALUES = values();
 

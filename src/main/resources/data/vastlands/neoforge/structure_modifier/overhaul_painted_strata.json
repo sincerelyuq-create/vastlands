@@ -1,0 +1,5 @@
+{
+  "type": "vastlands:add_biomes",
+  "structures": "#vastlands:overhaul/painted_strata",
+  "biomes": "#vastlands:overhaul/painted_strata"
+}

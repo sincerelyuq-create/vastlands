@@ -7,6 +7,8 @@ import static com.sincerelyuq.vastlands.worldgen.nature.FormationBlocks.SNAP_FLO
 import static com.sincerelyuq.vastlands.worldgen.nature.FormationBlocks.TOP;
 import static com.sincerelyuq.vastlands.worldgen.nature.FormationBlocks.WET;
 
+import com.sincerelyuq.vastlands.worldgen.compat.CompatBlocks;
+import com.sincerelyuq.vastlands.worldgen.compat.ModBlock;
 import com.sincerelyuq.vastlands.worldgen.noise.SimplexNoise;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import java.util.ArrayList;
@@ -28,6 +30,7 @@ import net.minecraft.world.level.block.LeavesBlock;
 import net.minecraft.world.level.block.MultifaceBlock;
 import net.minecraft.world.level.block.PointedDripstoneBlock;
 import net.minecraft.world.level.block.RotatedPillarBlock;
+import net.minecraft.world.level.block.SeaPickleBlock;
 import net.minecraft.world.level.block.VegetationBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
@@ -143,6 +146,8 @@ public final class NatureBlocks {
         final BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
         /** Columns (and their Y range) whose pointed dripstone changed while writing a formation. */
         private final Map<Integer, int[]> tips = new HashMap<>();
+        /** The same for amethyst spikes. */
+        private final Map<Integer, int[]> spikes = new HashMap<>();
 
         Writer(WorldGenLevel level, ChunkAccess chunk, Stats stats) {
             this.level = level;
@@ -165,6 +170,7 @@ public final class NatureBlocks {
             List<int[]> held = new ArrayList<>();
             Map<Integer, int[]> tips = this.tips;
             tips.clear();
+            this.spikes.clear();
             for (int pass = 0; pass < 2; pass++) {
                 for (int k = 0; k < shape.size(); k++) {
                     int p = shape.positions[k];
@@ -209,8 +215,12 @@ public final class NatureBlocks {
                 return ha ? Integer.compare(b[1], a[1]) : Integer.compare(a[1], b[1]);
             });
             for (int[] cell : held) {
-                if (this.place(cell[0], cell[1], cell[2], cell[3], true) && FormationBlocks.kind(cell[3]) == FormationBlocks.POINTED) {
-                    this.tipped(tips, cell[0], cell[1], cell[2]);
+                if (this.place(cell[0], cell[1], cell[2], cell[3], true)) {
+                    if (FormationBlocks.kind(cell[3]) == FormationBlocks.POINTED) {
+                        this.tipped(tips, cell[0], cell[1], cell[2]);
+                    } else if (isSpike(cell[3])) {
+                        this.tipped(this.spikes, cell[0], cell[1], cell[2]);
+                    }
                 }
             }
             for (Map.Entry<Integer, List<int[]>> e : floors.entrySet()) {
@@ -221,6 +231,70 @@ public final class NatureBlocks {
             }
             for (Map.Entry<Integer, int[]> e : tips.entrySet()) {
                 this.retip(this.minX + (e.getKey() & 15), this.minZ + (e.getKey() >> 4), e.getValue()[0], e.getValue()[1]);
+            }
+            for (Map.Entry<Integer, int[]> e : this.spikes.entrySet()) {
+                this.respike(this.minX + (e.getKey() & 15), this.minZ + (e.getKey() >> 4), e.getValue()[0], e.getValue()[1]);
+            }
+        }
+
+        /**
+         * The segments of every amethyst spike in a column as Sincerelyuq's Biomes computes them
+         * ({@code Amethyst_Spike_PlacedProcedure.refresh}: tip, frustum, middle, base from the free end,
+         * standing on a floor or hanging from a ceiling), so a spike cut short still ends in a tip and
+         * nothing changes at the first block update.
+         */
+        private void respike(int x, int z, int y0, int y1) {
+            Block spike = CompatBlocks.block(ModBlock.AMETHYST_SPIKE);
+            if (spike == null) {
+                return;
+            }
+            int y = y0;
+            while (y - 1 >= this.bottom && this.chunk.getBlockState(this.m.set(x, y - 1, z)).is(spike)) {
+                y--;
+            }
+            int end = y1;
+            while (end + 1 <= this.top && this.chunk.getBlockState(this.m.set(x, end + 1, z)).is(spike)) {
+                end++;
+            }
+            while (y <= end) {
+                if (!this.chunk.getBlockState(this.m.set(x, y, z)).is(spike)) {
+                    y++;
+                    continue;
+                }
+                int bottom = y;
+                while (y + 1 <= end && this.chunk.getBlockState(this.m.set(x, y + 1, z)).is(spike)) {
+                    y++;
+                }
+                int top = y;
+                y++;
+                boolean onFloor = bottom - 1 >= this.bottom && sturdy(this.chunk.getBlockState(this.m.set(x, bottom - 1, z)));
+                boolean onCeiling = top + 1 <= this.top && sturdy(this.chunk.getBlockState(this.m.set(x, top + 1, z)));
+                if (!onFloor && !onCeiling) {
+                    continue;
+                }
+                int total = top - bottom + 1;
+                int up;
+                if (onFloor && onCeiling) {
+                    up = 0;
+                    while (up < total && spikeValue(this.chunk.getBlockState(this.m.set(x, bottom + up, z))) < 5) {
+                        up++;
+                    }
+                } else {
+                    up = onFloor ? total : 0;
+                }
+                for (int i = 0; i < up; i++) {
+                    this.setSpike(x, bottom + i, z, spikeState(i, up, true));
+                }
+                for (int i = 0; i < total - up; i++) {
+                    this.setSpike(x, top - i, z, spikeState(i, total - up, false));
+                }
+            }
+        }
+
+        private void setSpike(int x, int y, int z, int value) {
+            BlockState state = this.chunk.getBlockState(this.m.set(x, y, z));
+            if (spikeValue(state) != value) {
+                this.chunk.setBlockState(this.m.set(x, y, z), CompatBlocks.with(state, "onebyone", value), Block.UPDATE_CLIENTS);
             }
         }
 
@@ -346,6 +420,8 @@ public final class NatureBlocks {
                 }
                 if (FormationBlocks.kind(code) == FormationBlocks.POINTED) {
                     this.tipped(tips, x, y, z);
+                } else if (isSpike(code)) {
+                    this.tipped(this.spikes, x, y, z);
                 }
             }
         }
@@ -376,6 +452,18 @@ public final class NatureBlocks {
         boolean place(int x, int y, int z, int code, boolean check) {
             BlockState old = this.chunk.getBlockState(this.m.set(x, y, z));
             int kind = FormationBlocks.kind(code);
+            if (kind == FormationBlocks.POOL || kind == FormationBlocks.CUT) {
+                // Pools and fissures only take natural ground: a pool never spills into air, a cut never opens anything built.
+                BlockState state = state(code, x, y, z, false);
+                if (!natural(old) || kind == FormationBlocks.POOL && state.isAir()) {
+                    return false;
+                }
+                this.set(x, y, z, state);
+                return true;
+            }
+            if (kind == FormationBlocks.MOD && state(code, x, y, z, false).isAir()) {
+                return false;
+            }
             boolean water = old.is(Blocks.WATER);
             boolean source = water && old.getFluidState().isSource();
             if (FormationBlocks.isSolid(code)) {
@@ -446,7 +534,30 @@ public final class NatureBlocks {
                 || state.is(Blocks.GRAVEL) || state.is(Blocks.CLAY) || state.is(Blocks.SANDSTONE) || state.is(Blocks.RED_SANDSTONE)
                 || state.is(Blocks.SNOW_BLOCK) || state.is(Blocks.CALCITE) || state.is(Blocks.DRIPSTONE_BLOCK) || state.is(Blocks.BASALT)
                 || state.is(Blocks.SMOOTH_BASALT) || state.is(Blocks.BLACKSTONE) || state.is(Blocks.MAGMA_BLOCK) || state.is(Blocks.SCULK)
-                || state.is(Blocks.POWDER_SNOW) || state.is(Blocks.PACKED_MUD);
+                || state.is(Blocks.POWDER_SNOW) || state.is(Blocks.PACKED_MUD) || state.is(Blocks.NETHERRACK) || state.is(Blocks.AMETHYST_BLOCK)
+                || state.is(Blocks.BUDDING_AMETHYST) || state.is(Blocks.TUFF) || isMod(state, ModBlock.LUMEN_MOSS) || isMod(state, ModBlock.ASH_BLOCK)
+                || isMod(state, ModBlock.GLOWING_AMETHYST) || isMod(state, ModBlock.SMOLDERING_MAGMA);
+    }
+
+    private static boolean isMod(BlockState state, ModBlock block) {
+        Block b = CompatBlocks.block(block);
+        return b != null && state.is(b);
+    }
+
+    private static boolean isSpike(int code) {
+        return FormationBlocks.kind(code) == FormationBlocks.MOD && FormationBlocks.modBlock(code) == ModBlock.AMETHYST_SPIKE;
+    }
+
+    /** An amethyst spike's {@code onebyone} (0 for anything else). */
+    static int spikeValue(BlockState state) {
+        return state.getBlock().getStateDefinition().getProperty("onebyone") instanceof net.minecraft.world.level.block.state.properties.IntegerProperty p
+                ? state.getValue(p) : 0;
+    }
+
+    /** The mod's spike segment {@code i} of {@code length} counted from the support: base 4 (8), middle 3 (7), frustum 2 (6), tip 1 (5). */
+    static int spikeState(int i, int length, boolean up) {
+        int shape = i == length - 1 ? 0 : (i == length - 2 ? 1 : (i == 0 ? 3 : 2));
+        return (up ? 1 : 5) + shape;
     }
 
     /** A full block a stack can rest on (or hang from). */
@@ -456,27 +567,30 @@ public final class NatureBlocks {
 
     private static boolean waterloggable(int kind) {
         return kind == FormationBlocks.POINTED || kind == FormationBlocks.HANGING_ROOTS || kind == FormationBlocks.SCULK_VEIN
-                || kind == FormationBlocks.GLOW_LICHEN || kind == FormationBlocks.AMETHYST;
+                || kind == FormationBlocks.GLOW_LICHEN || kind == FormationBlocks.AMETHYST || kind == FormationBlocks.SEA_PICKLE;
     }
 
     private static boolean needsSupport(int kind) {
         return kind == FormationBlocks.POINTED || kind == FormationBlocks.AZALEA || kind == FormationBlocks.CAVE_VINES || kind == FormationBlocks.HANGING_ROOTS
                 || kind == FormationBlocks.SPORE_BLOSSOM || kind == FormationBlocks.MOSS_CARPET || kind == FormationBlocks.SCULK_VEIN
-                || kind == FormationBlocks.AMETHYST || kind == FormationBlocks.GLOW_LICHEN;
+                || kind == FormationBlocks.AMETHYST || kind == FormationBlocks.GLOW_LICHEN || kind == FormationBlocks.SEA_PICKLE
+                || kind == FormationBlocks.MOD;
     }
 
     /** Decorations held only by the block above or below them: checked where they are written. */
     private static boolean heldVertically(int code) {
         int kind = FormationBlocks.kind(code);
         return kind == FormationBlocks.POINTED || kind == FormationBlocks.CAVE_VINES || kind == FormationBlocks.HANGING_ROOTS
-                || kind == FormationBlocks.SPORE_BLOSSOM || kind == FormationBlocks.MOSS_CARPET || kind == FormationBlocks.AZALEA;
+                || kind == FormationBlocks.SPORE_BLOSSOM || kind == FormationBlocks.MOSS_CARPET || kind == FormationBlocks.AZALEA
+                || kind == FormationBlocks.SEA_PICKLE || kind == FormationBlocks.MOD && !FormationBlocks.modBlock(code).solid;
     }
 
     /** Decorations held by the block above them (written top down). */
     private static boolean hangs(int code) {
         int kind = FormationBlocks.kind(code);
         return kind == FormationBlocks.POINTED ? (FormationBlocks.extra(code) & 1) == 0
-                : kind == FormationBlocks.CAVE_VINES || kind == FormationBlocks.HANGING_ROOTS || kind == FormationBlocks.SPORE_BLOSSOM;
+                : kind == FormationBlocks.CAVE_VINES || kind == FormationBlocks.HANGING_ROOTS || kind == FormationBlocks.SPORE_BLOSSOM
+                || FormationBlocks.modHangs(code);
     }
 
     private static boolean pointed(BlockState state, Direction dir) {
@@ -542,7 +656,35 @@ public final class NatureBlocks {
             case FormationBlocks.SPORE_BLOSSOM -> Blocks.SPORE_BLOSSOM.defaultBlockState();
             case FormationBlocks.SAND -> Blocks.SAND.defaultBlockState();
             case FormationBlocks.PACKED_MUD -> Blocks.PACKED_MUD.defaultBlockState();
+            case FormationBlocks.SMOOTH_BASALT -> Blocks.SMOOTH_BASALT.defaultBlockState();
+            case FormationBlocks.BLACKSTONE -> Blocks.BLACKSTONE.defaultBlockState();
+            case FormationBlocks.TUFF -> Blocks.TUFF.defaultBlockState();
+            case FormationBlocks.SEA_PICKLE -> Blocks.SEA_PICKLE.defaultBlockState().setValue(SeaPickleBlock.PICKLES, Math.max(1, Math.min(4, extra)))
+                    .setValue(SeaPickleBlock.WATERLOGGED, true);
+            case FormationBlocks.POOL -> (extra & 1) == 1 ? orAir(CompatBlocks.state(ModBlock.LAVENDER_SPINEL))
+                    : extra >>> 1 > 0 ? Blocks.SEA_PICKLE.defaultBlockState().setValue(SeaPickleBlock.PICKLES, Math.min(4, extra >>> 1))
+                            .setValue(SeaPickleBlock.WATERLOGGED, true) : Blocks.WATER.defaultBlockState();
+            case FormationBlocks.CUT -> Blocks.AIR.defaultBlockState();
+            case FormationBlocks.MOD -> modState(ModBlock.VALUES[extra & 63], (extra >>> 6) & 255, waterlogged);
             default -> Blocks.AIR.defaultBlockState();
+        };
+    }
+
+    private static BlockState orAir(BlockState state) {
+        return state != null ? state : Blocks.AIR.defaultBlockState();
+    }
+
+    /** The state of another mod's block (air if the mod is absent: such cells are skipped). */
+    private static BlockState modState(ModBlock block, int property, boolean waterlogged) {
+        BlockState state = CompatBlocks.state(block);
+        if (state == null) {
+            return Blocks.AIR.defaultBlockState();
+        }
+        return switch (block) {
+            case AMETHYST_SPIKE -> CompatBlocks.with(CompatBlocks.with(state, "onebyone", Math.max(1, Math.min(8, property))), "waterlogged", waterlogged);
+            case LUMEN_STEM, CHARRED_LOG, DUSK_LOG, BLEACHED_BONE -> CompatBlocks.with(state, "axis", property == 1 ? "x" : (property == 2 ? "z" : "y"));
+            case LOTUS_PAD -> CompatBlocks.with(state, "flower", property != 0);
+            default -> state;
         };
     }
 
@@ -620,7 +762,61 @@ public final class NatureBlocks {
             case CALCITE -> v < 0.85 ? Blocks.CALCITE.defaultBlockState() : Blocks.TUFF.defaultBlockState();
             case PALE -> v < 0.45 ? Blocks.DIORITE.defaultBlockState() : (v < 0.8 ? Blocks.STONE.defaultBlockState()
                     : (v < 0.9 ? Blocks.CALCITE.defaultBlockState() : Blocks.ANDESITE.defaultBlockState()));
+            case AMETHYST -> amethyst(role, v, exposed, x, y, z);
+            case MAGMATIC -> magmatic(role, v, exposed, top, x, y, z);
+            case STRATA -> role == FormationBlocks.CAP ? Blocks.WHITE_TERRACOTTA.defaultBlockState()
+                    : com.sincerelyuq.vastlands.worldgen.compat.IntegrationSurface.strataBand(y + (int) Math.floor(2.5 * patch(x, 0, z, 0x5374726174L, 30.0)))
+                    .defaultBlockState();
         };
+    }
+
+    /**
+     * Amethyst caves' crystal rock: amethyst with calcite in patches (more at the base and the
+     * accents), glowing amethyst on a share of the exposed faces (Sincerelyuq's Biomes), now and
+     * then a budding amethyst on an exposed face (it grows buds in play).
+     */
+    private static BlockState amethyst(int role, double v, boolean exposed, int x, int y, int z) {
+        if (role == FormationBlocks.CAP) {
+            return Blocks.SMOOTH_BASALT.defaultBlockState();
+        }
+        if (exposed) {
+            double g = patch(x, y, z, 0x476C6F77L, 1.6);
+            if (g < 0.11) {
+                BlockState glow = CompatBlocks.state(ModBlock.GLOWING_AMETHYST);
+                if (glow != null) {
+                    return glow;
+                }
+            }
+            if (g > 0.97) {
+                return Blocks.BUDDING_AMETHYST.defaultBlockState();
+            }
+        }
+        if (role == FormationBlocks.ACCENT) {
+            return v < 0.88 ? Blocks.CALCITE.defaultBlockState() : Blocks.SMOOTH_BASALT.defaultBlockState();
+        }
+        return v < 0.8 ? Blocks.AMETHYST_BLOCK.defaultBlockState() : Blocks.CALCITE.defaultBlockState();
+    }
+
+    /**
+     * Smoldering caves' rock: basalt and blackstone with veins of magma; on the rare exposed top
+     * of a vein the mod's smoldering magma (it erupts in play), never inside the rock.
+     */
+    private static BlockState magmatic(int role, double v, boolean exposed, boolean top, int x, int y, int z) {
+        double vein = patch(x, y, z, 0x5665696EL, 1.7);
+        if (vein < 0.16 || role == FormationBlocks.ACCENT && vein < 0.3) {
+            if (exposed && top && vein < 0.035) {
+                BlockState smoldering = CompatBlocks.state(ModBlock.SMOLDERING_MAGMA);
+                if (smoldering != null) {
+                    return smoldering;
+                }
+            }
+            return Blocks.MAGMA_BLOCK.defaultBlockState();
+        }
+        if (role == FormationBlocks.CAP) {
+            return Blocks.BLACKSTONE.defaultBlockState();
+        }
+        return v < 0.4 ? Blocks.BASALT.defaultBlockState() : (v < 0.68 ? Blocks.BLACKSTONE.defaultBlockState()
+                : (v < 0.9 ? Blocks.SMOOTH_BASALT.defaultBlockState() : Blocks.NETHERRACK.defaultBlockState()));
     }
 
     // ------------------------------------------------------------------ structures

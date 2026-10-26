@@ -1,0 +1,20 @@
+{
+  "values": [
+    {
+      "id": "sincerelyuqs_biomes:ash_boulder",
+      "required": false
+    },
+    {
+      "id": "sincerelyuqs_biomes:charred_tree",
+      "required": false
+    },
+    {
+      "id": "sincerelyuqs_biomes:dusk_tree",
+      "required": false
+    },
+    {
+      "id": "sincerelyuqs_biomes:dusk_bloom_patch",
+      "required": false
+    }
+  ]
+}
