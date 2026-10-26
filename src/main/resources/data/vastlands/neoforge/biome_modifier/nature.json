@@ -2,8 +2,7 @@
   "type": "neoforge:add_features",
   "biomes": "#vastlands:nature/all",
   "features": [
-    "vastlands:surface_formations",
-    "vastlands:cave_formations"
+    "vastlands:surface_formations"
   ],
   "step": "local_modifications"
 }

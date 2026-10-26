@@ -42,6 +42,10 @@ final class FormationShapes {
     static FormationShape shape(FormationSpec spec, World world) {
         FormationShape.Builder b = BUILDERS.get();
         b.clear(spec.kind().reach);
+        if (!spec.kind().surface && spec.has(FormationSpec.FLOODED)) {
+            // A stalagmite or column rising out of a cave pool: its body below the water stays.
+            b.wetSolids();
+        }
         Ctx c = new Ctx(b, spec, world);
         switch (spec.kind()) {
             case BOULDER -> boulder(c, true);

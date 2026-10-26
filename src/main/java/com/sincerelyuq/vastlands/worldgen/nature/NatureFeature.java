@@ -14,13 +14,15 @@ import net.minecraft.world.level.levelgen.feature.configurations.FeatureConfigur
 
 /**
  * {@code vastlands:formations}: the natural formations of one chunk (see {@link NatureBlocks}),
- * the surface's or the caves' by its configuration. The configured features
- * {@code vastlands:surface_formations} and {@code vastlands:cave_formations} are added by the
- * biome modifier {@code vastlands:nature} to the local modifications of every biome in
- * {@code #vastlands:nature/all} (the overworld), so they run once per chunk, after vanilla's large
- * dripstone and boulders and before structures, ores, the caves' own features and vegetation (which
- * then grow on and around the formations), and before the forests (whose trees keep clear of
- * them). They place nothing outside Vastlands worlds.
+ * the surface's or the caves' by its configuration, added to every biome in
+ * {@code #vastlands:nature/all} (the overworld) by two biome modifiers, so they run once per chunk:
+ * {@code vastlands:surface_formations} ({@code vastlands:nature}) in the local modifications, after
+ * vanilla's boulders and before structures and vegetation (which grow around the formations) and
+ * the forests (whose trees keep clear of them); {@code vastlands:cave_formations}
+ * ({@code vastlands:nature_caves}) at the end of the underground decoration, after vanilla's
+ * dripstone clusters, pointed dripstone and sculk patches (a dripstone cluster's pools replace floor
+ * blocks: run before them, a stalagmite lost its foot and floated) and before the lush caves'
+ * vegetation. They place nothing outside Vastlands worlds.
  *
  * <p>{@code density} (0..1, default 1) leaves out a share of the formations: a datapack can thin
  * them out by overriding the configured feature (the forests still keep the left-out ones' room).

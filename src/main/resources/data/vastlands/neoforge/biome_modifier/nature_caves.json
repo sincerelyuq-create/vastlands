@@ -1,0 +1,8 @@
+{
+  "type": "neoforge:add_features",
+  "biomes": "#vastlands:nature/all",
+  "features": [
+    "vastlands:cave_formations"
+  ],
+  "step": "underground_decoration"
+}

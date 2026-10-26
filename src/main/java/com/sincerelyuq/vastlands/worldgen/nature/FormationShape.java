@@ -105,6 +105,8 @@ public final class FormationShape {
         private final Int2IntOpenHashMap hangers = new Int2IntOpenHashMap();
         private final Int2IntOpenHashMap hangerHeight = new Int2IntOpenHashMap();
         private int reach = 16;
+        /** Flags every solid block gets (a cave formation in a flooded run stands in its water). */
+        private int solidFlags;
 
         void clear(int reach) {
             this.cells.clear();
@@ -113,6 +115,12 @@ public final class FormationShape {
             this.hangers.clear();
             this.hangerHeight.clear();
             this.reach = reach;
+            this.solidFlags = 0;
+        }
+
+        /** Solid blocks written from now on may go into still water ({@link FormationBlocks#WET}). */
+        void wetSolids() {
+            this.solidFlags = FormationBlocks.WET;
         }
 
         int reach() {
@@ -143,14 +151,14 @@ public final class FormationShape {
             int p = pack(dx, dy, dz);
             int old = this.cells.get(p);
             if (old == 0 || !FormationBlocks.isSolid(old)) {
-                this.cells.put(p, code);
+                this.cells.put(p, code | this.solidFlags);
             }
         }
 
         /** Overwrites whatever is there. */
         void force(int dx, int dy, int dz, int code) {
             if (this.inside(dx, dz)) {
-                this.cells.put(pack(dx, dy, dz), code);
+                this.cells.put(pack(dx, dy, dz), FormationBlocks.isSolid(code) ? code | this.solidFlags : code);
             }
         }
 

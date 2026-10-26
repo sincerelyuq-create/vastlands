@@ -141,6 +141,8 @@ public final class NatureBlocks {
         final int bottom;
         final int top;
         final BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
+        /** Columns (and their Y range) whose pointed dripstone changed while writing a formation. */
+        private final Map<Integer, int[]> tips = new HashMap<>();
 
         Writer(WorldGenLevel level, ChunkAccess chunk, Stats stats) {
             this.level = level;
@@ -160,6 +162,9 @@ public final class NatureBlocks {
             // Snapped stacks by column (within the chunk), the rest in two passes: solids, then decorations.
             Map<Integer, List<int[]>> floors = new HashMap<>();
             Map<Integer, List<int[]>> ceilings = new HashMap<>();
+            List<int[]> held = new ArrayList<>();
+            Map<Integer, int[]> tips = this.tips;
+            tips.clear();
             for (int pass = 0; pass < 2; pass++) {
                 for (int k = 0; k < shape.size(); k++) {
                     int p = shape.positions[k];
@@ -179,7 +184,11 @@ public final class NatureBlocks {
                     }
                     boolean solid = FormationBlocks.isSolid(code);
                     if (solid == (pass == 0)) {
-                        this.place(x, y, z, code, false);
+                        if (!solid && heldVertically(code)) {
+                            held.add(new int[] {x, y, z, code});
+                        } else {
+                            this.place(x, y, z, code, false);
+                        }
                     }
                 }
                 if (pass == 0) {
@@ -187,12 +196,89 @@ public final class NatureBlocks {
                     this.extend(spec, shape.hangers, shape.hangerCodes, shape.hangerHeights, 1);
                 }
             }
+            // Decorations held by the block above or below them (tips, vines, roots, carpets): from
+            // their support outwards, each only where it holds (a body block that stayed out, under
+            // water for example, leaves no tip hanging from nothing). Their support lies in their own
+            // column, so this reads only the chunk's own blocks.
+            held.sort((a, b) -> {
+                boolean ha = hangs(a[3]);
+                boolean hb = hangs(b[3]);
+                if (ha != hb) {
+                    return ha ? -1 : 1;
+                }
+                return ha ? Integer.compare(b[1], a[1]) : Integer.compare(a[1], b[1]);
+            });
+            for (int[] cell : held) {
+                if (this.place(cell[0], cell[1], cell[2], cell[3], true) && FormationBlocks.kind(cell[3]) == FormationBlocks.POINTED) {
+                    this.tipped(tips, cell[0], cell[1], cell[2]);
+                }
+            }
             for (Map.Entry<Integer, List<int[]>> e : floors.entrySet()) {
-                this.snap(e.getKey(), e.getValue(), true);
+                this.snap(e.getKey(), e.getValue(), true, tips);
             }
             for (Map.Entry<Integer, List<int[]>> e : ceilings.entrySet()) {
-                this.snap(e.getKey(), e.getValue(), false);
+                this.snap(e.getKey(), e.getValue(), false, tips);
             }
+            for (Map.Entry<Integer, int[]> e : tips.entrySet()) {
+                this.retip(this.minX + (e.getKey() & 15), this.minZ + (e.getKey() >> 4), e.getValue()[0], e.getValue()[1]);
+            }
+        }
+
+        /** Remembers the Y range of the pointed dripstone placed in a column. */
+        private void tipped(Map<Integer, int[]> tips, int x, int y, int z) {
+            int[] range = tips.computeIfAbsent((z - this.minZ) << 4 | (x - this.minX), k -> new int[] {y, y});
+            range[0] = Math.min(range[0], y);
+            range[1] = Math.max(range[1], y);
+        }
+
+        /**
+         * The thickness of the pointed dripstone of a column as vanilla computes it from its
+         * neighbours ({@code PointedDripstoneBlock.calculateDripstoneThickness}): a stack cut short
+         * still ends in a tip, and nothing changes at the first block update.
+         */
+        private void retip(int x, int z, int y0, int y1) {
+            while (y0 - 1 >= this.bottom && this.chunk.getBlockState(this.m.set(x, y0 - 1, z)).is(Blocks.POINTED_DRIPSTONE)) {
+                y0--;
+            }
+            while (y1 + 1 <= this.top && this.chunk.getBlockState(this.m.set(x, y1 + 1, z)).is(Blocks.POINTED_DRIPSTONE)) {
+                y1++;
+            }
+            // Each block's thickness follows from the next one towards its tip: tips first.
+            for (int y = y0; y <= y1; y++) {
+                this.thickness(x, y, z, Direction.DOWN);
+            }
+            for (int y = y1; y >= y0; y--) {
+                this.thickness(x, y, z, Direction.UP);
+            }
+        }
+
+        private void thickness(int x, int y, int z, Direction dir) {
+            BlockState state = this.chunk.getBlockState(this.m.set(x, y, z));
+            if (!pointed(state, dir)) {
+                return;
+            }
+            BlockState next = this.stateAt(x, y + dir.getStepY(), z);
+            DripstoneThickness t;
+            if (pointed(next, dir.getOpposite())) {
+                t = state.getValue(PointedDripstoneBlock.THICKNESS) == DripstoneThickness.TIP_MERGE
+                        || next.getValue(PointedDripstoneBlock.THICKNESS) == DripstoneThickness.TIP_MERGE ? DripstoneThickness.TIP_MERGE : DripstoneThickness.TIP;
+            } else if (!pointed(next, dir)) {
+                t = DripstoneThickness.TIP;
+            } else {
+                DripstoneThickness n = next.getValue(PointedDripstoneBlock.THICKNESS);
+                if (n != DripstoneThickness.TIP && n != DripstoneThickness.TIP_MERGE) {
+                    t = pointed(this.stateAt(x, y - dir.getStepY(), z), dir) ? DripstoneThickness.MIDDLE : DripstoneThickness.BASE;
+                } else {
+                    t = DripstoneThickness.FRUSTUM;
+                }
+            }
+            if (state.getValue(PointedDripstoneBlock.THICKNESS) != t) {
+                this.chunk.setBlockState(this.m.set(x, y, z), state.setValue(PointedDripstoneBlock.THICKNESS, t), Block.UPDATE_CLIENTS);
+            }
+        }
+
+        private BlockState stateAt(int x, int y, int z) {
+            return y < this.bottom || y > this.top ? Blocks.AIR.defaultBlockState() : this.chunk.getBlockState(this.m.set(x, y, z));
         }
 
         /** Feet (dir -1) down to the ground, hangers (dir 1) up to the ceiling, through open space of their column. */
@@ -216,7 +302,7 @@ public final class NatureBlocks {
                         break;
                     }
                     BlockState old = this.chunk.getBlockState(this.m.set(x, yy, z));
-                    boolean water = old.is(Blocks.WATER);
+                    boolean water = old.is(Blocks.WATER) && old.getFluidState().isSource();
                     if (!(open(old) || water && FormationBlocks.has(code, WET))) {
                         break;
                     }
@@ -230,7 +316,7 @@ public final class NatureBlocks {
          * near its height; the stack moves there whole and its cells are written bottom-up
          * (top-down), the anchor cell replacing that block if it is natural ground.
          */
-        private void snap(int column, List<int[]> cells, boolean floor) {
+        private void snap(int column, List<int[]> cells, boolean floor, Map<Integer, int[]> tips) {
             int x = this.minX + (column & 15);
             int z = this.minZ + (column >> 4);
             cells.sort((a, b) -> floor ? Integer.compare(a[0], b[0]) : Integer.compare(b[0], a[0]));
@@ -257,6 +343,9 @@ public final class NatureBlocks {
                 if (!placed) {
                     // A floor or ceiling block that may not change, or a plant that cannot stand, ends the stack.
                     return;
+                }
+                if (FormationBlocks.kind(code) == FormationBlocks.POINTED) {
+                    this.tipped(tips, x, y, z);
                 }
             }
         }
@@ -290,12 +379,17 @@ public final class NatureBlocks {
             boolean water = old.is(Blocks.WATER);
             boolean source = water && old.getFluidState().isSource();
             if (FormationBlocks.isSolid(code)) {
+                // Into water only where it stands still: never into falls, springs or spillways.
                 boolean ok = open(old) && old.getFluidState().isEmpty()
-                        || water && FormationBlocks.has(code, WET)
+                        || source && FormationBlocks.has(code, WET)
                         || old.is(Blocks.LAVA) && FormationBlocks.has(code, WET) && (kind == FormationBlocks.BASALT || kind == FormationBlocks.MAGMA)
                         || FormationBlocks.has(code, EMBED) && natural(old);
                 if (!ok) {
                     return false;
+                }
+                if (old.is(Blocks.POINTED_DRIPSTONE)) {
+                    // A cave formation through vanilla's dripstone: what is left of it hangs on the new block.
+                    this.tipped(this.tips, x, y, z);
                 }
                 this.set(x, y, z, state(code, x, y, z, false));
                 return true;
@@ -327,7 +421,10 @@ public final class NatureBlocks {
         }
     }
 
-    /** Air, plants, snow layers, leaf litter: what formations may replace (no fluids, no leaves, nothing solid). */
+    /**
+     * Air, plants, snow layers, leaf litter, vanilla's pointed dripstone (what is left of it stays
+     * attached to the formation): what formations may replace (no fluids, no leaves, nothing solid).
+     */
     static boolean open(BlockState state) {
         if (state.isAir()) {
             return true;
@@ -336,7 +433,8 @@ public final class NatureBlocks {
             return false;
         }
         return state.is(BlockTags.REPLACEABLE_BY_TREES) || state.getBlock() instanceof VegetationBlock || state.is(Blocks.SNOW)
-                || state.is(Blocks.MOSS_CARPET) || state.is(Blocks.LEAF_LITTER) || state.is(Blocks.GLOW_LICHEN) || state.is(Blocks.SCULK_VEIN);
+                || state.is(Blocks.MOSS_CARPET) || state.is(Blocks.LEAF_LITTER) || state.is(Blocks.GLOW_LICHEN) || state.is(Blocks.SCULK_VEIN)
+                || state.is(Blocks.POINTED_DRIPSTONE);
     }
 
     /** The natural ground and rock a sunk block may replace. Nothing built, nothing with a block entity, no ores of value. */
@@ -362,9 +460,27 @@ public final class NatureBlocks {
     }
 
     private static boolean needsSupport(int kind) {
-        return kind == FormationBlocks.AZALEA || kind == FormationBlocks.CAVE_VINES || kind == FormationBlocks.HANGING_ROOTS
+        return kind == FormationBlocks.POINTED || kind == FormationBlocks.AZALEA || kind == FormationBlocks.CAVE_VINES || kind == FormationBlocks.HANGING_ROOTS
                 || kind == FormationBlocks.SPORE_BLOSSOM || kind == FormationBlocks.MOSS_CARPET || kind == FormationBlocks.SCULK_VEIN
                 || kind == FormationBlocks.AMETHYST || kind == FormationBlocks.GLOW_LICHEN;
+    }
+
+    /** Decorations held only by the block above or below them: checked where they are written. */
+    private static boolean heldVertically(int code) {
+        int kind = FormationBlocks.kind(code);
+        return kind == FormationBlocks.POINTED || kind == FormationBlocks.CAVE_VINES || kind == FormationBlocks.HANGING_ROOTS
+                || kind == FormationBlocks.SPORE_BLOSSOM || kind == FormationBlocks.MOSS_CARPET || kind == FormationBlocks.AZALEA;
+    }
+
+    /** Decorations held by the block above them (written top down). */
+    private static boolean hangs(int code) {
+        int kind = FormationBlocks.kind(code);
+        return kind == FormationBlocks.POINTED ? (FormationBlocks.extra(code) & 1) == 0
+                : kind == FormationBlocks.CAVE_VINES || kind == FormationBlocks.HANGING_ROOTS || kind == FormationBlocks.SPORE_BLOSSOM;
+    }
+
+    private static boolean pointed(BlockState state, Direction dir) {
+        return state.is(Blocks.POINTED_DRIPSTONE) && state.getValue(PointedDripstoneBlock.TIP_DIRECTION) == dir;
     }
 
     // ------------------------------------------------------------------ block states

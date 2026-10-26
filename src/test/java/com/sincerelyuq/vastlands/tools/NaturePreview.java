@@ -43,7 +43,14 @@ import javax.imageio.ImageIO;
  *     <li>{@code --find KIND N}: formations of a kind within N blocks of 0,0;</li>
  *     <li>{@code --bench X Z CHUNKS}: the model and the shapes per chunk, surface and caves;</li>
  *     <li>{@code --order X Z CHUNKS}: the formations of every chunk from two systems queried in
- *     two orders on parallel threads, chunks that differ.</li>
+ *     two orders on parallel threads, chunks that differ;</li>
+ *     <li>{@code --runs X Z}: the open runs of the cave columns around a point against a scan;</li>
+ *     <li>{@code --list X Z SIZE MIN_REACH}: the formations of a square whose kind reaches at
+ *     least MIN_REACH blocks, with their roots and biomes (places for screenshots);</li>
+ *     <li>{@code --mask X0 Z0 SIZE FILE}: every block of every formation reaching the square
+ *     from X0, Z0 (its corner) as little-endian int triples x, y, z (for comparing generated
+ *     worlds at the formations' blocks only);</li>
+ *     <li>{@code --who X Y Z}: the formations with a block there, and that block.</li>
  * </ul>
  * Options: {@code --seed S}. Biomes: {@link PreviewNatureBiomes}.
  */
@@ -78,6 +85,9 @@ public final class NaturePreview {
                 case "--bench" -> jobs.add(new String[] {"bench", args[++i], args[++i], args[++i]});
                 case "--order" -> jobs.add(new String[] {"order", args[++i], args[++i], args[++i]});
                 case "--runs" -> jobs.add(new String[] {"runs", args[++i], args[++i]});
+                case "--list" -> jobs.add(new String[] {"list", args[++i], args[++i], args[++i], args[++i]});
+                case "--mask" -> jobs.add(new String[] {"mask", args[++i], args[++i], args[++i], args[++i]});
+                case "--who" -> jobs.add(new String[] {"who", args[++i], args[++i], args[++i]});
                 default -> throw new IllegalArgumentException("unknown argument " + args[i]);
             }
         }
@@ -94,6 +104,9 @@ public final class NaturePreview {
                 case "bench" -> preview.bench(Integer.parseInt(job[1]), Integer.parseInt(job[2]), Integer.parseInt(job[3]));
                 case "order" -> orderCheck(seed, Integer.parseInt(job[1]), Integer.parseInt(job[2]), Integer.parseInt(job[3]));
                 case "runs" -> preview.runs(Integer.parseInt(job[1]), Integer.parseInt(job[2]));
+                case "who" -> preview.who(Integer.parseInt(job[1]), Integer.parseInt(job[2]), Integer.parseInt(job[3]));
+                case "mask" -> preview.mask(Integer.parseInt(job[1]), Integer.parseInt(job[2]), Integer.parseInt(job[3]), new File(job[4]));
+                case "list" -> preview.list(Integer.parseInt(job[1]), Integer.parseInt(job[2]), Integer.parseInt(job[3]), Integer.parseInt(job[4]));
                 default -> throw new IllegalStateException(job[0]);
             }
             System.out.printf(Locale.ROOT, "%s: %.1f s%n", job[0], (System.nanoTime() - t0) / 1e9);
@@ -432,6 +445,64 @@ public final class NaturePreview {
                     }
                 }
             }
+        }
+    }
+
+    /** The formations with a block at a position. */
+    void who(int x, int y, int z) {
+        for (boolean surface : new boolean[] {true, false}) {
+            this.model.formations(x, z, x, z, surface, s -> {
+                FormationShape shape = this.model.shape(s, this.model.world());
+                for (int k = 0; k < shape.size(); k++) {
+                    int p = shape.positions[k];
+                    if (s.x() + FormationShape.dx(p) == x && s.y() + FormationShape.dy(p) == y && s.z() + FormationShape.dz(p) == z) {
+                        System.out.printf(Locale.ROOT, "  %s: kind %d extra %d flags %X%n", s, FormationBlocks.kind(shape.codes[k]),
+                                FormationBlocks.extra(shape.codes[k]), shape.codes[k] >>> 26);
+                    }
+                }
+            });
+        }
+    }
+
+    /** Every block of every formation reaching a square (corner x0, z0), as int triples. */
+    void mask(int x0, int z0, int size, File file) throws IOException {
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        java.nio.ByteBuffer cell = java.nio.ByteBuffer.allocate(12).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        int[] count = new int[1];
+        for (boolean surface : new boolean[] {true, false}) {
+            this.model.formations(x0, z0, x0 + size - 1, z0 + size - 1, surface, s -> {
+                FormationShape shape = this.model.shape(s, this.model.world());
+                for (int k = 0; k < shape.size(); k++) {
+                    if (FormationBlocks.kind(shape.codes[k]) == FormationBlocks.KEEP) {
+                        continue;
+                    }
+                    int p = shape.positions[k];
+                    int x = s.x() + FormationShape.dx(p);
+                    int z = s.z() + FormationShape.dz(p);
+                    if (x >= x0 && x < x0 + size && z >= z0 && z < z0 + size) {
+                        cell.clear();
+                        cell.putInt(x).putInt(s.y() + FormationShape.dy(p)).putInt(z);
+                        bytes.write(cell.array(), 0, 12);
+                        count[0]++;
+                    }
+                }
+            });
+        }
+        java.nio.file.Files.write(file.toPath(), bytes.toByteArray());
+        System.out.printf(Locale.ROOT, "wrote %s: %d formation blocks%n", file, count[0]);
+    }
+
+    /** The formations of a square whose kind reaches at least {@code minReach} blocks. */
+    void list(int cx, int cz, int size, int minReach) {
+        int x0 = cx - size / 2;
+        int z0 = cz - size / 2;
+        for (boolean surface : new boolean[] {true, false}) {
+            this.model.formations(x0, z0, x0 + size - 1, z0 + size - 1, surface, s -> {
+                if (s.kind().reach >= minReach && s.x() >= x0 && s.x() < x0 + size && s.z() >= z0 && s.z() < z0 + size) {
+                    System.out.printf(Locale.ROOT, "  %s at %d %d %d (h %.1f r %.1f span %d %s) %s%n", s.kind(), s.x(), s.y(), s.z(), s.height(), s.radius(),
+                            s.span(), s.rock(), this.biomes.biomeName(s.x(), s.y(), s.z()));
+                }
+            });
         }
     }
 

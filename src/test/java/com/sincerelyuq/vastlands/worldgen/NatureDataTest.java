@@ -54,8 +54,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 /**
- * The natural formations on a datapack-loaded server: their features, placements and biome modifier
- * load and reach every overworld and cave biome at the right step; biome tags map vanilla's biomes
+ * The natural formations on a datapack-loaded server: their features, placements and biome modifiers
+ * load and reach every overworld and cave biome at the right steps (the caves' last in theirs); biome tags map vanilla's biomes
  * to their styles; grass colours computed on the server match vanilla's colour map and biome data
  * (and the preview table the model tests use); with the world's real biome source the formations
  * are the same from any thread and order, and the previews' styles agree with the game's.
@@ -75,8 +75,10 @@ class NatureDataTest {
             assertEquals(VastlandsRegistries.FORMATIONS.get(), configured.feature(), name + " feature");
             placed.getOrThrow(ResourceKey.create(Registries.PLACED_FEATURE, Vastlands.id(name)));
         }
-        registries.lookupOrThrow(NeoForgeRegistries.Keys.BIOME_MODIFIERS).getOrThrow(ResourceKey.create(NeoForgeRegistries.Keys.BIOME_MODIFIERS, Vastlands.id("nature")));
-        int step = GenerationStep.Decoration.LOCAL_MODIFICATIONS.ordinal();
+        for (String modifier : new String[] {"nature", "nature_caves"}) {
+            registries.lookupOrThrow(NeoForgeRegistries.Keys.BIOME_MODIFIERS).getOrThrow(ResourceKey.create(NeoForgeRegistries.Keys.BIOME_MODIFIERS,
+                    Vastlands.id(modifier)));
+        }
         int biomes = 0;
         for (Holder.Reference<Biome> biome : registries.lookupOrThrow(Registries.BIOME).listElements().toList()) {
             if (!biome.is(BiomeTags.IS_OVERWORLD)) {
@@ -84,9 +86,18 @@ class NatureDataTest {
             }
             biomes++;
             var features = biome.value().getGenerationSettings().features();
-            assertTrue(features.size() > step, biome.key().location() + " has no local modifications step");
-            for (String name : new String[] {"surface_formations", "cave_formations"}) {
-                assertTrue(features.get(step).stream().anyMatch(h -> h.is(Vastlands.id(name))), biome.key().location() + " lacks " + name);
+            String[] names = {"surface_formations", "cave_formations"};
+            GenerationStep.Decoration[] steps = {GenerationStep.Decoration.LOCAL_MODIFICATIONS, GenerationStep.Decoration.UNDERGROUND_DECORATION};
+            for (int k = 0; k < 2; k++) {
+                int step = steps[k].ordinal();
+                String name = names[k];
+                assertTrue(features.size() > step, biome.key().location() + " has no step " + steps[k]);
+                List<Holder<PlacedFeature>> list = features.get(step).stream().toList();
+                assertTrue(list.stream().anyMatch(h -> h.is(Vastlands.id(name))), biome.key().location() + " lacks " + name + " at " + steps[k]);
+                if (k == 1) {
+                    // After vanilla's cave decorations of the biome (dripstone clusters, sculk patches).
+                    assertTrue(list.get(list.size() - 1).is(Vastlands.id(name)), biome.key().location() + ": cave formations not last in their step");
+                }
             }
         }
         assertTrue(biomes > 50, "overworld biomes: " + biomes);
