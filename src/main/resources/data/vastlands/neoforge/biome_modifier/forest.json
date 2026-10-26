@@ -1,0 +1,6 @@
+{
+  "type": "neoforge:add_features",
+  "biomes": "#vastlands:forest/all",
+  "features": "vastlands:forest",
+  "step": "vegetal_decoration"
+}

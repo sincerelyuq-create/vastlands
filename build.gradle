@@ -179,3 +179,15 @@ tasks.named('caveSurvey', JavaExec).configure {
         jvmArgs project.property('previewJvmArgs').toString().split(' ').toList()
     }
 }
+
+// Renders Vastlands forests without the game: tree forms, isometric views and aerial maps of a
+// square, forest statistics and the model's cost per chunk. Arguments: see
+// com.sincerelyuq.vastlands.tools.ForestPreview.
+tasks.register('forestPreview', JavaExec) {
+    group = 'vastlands'
+    description = 'Renders Vastlands forest previews (PNG) and forest statistics'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.sincerelyuq.vastlands.tools.ForestPreview'
+    workingDir = layout.projectDirectory.asFile
+    jvmArgs '-Djava.awt.headless=true', '-Xmx6G'
+}

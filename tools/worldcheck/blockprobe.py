@@ -3,7 +3,8 @@
     python3 tools/worldcheck/blockprobe.py run/caves1 -319 84 3106 --radius 3 --height 4
 
 Each layer shows a (2r+1) x (2r+1) grid, x to the right, z downwards; blocks are abbreviated
-(see LEGEND), fluids with their level (W0 source water, w7 flowing amount 7, w8 falling...).
+(see LEGEND), fluids with their level (W0 source water, w7 flowing amount 7, w8 falling...), logs
+with their axis (Ty, Tx, Tz), wood Tw, leaves with their distance (e1..e7; E1.. persistent).
 """
 import argparse
 import os
@@ -52,7 +53,15 @@ def short(entry):
     if name == "minecraft:lava":
         level = int(props.get("level", "0"))
         return "L0" if level == 0 else "l%d" % level
-    return LEGEND.get(name, name.split(":")[1][:2])
+    path = name.split(":")[1]
+    # Trees: logs T with their axis (Ty, Tx, Tz), bark wood Tw, leaves with their distance (e1..e7, E for persistent).
+    if path.endswith("_log") or (path.endswith("_stem") and path != "mushroom_stem"):
+        return "T" + props.get("axis", "y")
+    if path.endswith("_wood"):
+        return "Tw"
+    if path.endswith("_leaves"):
+        return ("E" if props.get("persistent") == "true" else "e") + props.get("distance", "?")
+    return LEGEND.get(name, path[:2])
 
 
 def main():

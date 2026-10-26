@@ -5,6 +5,7 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.sincerelyuq.vastlands.worldgen.caves.CaveBlocks;
 import com.sincerelyuq.vastlands.worldgen.caves.VastlandsCaves;
 import com.sincerelyuq.vastlands.worldgen.context.GenerationContext;
+import com.sincerelyuq.vastlands.worldgen.forest.VastlandsForests;
 import com.sincerelyuq.vastlands.worldgen.geography.GeographySample;
 import com.sincerelyuq.vastlands.worldgen.hydrology.HydrologyModel;
 import com.sincerelyuq.vastlands.worldgen.hydrology.RiverWater;
@@ -188,6 +189,9 @@ public class VastlandsChunkGenerator extends NoiseBasedChunkGenerator {
             }
             if (context.systems().caves() instanceof VastlandsCaves caves) {
                 info.add("Vastlands caves: " + caves.describe(pos.getX(), pos.getY(), pos.getZ()));
+            }
+            if (context.systems().forests() instanceof VastlandsForests forests) {
+                info.add("Vastlands forest: " + forests.describe(pos.getX(), pos.getZ()));
             }
         }, () -> info.add("Vastlands: no generation context (noise settings contain no Vastlands stage)"));
     }

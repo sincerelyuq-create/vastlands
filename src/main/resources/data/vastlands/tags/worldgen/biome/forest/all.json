@@ -1,0 +1,21 @@
+{
+  "values": [
+    "#vastlands:forest/temperate",
+    "#vastlands:forest/flower",
+    "#vastlands:forest/birch",
+    "#vastlands:forest/old_birch",
+    "#vastlands:forest/dark",
+    "#vastlands:forest/boreal",
+    "#vastlands:forest/old_spruce",
+    "#vastlands:forest/old_pine",
+    "#vastlands:forest/grassland",
+    "#vastlands:forest/savanna",
+    "#vastlands:forest/jungle",
+    "#vastlands:forest/sparse_jungle",
+    "#vastlands:forest/swamp",
+    "#vastlands:forest/highland",
+    "#vastlands:forest/grove",
+    "#vastlands:forest/alpine",
+    "#vastlands:forest/dry"
+  ]
+}

@@ -22,6 +22,10 @@ python3 tools/worldcheck/analyze.py run/vl_a run/vl_b
 ./gradlew terrainPreview --args="--seed 20261018 --center 0 0 --size 256 --scale 1 --heights run/vl_a-expected.bin"
 python3 tools/worldcheck/heightmap.py run/vl_a --png run/vl_a.png --expected run/vl_a-expected.bin --compare run/vl_b
 
+# Forests (needs numpy, PNGs Pillow): leaf distances, trunk support, trees, canopy, floor, seams;
+# --compare: identical tree blocks with another generation of the same square
+python3 tools/worldcheck/forestcheck.py run/m1 --png run/m1-forest.png --compare run/m1b
+
 # In-game screenshots (dev client under Xvfb; NAME:X Y Z YAW PITCH, yaw 0 = south, 180 = north)
 pip install python-xlib
 python3 tools/worldcheck/screenshot.py run/m1 --out run/shots --shot "ridge:300 300 5200 180 10"
@@ -33,7 +37,8 @@ python3 tools/worldcheck/screenshot.py run/m1 --out run/shots --shot "ridge:300 
   one chunk at a time on the server thread), waits until every chunk of the square is fully
   generated and saved, probes the build limits with `setblock` over RCON (port 25575), stops the
   server, and writes `run/<level-name>/worldcheck.json` with `generation_seconds` and
-  `chunks_per_second`. Server output goes to `run/worldcheck-<level-name>.log`.
+  `chunks_per_second` (it checks every `--poll` seconds, default 10: use 2 for timings). Server
+  output goes to `run/worldcheck-<level-name>.log`.
 - `analyze.py` reports the section range, bedrock floor, block composition per height band and
   surface heights; with two worlds, the share of identical blocks, biomes and surface heights.
   The probe column is excluded. It reads every block, so keep it to squares of about 16x16 chunks.

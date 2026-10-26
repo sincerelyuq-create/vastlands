@@ -1,6 +1,7 @@
 package com.sincerelyuq.vastlands.worldgen.system;
 
 import com.sincerelyuq.vastlands.worldgen.caves.VastlandsCaves;
+import com.sincerelyuq.vastlands.worldgen.forest.VastlandsForests;
 import com.sincerelyuq.vastlands.worldgen.hydrology.VastlandsHydrology;
 import com.sincerelyuq.vastlands.worldgen.terrain.VastlandsTerrain;
 
@@ -9,14 +10,14 @@ import com.sincerelyuq.vastlands.worldgen.terrain.VastlandsTerrain;
  *
  * <p>{@link #create} is the single place where implementations are chosen. Systems are created in
  * dependency order and may only receive systems created before them:
- * terrain → hydrology → caves, forests. Nothing depends on caves or forests.
+ * terrain → hydrology → caves → forests. Nothing depends on forests.
  */
 public record GenerationSystems(TerrainSystem terrain, HydrologySystem hydrology, CaveSystem caves, ForestSystem forests) {
     public static GenerationSystems create(GenerationSetup setup) {
         TerrainSystem terrain = new VastlandsTerrain(setup);
         HydrologySystem hydrology = new VastlandsHydrology(setup, terrain);
         CaveSystem caves = new VastlandsCaves(setup, terrain, hydrology);
-        ForestSystem forests = Passthrough.INSTANCE;
+        ForestSystem forests = new VastlandsForests(setup, terrain, hydrology, caves);
         return new GenerationSystems(terrain, hydrology, caves, forests);
     }
 
