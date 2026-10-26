@@ -574,8 +574,10 @@ final class FormationShapes {
         double cos = Math.cos(a);
         double sin = Math.sin(a);
         boolean great = c.spec.kind() == FormationKind.GREAT_ARCH;
-        double thick = great ? c.r.range(3.2, 5.0) : c.r.range(1.5, 2.3);
-        double wide = thick * c.r.range(1.1, 1.6);
+        // A slender rib (about a sixth of the span thick at the crest) on flared legs: thicker
+        // ribs read as a dome with a hole in it.
+        double thick = great ? c.r.range(2.0, 2.8) : c.r.range(1.2, 1.7);
+        double wide = thick * c.r.range(0.95, 1.35);
         int legA = c.ground((int) Math.round(-cos * half), (int) Math.round(-sin * half)) + 1;
         int legB = c.ground((int) Math.round(cos * half), (int) Math.round(sin * half)) + 1;
         double base = Math.max(legA, legB);
@@ -616,11 +618,12 @@ final class FormationShapes {
                             }
                         }
                     }
+                    // The legs flare towards the ground, the rib stays slender above.
                     double leg = 1.0 - Math.sin(t);
-                    double tt = thick * (1.0 + 0.55 * leg);
-                    double ww = wide * (1.0 + 0.35 * leg);
+                    double tt = thick * (1.0 + 1.0 * leg * leg);
+                    double ww = wide * (1.0 + 0.7 * leg * leg);
                     double q = (din / tt) * (din / tt) + (w / ww) * (w / ww);
-                    if (q <= 1.0 + 0.5 * (c.lump(dx, dy, dz) - 0.5)) {
+                    if (q <= 1.0 + 0.4 * (c.lump(dx, dy, dz) - 0.5)) {
                         int code = c.rock(dx, dy, dz);
                         c.b.solid(dx, dy, dz, dy <= ground ? code | EMBED : code);
                     }

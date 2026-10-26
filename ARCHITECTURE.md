@@ -1434,12 +1434,15 @@ the forests (moss, deadwood, mushrooms; below) and added the server-side grass c
 Integration:
 - Two configured features of type `vastlands:formations` (`data/vastlands/worldgen/{configured,placed}_feature/
   surface_formations.json`, `cave_formations.json`, config `{layer: surface|caves, density: 0..1}`),
-  added by the NeoForge biome modifier `data/vastlands/neoforge/biome_modifier/nature.json` to every
-  biome of `#vastlands:nature/all` (`#minecraft:is_overworld` plus the cave slot tags, optional
-  entries) at step `local_modifications`: after the terrain, rivers and caves, before structures'
-  blocks, ores, cave biome features (dripstone clusters, moss patches, sculk patches) and
-  vegetation; the forests come later (`vegetal_decoration`) and grow around the formations. In
-  other worlds the feature does nothing (`VastlandsChunkGenerator` check). Vanilla decorates a
+  added to every biome of `#vastlands:nature/all` (`#minecraft:is_overworld` plus the cave slot
+  tags, optional entries) by two NeoForge biome modifiers: `nature.json` puts the surface
+  formations at step `local_modifications` (after the terrain, rivers and caves, before
+  structures' blocks and vegetation; the forests come later in `vegetal_decoration` and grow
+  around them); `nature_caves.json` puts the cave formations at the end of
+  `underground_decoration`, after vanilla's dripstone clusters, pointed dripstone and sculk
+  patches and before the lush caves' vegetation. (Found in game: run before them, a dripstone
+  cluster's pools replaced the feet of stalagmites and left the rest floating.) In other worlds
+  the feature does nothing (`VastlandsChunkGenerator` check). Vanilla decorates a
   chunk with the features of every biome within one chunk of it, so the feature runs in every
   chunk a formation can reach (`FormationKind.reach` ≤ 32 blocks, the largest a wonder's).
 - Styles from biome tags (`data/vastlands/tags/worldgen/biome/nature/`): `surface/<style>` for
@@ -1527,12 +1530,20 @@ lush cave rock, sculk on deep dark rock).
 
 The block step (`NatureBlocks`, `NatureFeature`):
 - Each formation reaching the chunk (`model.formations` for the chunk, in a fixed order), its
-  blocks inside the chunk: solids into air, plants and snow; into water only where the formation
-  stands in it (`WET`); into natural ground only where it is sunk into it (`EMBED`: stone,
-  deepslate, dirt, sand, gravel, terracotta ..., never anything built); lava only for basalt and
-  magma of volcanic columns. Decorations into air only (waterloggable ones into still water).
-  Plants and attached blocks only where vanilla's `canSurvive` holds. Feet and hangers, then the
-  snapped stacks. Blocks are written without neighbour updates, like vanilla's features.
+  blocks inside the chunk: solids into air, plants, snow and vanilla's pointed dripstone (what is
+  left of it hangs on the new block); into still water only where the formation stands in it
+  (`WET`: islets, sea stacks, and every cave formation of a flooded run, so a stalagmite rises out
+  of its pool), never into flowing water (falls, springs, spillways); into natural ground only
+  where it is sunk into it (`EMBED`: stone, deepslate, dirt, sand, gravel, terracotta ..., never
+  anything built); lava only for basalt and magma of volcanic columns. Decorations into air only
+  (waterloggable ones into still water). Decorations held by the block above or below them
+  (pointed dripstone, cave vines, hanging roots, spore blossoms, carpets, azaleas) are written
+  from their support outwards and only where vanilla's `canSurvive` holds: their support is in
+  their own column, so the check reads only the chunk's own blocks and does not depend on
+  generation order; a tip whose body stayed out (under water, say) is not left hanging from
+  nothing. The pointed dripstone of every column touched gets the thickness vanilla computes
+  (`calculateDripstoneThickness`), so a stack cut short still ends in a tip. Feet and hangers,
+  then the snapped stacks. Blocks are written without neighbour updates, like vanilla's features.
 - Structures (`StructureGuard`): a formation is left out whole if its footprint meets a piece of
   any structure (villages, ruins, ancient cities, mineshafts, trial chambers, strongholds, other
   mods' and datapacks' structures) starting within 7 chunks of its root chunk (through that
@@ -1592,7 +1603,9 @@ root, height, radius, span, rock, flags); `model().shape(spec, model().world())`
 `VastlandsNature.bind(owner, biomes)` before use (the feature binds the world's biome source).
 
 Performance: model and shapes cost about 0.4 ms per chunk at the surface and 0.3..0.4 ms in the caves
-(`naturePreview --bench`, warm, one thread); in game see PROGRESS.md, Agent 6.
+(`naturePreview --bench`, warm, one thread); in game the feature takes 0.36..1.0 ms per pass (two
+passes per chunk: surface and caves), end to end 0..10% of the generation time per square (see
+PROGRESS.md, Agent 6).
 
 Tuning: `NatureSettings.DEFAULT` (surface, caves, large, wonders, mossy; all 1) and the features'
 `density`; chances per layer and style in `NatureModel.surfaceChance`, the cave gate `CAVE_MAX`, the
@@ -1600,7 +1613,7 @@ choosers (`small` ... `caveGiant`), rock in `surfaceRock` / `caveRock`; shapes i
 palettes in `NatureBlocks.rock`; styles and profiles in the tags; moss in `GrassColors`,
 `ForestModel.mossEcology` and `ForestBlocks.Understory.floor`. Any change changes generation (seams
 against existing chunks). Render with `naturePreview` (`--gallery`, `--view`, `--cave`, `--stats`,
-`--find`, `--bench`, `--order`, `--runs`) before generating worlds; `NatureModelTest` and
+`--find`, `--bench`, `--order`, `--runs`, `--list`, `--mask`, `--who`) before generating worlds; `NatureModelTest` and
 `NatureDataTest` guard the properties, `naturecheck.py` checks generated worlds.
 
 Limitations (details: PROGRESS.md, Known Issues): formations are vanilla blocks at block scale (no
@@ -1630,10 +1643,10 @@ Vanilla Isolation
   for a `RandomState` with a Vastlands context. Vanilla biomes are used as they are (lush caves,
   dripstone caves and the deep dark bring their own features).
 - Natural formations (Agent 6): `vastlands:formations` (two placed features) is added to the
-  overworld biomes by a NeoForge biome modifier, so it is in their feature lists in every world,
-  but it places nothing unless the generator is a `VastlandsChunkGenerator`. No vanilla feature,
-  biome or block is changed; vanilla's cave biome features (dripstone clusters, moss patches,
-  sculk) run as before, after the formations.
+  overworld biomes by two NeoForge biome modifiers, so it is in their feature lists in every
+  world, but it places nothing unless the generator is a `VastlandsChunkGenerator`. No vanilla
+  feature, biome or block is changed; vanilla's cave biome features (dripstone clusters, pointed
+  dripstone, sculk patches) run as before, then the cave formations.
 - Forests (Agent 5): `vastlands:forest` is added to vanilla biomes by a NeoForge biome modifier, so
   it is in their feature lists in every world, but it places nothing unless the generator is a
   `VastlandsChunkGenerator`. `PlacedFeatureMixin` appends the `vastlands:outside_forests` filter
@@ -1752,9 +1765,11 @@ JUnit (`./gradlew test`, 87 tests):
   opening, never within radius + 8 of a fall, no islets in rivers; cave formations stand on a
   cave floor with their span ending at the ceiling; small formations outnumber medium ones,
   medium large ones, large wonders, at the surface and in the caves, with 1..36 wonders in 36
-  km²; no tree log of the forests grows into a formation (3 081 trees beside 643 formations).
+  km²; no tree log of the forests grows into a formation (3 081 trees beside 643 formations);
+  every kind reaches at most 32 blocks (what a decorating region can read, see the structure guard).
 - `NatureDataTest` (test server, Agent 6) — the formations' configured and placed features and
-  biome modifier load and reach the local modifications of every overworld biome; vanilla
+  biome modifiers load; every overworld biome has the surface formations in its local
+  modifications and the cave formations last in its underground decoration; vanilla
   biomes get their styles and profiles from the tags; `GrassColors` within 2/255 of vanilla's
   grass colour map (the client texture, read from the test class path) at its samples and 3
   between them, the moss and grass top textures' means as the code assumes; every vanilla
@@ -1814,6 +1829,18 @@ forested riverbanks and treelines; `--trees X Z R` the trees around a point; `--
 the largest radius of each form in a square against its reach; `--bench X Z CHUNKS`
 the model and shapes per chunk; `--order X Z CHUNKS` the trees of every chunk from two systems in
 two orders; `--explain LAYER I J X Z N` why a lattice cell has or lacks its tree.
+
+Nature previews: `./gradlew naturePreview --args="..."` (`NaturePreview`, Agent 6; biomes from
+vanilla's table and the mod's tag files, `PreviewNatureBiomes`): `--gallery FILE` every formation
+kind on flat ground or in a box cave (isometric sheets); `--view X Z SIZE FILE` a square of terrain,
+water, trees and surface formations, with the formations by kind, rock and biome; `--cave X Y Z SIZE
+HEIGHT FILE` the caves of a box with their ceilings cut away and their formations; `--stats X Z SIZE`
+formations by kind at the surface and in the caves per km²; `--find KIND N` formations of a kind
+near 0,0; `--list X Z SIZE MIN_REACH` the larger formations of a square (places for screenshots);
+`--bench X Z CHUNKS` model and shapes per chunk; `--order X Z CHUNKS` the formations of every chunk
+from two systems in two orders on parallel threads; `--runs X Z` the caves' open runs against a
+scan; `--mask X0 Z0 SIZE FILE` every formation block of a square (to compare generated worlds at
+the formations only); `--who X Y Z` the formations with a block at a position.
 
 River previews: `./gradlew hydrologyPreview --args="--seed S --center X Z --size BLOCKS --scale
 BLOCKS_PER_PIXEL --out PREFIX"` (`HydrologyPreview`) renders the carved relief with rivers and lakes
