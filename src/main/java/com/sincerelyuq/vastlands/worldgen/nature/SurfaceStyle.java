@@ -42,7 +42,13 @@ public enum SurfaceStyle {
     /** Mushroom fields: nothing but a few rocks. */
     MUSHROOM,
     /** No natural formations (an opt-out for other mods' biomes). */
-    NONE;
+    NONE,
+    /** Sincerelyuq's Biomes' ashen wastes: basalt boulders and outcrops, volcanic fissures with ash vents, hornitos. */
+    ASHEN,
+    /** Sincerelyuq's Biomes' painted strata: banded spires, tors, scree and arches in the strata's colours. */
+    STRATA,
+    /** Sincerelyuq's Biomes' bone dunes: a sand sea, hardly a rock (its dunes and fossils are its landmarks). */
+    DUNES;
 
     public static final SurfaceStyle[] VALUES = values();
 

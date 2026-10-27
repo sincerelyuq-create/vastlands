@@ -119,7 +119,8 @@ public final class ForestModel {
     private final ForestSettings settings;
     private final int seaLevel;
     private final SimplexNoise warpA, warpB, warpC, warpD, cover, patch, clear, meadow, wetMeadow, gaps, age, micro, line, fungi;
-    private final SimplexNoise[] species = new SimplexNoise[Wood.VALUES.length + 1];
+    /** One patch noise per vanilla wood, then the pine patches (their seeds predate the modded woods). */
+    private final SimplexNoise[] species = new SimplexNoise[Wood.VANILLA + 1];
 
     private final ThreadLocal<Caches> caches = ThreadLocal.withInitial(Caches::new);
 
@@ -664,7 +665,7 @@ public final class ForestModel {
         for (int t = 0; t < ForestType.COUNT; t++) {
             if (p.weights[t] > 0.0) {
                 ForestType type = ForestType.VALUES[t];
-                rate += p.weights[t] * (type.closed() ? 0.4 : (type == ForestType.SWAMP ? 0.3 : 0.08));
+                rate += p.weights[t] * (type == ForestType.CHARRED ? 0.6 : type.closed() ? 0.4 : (type == ForestType.SWAMP ? 0.3 : 0.08));
             }
         }
         rate /= Math.max(1e-6, p.share);
@@ -686,6 +687,9 @@ public final class ForestModel {
     double speciesPatch(Wood wood, double x, double z) {
         double qx = this.wx(x, z);
         double qz = this.wz(x, z);
+        if (wood.ordinal() >= Wood.VANILLA) {
+            return 1.0;
+        }
         return 0.35 + 1.3 * smoothstep(-0.5, 0.5, this.species[wood.ordinal()].sample(qx / 95.0, qz / 95.0));
     }
 
@@ -700,7 +704,7 @@ public final class ForestModel {
     double pinePatch(double x, double z) {
         double qx = this.wx(x, z);
         double qz = this.wz(x, z);
-        return 0.35 + 1.3 * smoothstep(-0.5, 0.5, this.species[Wood.VALUES.length].sample(qx / 110.0, qz / 110.0));
+        return 0.35 + 1.3 * smoothstep(-0.5, 0.5, this.species[Wood.VANILLA].sample(qx / 110.0, qz / 110.0));
     }
 
     // ------------------------------------------------------------------ the world under a tree
@@ -1077,6 +1081,8 @@ public final class ForestModel {
                 case DRY -> 0.08;
                 case GRASSLAND -> 0.012;
                 case ALPINE -> 0.04;
+                case DUSK -> 0.06;
+                case CHARRED -> 0.0;
             };
         }
 
@@ -1301,6 +1307,8 @@ public final class ForestModel {
                         set(c, TreeForm.BROADLEAF, Wood.OAK, r.range(4, 6.5) * s, r.range(2.0, 3.0));
                     }
                 }
+                case DUSK -> dusk(m, c, r, s, old, young, edge);
+                case CHARRED -> charred(c, r, s, old, p.density);
             }
             // Riparian broadleaves carry vines.
             if (p.riparian > 0.3 && (c.form == TreeForm.BROADLEAF) && c.vines == 0.0 && r.chance(0.5)) {
@@ -1311,9 +1319,57 @@ public final class ForestModel {
             }
         }
 
+        /**
+         * The twilight thicket: dusk trees of every age under a closed canopy: young ones crowding
+         * gaps, mature broad crowns, slender tall ones, broad flat-topped elders on 2 x 2 trunks and
+         * rare ancient giants in old stands; dead snags; huge mushrooms gathered in patches.
+         */
+        static void dusk(ForestModel m, Cand c, TreeRandom r, double s, double old, double young, double edge) {
+            double u = r.next();
+            double fungi = 0.07 * m.mushroomPatch(c.x, c.z) * m.settings.mushrooms();
+            double v = u - fungi;
+            if (u < fungi) {
+                mushroom(c, r, old);
+            } else if (v < 0.03 + 0.25 * edge) {
+                bush(c, Wood.DUSK, r, s);
+            } else if (old > 0.25 && v < 0.06 + 0.04 * old) {
+                set(c, TreeForm.SNAG, Wood.DUSK, r.range(5, 11) * s, 1);
+            } else if (old > 0.35 && s > 0.85 && edge < 0.35 && r.chance(0.035 * old)) {
+                set(c, TreeForm.ANCIENT, Wood.DUSK, r.range(17, 24) * s, r.range(8.0, 11.0));
+                c.flags |= TreeSpec.ROOTS;
+            } else if (r.chance(0.12 + 0.18 * old)) {
+                set(c, TreeForm.DARK_OAK, Wood.DUSK, r.range(9, 14) * s, r.range(4.2, 5.8));
+            } else if (r.chance(0.32 * young + 0.12 * edge)) {
+                set(c, TreeForm.BROADLEAF, Wood.DUSK, r.range(4.5, 7) * s, r.range(1.8, 2.8));
+            } else if (r.chance(0.2)) {
+                // Slender: a tall trunk under a narrow crown.
+                set(c, TreeForm.BROADLEAF, Wood.DUSK, r.range(12, 16) * s, r.range(2.4, 3.2));
+            } else {
+                set(c, TreeForm.BROADLEAF, Wood.DUSK, r.range(8, 12) * s, r.range(3.4, 5.0));
+            }
+        }
+
+        /**
+         * The ashen wastes: burnt trees standing dead: snags of many heights, some broken low,
+         * a few old giants; stumps. Fallen burnt logs come with the floor lattice.
+         */
+        static void charred(Cand c, TreeRandom r, double s, double old, double density) {
+            double u = r.next();
+            if (u < 0.22) {
+                set(c, TreeForm.STUMP, Wood.CHARRED, r.between(1, 3), 1);
+            } else if (u < 0.3 + 0.1 * old && s > 0.8) {
+                set(c, TreeForm.SNAG, Wood.CHARRED, r.range(11, 17) * s, 1.4);
+            } else if (u < 0.55) {
+                set(c, TreeForm.SNAG, Wood.CHARRED, r.range(3, 6) * s, 1);
+            } else {
+                set(c, TreeForm.SNAG, Wood.CHARRED, r.range(6, 11) * s, 1.2);
+            }
+        }
+
         static void shrub(Cand c, ForestType type, Point p, TreeRandom r) {
             double s = Math.max(0.7, p.size);
             switch (type) {
+                case DUSK -> bush(c, Wood.DUSK, r, s);
                 case JUNGLE, SPARSE_JUNGLE -> bush(c, Wood.JUNGLE, r, s);
                 case DARK -> bush(c, Wood.DARK_OAK, r, s);
                 case BIRCH, OLD_BIRCH -> bush(c, r.chance(0.6) ? Wood.BIRCH : Wood.OAK, r, s);
@@ -1337,6 +1393,8 @@ public final class ForestModel {
          */
         static void fallen(Cand c, ForestType type, Point p, TreeRandom r, double blend) {
             Wood wood = switch (type) {
+                case DUSK -> Wood.DUSK;
+                case CHARRED -> Wood.CHARRED;
                 case BOREAL, OLD_SPRUCE, OLD_PINE, GROVE, HIGHLAND, ALPINE -> Wood.SPRUCE;
                 case BIRCH, OLD_BIRCH -> Wood.BIRCH;
                 case DARK -> r.chance(0.6) ? Wood.DARK_OAK : Wood.OAK;
@@ -1351,7 +1409,7 @@ public final class ForestModel {
                 set(c, TreeForm.STUMP, wood, r.between(1, 2) + (r.chance(0.3 * p.old) ? 1 : 0), 1);
             } else if (u < 0.29) {
                 set(c, TreeForm.DEBRIS, wood, 2, 2);
-            } else if (u < 0.29 + 0.07 * (0.4 + p.old) && type.closed()) {
+            } else if (u < 0.29 + 0.07 * (0.4 + p.old) && type.closed() && wood != Wood.CHARRED) {
                 set(c, TreeForm.UPROOTED, wood, Math.min(8, r.between(4, 6) + (int) Math.round(2.0 * p.old)), 3);
             } else {
                 boolean big = type == ForestType.OLD_SPRUCE || type == ForestType.OLD_PINE || type == ForestType.DARK || type == ForestType.TEMPERATE;
@@ -1365,6 +1423,10 @@ public final class ForestModel {
                 }
             }
             c.flags |= style << TreeSpec.STYLE_SHIFT;
+            if (type == ForestType.CHARRED) {
+                // Burnt wood: no moss, no rot.
+                return;
+            }
             double moss = mossEcology(type) * wet * (0.5 + 0.5 * p.old) * Math.max(blend, 0.45);
             if (r.chance(Math.min(1.0, 1.6 * moss))) {
                 c.flags |= TreeSpec.MOSS;
@@ -1382,6 +1444,7 @@ public final class ForestModel {
                 case BOREAL -> 0.45;
                 case JUNGLE, SPARSE_JUNGLE -> 0.35;
                 case TEMPERATE, BIRCH, OLD_BIRCH, FLOWER, DARK -> 0.3;
+                case DUSK -> 0.35;
                 case HIGHLAND, GROVE -> 0.2;
                 default -> 0.0;
             };

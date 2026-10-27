@@ -23,6 +23,8 @@ public enum CaveBiome {
     /** Any other mod's cave biomes added to the {@code other} tag; plain rock without them. */
     OTHER;
 
+    public static final CaveBiome[] VALUES = values();
+
     /** The slot taking this one's place when its tag holds no biome. */
     public CaveBiome fallback() {
         return switch (this) {

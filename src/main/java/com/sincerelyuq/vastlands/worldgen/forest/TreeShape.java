@@ -165,6 +165,36 @@ public final class TreeShape {
             }
         }
 
+        /**
+         * Leaves hanging in strands of 1..3 under the crown (the twilight thicket's dusk trees):
+         * under a share of the leaves with open air below, never under a log or beside the trunk.
+         * Each strand is a column of leaves held by the leaf above it, so its distances count on.
+         */
+        void hangLeaves(double share, long seed) {
+            int n = this.count;
+            for (int k = 0; k < n; k++) {
+                int i = this.touched[k];
+                int code = this.cells[i];
+                if (TreeBlocks.kind(code) != TreeBlocks.LEAVES) {
+                    continue;
+                }
+                int dx = i % SIDE - R;
+                int dz = (i / SIDE) % SIDE - R;
+                int dy = i / (SIDE * SIDE) + MIN_Y;
+                if (dx * dx + dz * dz < 4 || !this.isEmpty(dx, dy - 1, dz) || this.isEmpty(dx, dy + 1, dz)) {
+                    continue;
+                }
+                long h = com.sincerelyuq.vastlands.worldgen.noise.SimplexNoise.mix(seed ^ (long) i * 0x9E3779B97F4A7C15L);
+                if ((h >>> 11) * 0x1.0p-53 >= share) {
+                    continue;
+                }
+                int length = 1 + (int) ((h >>> 3) % 3);
+                for (int d = 1; d <= length && this.isEmpty(dx, dy - d, dz) && this.isEmpty(dx, dy - d - 1, dz); d++) {
+                    this.soft(dx, dy - d, dz, code);
+                }
+            }
+        }
+
         void ground(int dx, int dz, int code) {
             if (this.groundCount < this.groundColumns.length && Math.abs(dx) <= this.reach && Math.abs(dz) <= this.reach) {
                 this.groundColumns[this.groundCount] = packColumn(dx, dz);

@@ -1,0 +1,48 @@
+{
+  "values": [
+    {
+      "id": "sincerelyuq:amethyst_lake",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:fake_geode",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:trial_fragment",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:copper_bloom",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:sculk_shelter",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:bones_stone",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:bones_deepslate",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:cinnabar_bleed",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:sulfur_exp",
+      "required": false
+    },
+    {
+      "id": "sincerelyuqs_biomes:strata_sanctum",
+      "required": false
+    },
+    {
+      "id": "sincerelyuqs_biomes:geode_heart",
+      "required": false
+    }
+  ]
+}

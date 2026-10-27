@@ -1,0 +1,12 @@
+{
+  "values": [
+    {
+      "id": "sincerelyuq:amethyst_lake",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:fake_geode",
+      "required": false
+    }
+  ]
+}

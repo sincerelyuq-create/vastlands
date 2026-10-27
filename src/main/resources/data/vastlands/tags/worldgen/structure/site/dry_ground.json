@@ -1,0 +1,136 @@
+{
+  "values": [
+    {
+      "id": "sincerelyuq:apiary_clearing",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:deepslate_nether_portal",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:desert_chest_tnt",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:fake_treasure",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:false_well",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:firefly_bush",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:frozen_camp",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:half_portal",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:last_camp",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:lush_caves_plains",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:mushroom_ring",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:nether_pale",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:old_village_1",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:pale_watcher",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:peace_stand_1",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:pillager_stand_1",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:pot_trap",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:pumpkin_seeds_1",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:pumpkin_seeds_2",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:redstone_bunch",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:redstone_bunch_2",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:resin_bunch",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:sand_chest_legit",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:seeds",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:seeds_2",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:seeds_3",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:spruce_well",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:village_tavern",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:badland_hot_spring",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:badland_hot_spring_small",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:half_built",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:shelf_mushroom_big",
+      "required": false
+    },
+    {
+      "id": "sincerelyuqs_biomes:strata_sanctum",
+      "required": false
+    }
+  ]
+}

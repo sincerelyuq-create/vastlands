@@ -34,7 +34,7 @@ from anvil import read_chunk  # noqa: E402
 
 MIN_Y = -256
 AIRS = {"minecraft:air", "minecraft:cave_air", "minecraft:void_air"}
-FLUIDS = {"minecraft:water", "minecraft:lava", "minecraft:bubble_column"}
+FLUIDS = {"minecraft:water", "minecraft:lava", "minecraft:bubble_column", "sincerelyuqs_biomes:lavender_spinel"}
 # Not solid: plants, hanging and attached decorations, thin blocks.
 SOFT_HINTS = ("grass", "fern", "flower", "tulip", "bush", "_mushroom", "vine", "lichen", "petals", "sapling", "hanging_roots",
               "moss_carpet", "snow", "dandelion", "poppy", "orchid", "allium", "bluet", "daisy", "cornflower", "lily_of_the_valley",
@@ -42,7 +42,9 @@ SOFT_HINTS = ("grass", "fern", "flower", "tulip", "bush", "_mushroom", "vine", "
               "button", "pressure_plate", "carpet", "sign", "banner", "cobweb", "string", "wildflowers", "seagrass", "kelp",
               "sugar_cane", "bamboo", "cocoa", "amethyst_bud", "amethyst_cluster", "dripleaf", "lily_pad", "sea_pickle", "coral",
               "dead_bush", "cactus", "azalea", "pink_petals", "firefly", "dry_grass", "frogspawn", "candle", "ladder", "lantern",
-              "chain", "_head", "skull", "flower_pot", "potted_", "door", "pane", "bars")
+              "chain", "_head", "skull", "flower_pot", "potted_", "door", "pane", "bars",
+              # Sincerelyuq's Biomes (Agent 7): plants and hanging or attached decorations.
+              "lumen_bulb", "lumen_sprouts", "amethyst_spike", "dusk_bloom", "lotus_pad")
 # Solid blocks that grow on others (counted as support like any solid block, but listed apart when they float).
 MATERIALS = ("dripstone_block", "pointed_dripstone", "moss_block", "moss_carpet", "mossy_cobblestone", "cobblestone", "sculk",
              "sculk_vein", "sculk_sensor", "sculk_shrieker", "sculk_catalyst", "calcite", "tuff", "basalt", "smooth_basalt",
@@ -50,7 +52,10 @@ MATERIALS = ("dripstone_block", "pointed_dripstone", "moss_block", "moss_carpet"
              "cobbled_deepslate", "gravel", "clay", "mud", "packed_mud", "coarse_dirt", "rooted_dirt", "podzol", "magma_block",
              "glow_lichen", "hanging_roots", "mangrove_roots", "spore_blossom", "cave_vines", "cave_vines_plant", "azalea",
              "flowering_azalea", "azalea_leaves", "flowering_azalea_leaves", "brown_mushroom_block", "red_mushroom_block",
-             "mushroom_stem", "brown_mushroom", "red_mushroom", "sandstone", "terracotta", "packed_ice", "blue_ice")
+             "mushroom_stem", "brown_mushroom", "red_mushroom", "sandstone", "terracotta", "packed_ice", "blue_ice",
+             "blackstone", "netherrack", "lumen_stem", "lumen_cap", "lumen_gills", "lumen_moss", "lumen_bulb", "lumen_sprouts",
+             "glowing_amethyst", "amethyst_spike", "smoldering_magma", "ash_block", "ash_vent", "charred_log", "dusk_log",
+             "dusk_leaves", "bleached_bone", "bone_block")
 FACES = {"north": (0, 0, -1), "south": (0, 0, 1), "east": (1, 0, 0), "west": (-1, 0, 0), "up": (0, 1, 0), "down": (0, -1, 0)}
 
 
@@ -161,15 +166,19 @@ def check(path, compare=None):
     loose_inner = loose & inner
     by_block = Counter()
     examples = []
+    per_block = {}
     ys, zs, xs = np.nonzero(loose_inner)
     for y, z, x in zip(ys, zs, xs):
         b = short[v.ids[y, z, x]]
         by_block[b] += 1
+        at = [int(x) + v.origin[0], int(y) + MIN_Y, int(z) + v.origin[1], b]
         if len(examples) < 20:
-            examples.append([int(x) + v.origin[0], int(y) + MIN_Y, int(z) + v.origin[1], b])
+            examples.append(at)
+        if len(per_block.setdefault(b, [])) < 3:
+            per_block[b].append(at[:3])
     report = {"world": path, "blocks": int(v.ids.size), "solid": int(solid.sum()), "support rounds": rounds,
               "floating (16+ inside)": int(loose_inner.sum()), "floating by block": dict(by_block.most_common()),
-              "floating examples": examples}
+              "floating examples": examples, "floating examples by block": per_block}
 
     # Pointed dripstone: attachment and tips.
     pd = v.table(lambda n, p: n == "minecraft:pointed_dripstone")

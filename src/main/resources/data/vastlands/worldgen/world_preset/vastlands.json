@@ -15,7 +15,13 @@
           "deep_dark": "#vastlands:cave/deep_dark",
           "crystal": "#vastlands:cave/crystal",
           "volcanic": "#vastlands:cave/volcanic",
-          "other": "#vastlands:cave/other"
+          "other": "#vastlands:cave/other",
+          "luminous": "#vastlands:cave/luminous",
+          "painted_range": "#vastlands:region/painted_range",
+          "volcanic_waste": "#vastlands:region/volcanic_waste",
+          "dune_sea": "#vastlands:region/dune_sea",
+          "wetland": "#vastlands:region/wetland",
+          "dusk_wood": "#vastlands:region/dusk_wood"
         },
         "settings": "vastlands:overworld"
       }

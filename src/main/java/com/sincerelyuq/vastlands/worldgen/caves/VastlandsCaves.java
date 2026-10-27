@@ -427,6 +427,15 @@ public final class VastlandsCaves implements CaveSystem {
         return this.model.caveBiome(x, y, z);
     }
 
+    /**
+     * True if the block lies in a luminous lush or dripstone province or megacave (middle and deep
+     * caves under warm, humid climates), where a luminous cave biome of another mod takes the
+     * slot's place (the {@code luminous} list of the biome source); cheap anywhere.
+     */
+    public boolean luminous(int x, int y, int z) {
+        return this.model.luminous(x, y, z);
+    }
+
     /** Fluid placed in an open cave block (below the ground), for block steps and tests. */
     public CaveFluid caveFluid(int x, int y, int z) {
         return this.column(x, z).domain(y).at(y);

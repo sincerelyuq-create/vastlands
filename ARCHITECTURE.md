@@ -24,6 +24,8 @@ Development Modules
 3. Hydrology — rivers, tributaries, downhill drainage, waterfalls, and river valleys. (Done: Agent 3.)
 4. Caves — large underground caverns, tunnels, vertical shafts, and diverse cave formations. (Done: Agent 4; overhauled by Agent 4.5: passage widths, density, galleries, megacaves, cave biomes.)
 5. Forests — large forests, tree diversity, giant trees, and natural vegetation distribution. (Done: Agent 5.)
+6. Natural wonders — natural formations at the surface and in the caves, moss, mushrooms, deadwood. (Done: Agent 6.)
+7. Integration — Sincerelyuq's Biomes and Sincerelyuq's Overhaul as optional parts of one world. (Done: Agent 7.)
 
 Integration Rules
 
@@ -78,6 +80,7 @@ src/main/java/com/sincerelyuq/vastlands/
   mixin/NoiseBasedChunkGeneratorMixin.java  noise filling uses the caves' fluid picker (Vastlands worlds only)
   mixin/PlacedFeatureMixin.java       vanilla tree features skip Vastlands forests (Vastlands worlds only); PlacedFeatureAccessor
   mixin/ClimateRTreeMixin.java        exact climate searches during the forests' biome lookups (ExactClimateSearch)
+  mixin/ChunkGeneratorMixin.java      site checks of other mods' structure starts (Vastlands worlds only, Agent 7)
   worldgen/
     WorldHeight.java                  MIN_Y = -256, HEIGHT = 768, MAX_Y = 511
     VastlandsChunkGenerator.java      "vastlands:noise", a NoiseBasedChunkGenerator subclass; trench water and
@@ -104,7 +107,12 @@ src/main/java/com/sincerelyuq/vastlands/
                                       Fractures, RiverTunnels, CaveColumn, CaveBiomes, KeyedCache, Noise3),
                                       VastlandsCaves (CaveSystem), CaveBlocks (block step), CaveVolume (model-side
                                       fluid checks), CaveSettings, CaveFluid, CaveBiome, MegacaveInfo
-    biome/VastlandsBiomeSource.java   "vastlands:caves" biome source: surface delegate + cave biome slots
+    biome/VastlandsBiomeSource.java   "vastlands:caves" biome source: surface delegate + cave biome slots,
+                                      regional surface biomes and the luminous list (Agent 7)
+    biome/RegionalBiomes.java, DuneField.java  regions of other mods' surface biomes; the dune sea's dunes
+    compat/                           Agent 7: ModBlock, CompatBlocks (other mods' blocks by id), IntegrationSurface
+                                      (surface rules), IntegrationFeatures (placement filters), AddBiomesModifier
+                                      (structure modifier), StructureSites (site checks)
     biome/GrassColors.java, BiomeColors.java  the client's grass colours on the server; how well moss blends in
     forest/                           forests: ForestModel (pure Java: ForestType, TreeForm, Wood, TreeSpec, TreeShapes,
                                       TreeShape, TreeBlocks, ForestSample, ForestSettings, ForestCache, TreeRandom),
@@ -113,7 +121,8 @@ src/main/java/com/sincerelyuq/vastlands/
     nature/                           natural formations: NatureModel (pure Java: FormationKind, FormationSpec,
                                       FormationShapes, FormationShape, FormationBlocks, Rock, SurfaceStyle,
                                       CaveProfile, NatureSettings, NatureCache, NatureRandom), VastlandsNature
-                                      (NatureSystem), NatureFeature and NatureBlocks (the block step), NatureBiomes
+                                      (NatureSystem), NatureFeature and NatureBlocks (the block step), NatureBiomes,
+                                      DuneSand (the dunes' block step)
 src/main/resources/
   vastlands.mixins.json
   assets/vastlands/lang/en_us.json                         world type name
@@ -134,6 +143,13 @@ src/main/resources/
   data/vastlands/tags/worldgen/biome/nature/               surface/<style>, cave/<profile>, all
   data/vastlands/worldgen/{configured,placed}_feature/     surface_formations.json, cave_formations.json
   data/vastlands/neoforge/biome_modifier/nature.json       adds both to the local modifications of #vastlands:nature/all
+  data/vastlands/tags/worldgen/biome/region/               Agent 7: regional biomes (painted_range .. dusk_wood, keep)
+  data/vastlands/tags/worldgen/biome/overhaul/,            Agent 7: Overhaul structures extended to the new biomes, and
+    tags/worldgen/structure/overhaul/, neoforge/             the vastlands:add_biomes modifiers that do it
+    structure_modifier/overhaul_*.json
+  data/vastlands/tags/worldgen/structure/site/             Agent 7: site checks (level_ground, dry_ground, sealed,
+                                                           apart_from_sanctum)
+  data/vastlands/tags/worldgen/placed_feature/integration/ Agent 7: other mods' features replaced, guarded, level_ground
 src/test/java/...                                          JUnit tests (see Testing)
 src/test/java/.../tools/TerrainPreview.java                ./gradlew terrainPreview: terrain, landform, biome, climate
                                                            and ice maps without the game
@@ -1624,6 +1640,132 @@ climate until a tag lists it); cave profiles of empty slots fall back to plain r
 formations need megacave-sized runs and are rare; Radiance lighting and Overhaul structures are not
 integrated (no mod present), see PROGRESS.md for the hooks.
 
+Integration (Agent 7): Sincerelyuq's Biomes and Sincerelyuq's Overhaul
+
+Both mods are optional: nothing in Vastlands depends on them at compile time or at runtime. Every
+reference to them is an optional tag entry (`{"id": ..., "required": false}`), a block looked up by
+id at runtime (`compat/CompatBlocks`, absent blocks give nothing) or a check of a registry key, so
+a world without either mod generates bit for bit as before (same slot draws, same noise seeds; the
+regional and luminous lists are simply empty). In other world types both mods work as their
+authors made them; everything below applies to Vastlands worlds only.
+
+Who owns what:
+
+- Sincerelyuq's Biomes injects its biomes only into stems of vanilla's overworld dimension type;
+  the Vastlands overworld (`vastlands:overworld`) is not one, so the mod's own placement never runs
+  in Vastlands worlds. Vastlands places all eight of its biomes itself, from its geography,
+  climate, hydrology and caves. The `something_biome` and its `something` dimension are untouched.
+- The mod's surface rules are not added to the Vastlands overworld either:
+  `compat/IntegrationSurface` builds equivalent rules (with fixes for the taller world) and
+  `NoiseBasedChunkGeneratorMixin` puts them in front of the Vastlands rules.
+- The mod's features that Vastlands builds better from its own models are not placed
+  (`#vastlands:integration/replaced`: giant lumen, depths floor, lumen pond, amethyst floors,
+  ceilings, spikes and lake, smoldering forge, sand dune, ash vent); the rest are kept, guarded
+  against structures (`guard_small/medium/large`) and, for lotus pools, against slopes and water
+  (`level_ground`) by placement filters appended by `PlacedFeatureMixin`
+  (`compat/IntegrationFeatures`). The mod's tree features in biomes the forests manage are in
+  `#vastlands:forest/displaced`.
+- Sincerelyuq's Overhaul keeps its structures and their placement; Vastlands extends a chosen few
+  to the new biomes (structure modifiers) and drops starts on bad sites (site checks).
+
+Surface biomes: regions (`worldgen/biome/RegionalBiomes`)
+
+The biome source's delegate (vanilla's multi-noise table on Vastlands climate) still decides most
+of the land. Five regions take its place where the geography calls for them; each is a continuous
+strength field (0..1) from the terrain column's climate parameters, landform and rock, times a
+regional selector noise, with a 52-block edge noise so borders wander. The first region (in this
+order) whose field passes 0.5 holds the column; rivers, oceans, beaches, mushroom fields and
+`#vastlands:region/keep` stay.
+
+| Region | Biomes (tag `#vastlands:region/<name>`) | Where |
+|---|---|---|
+| `painted_range` | painted strata | mountain ranges (vanilla's peak and slope erosion), warm, not arid, below the snow; some ranges (6500-block selector) |
+| `volcanic_waste` | ashen wastes | the volcanic hotspots of the caves' geology, warm and dry, off the high ranges |
+| `dune_sea` | bone dunes | the hottest, most arid deserts of dry provinces, flat and far inland (4200-block selector) |
+| `wetland` | lotus pools | warm, humid lowland: flat ground near sea level, interior basins, river floodplains |
+| `dusk_wood` | twilight thicket | temperate, humid forest country off the mountains (a share of dark forests and their neighbours) |
+
+F3 (`VastlandsBiomeSource.addDebugInfo`) shows each region's field at the player.
+
+Cave biomes
+
+- The slot tags hold the mod's cave biomes as optional entries: amethyst caves in
+  `#vastlands:cave/crystal`, the smoldering cave in `#vastlands:cave/volcanic`; they take those
+  slots' provinces and megacaves (the crystal slot falls back to dripstone and the volcanic slot to
+  plain rock without them, as before).
+- Bioluminescent depths: a `luminous` list in the biome source (`#vastlands:cave/luminous`).
+  `CaveBiomes` marks half of the lush and dripstone provinces of the middle and deep layers under
+  warm, humid climates (and 40% of such megacaves) luminous (bit 0x100 of the province code, drawn
+  after the slot so the slots themselves do not move); there the luminous biome takes the slot's
+  place. Empty list: nothing changes.
+- Each has its own formation profile (`#vastlands:nature/cave/amethyst|smoldering|luminous`,
+  checked before the slot profiles, `CaveProfile.FIRST`):
+  - amethyst caves: crystal gardens (the mod's amethyst spikes of many lengths on amethyst and
+    glowing amethyst anchors, buds), crystal spires (groups of leaning crystals on floor or
+    ceiling with a calcite and smooth basalt collar), crystal columns, rare giant crystals in
+    megacaves (20..48 blocks), pools of lavender spinel in floor hollows;
+  - smoldering cave: magma-veined pillars and outcrops (the `MAGMATIC` rock), vents (blackstone
+    cones with magma and the mod's smoldering magma in the crater), geothermal fields in great
+    halls; no lava is placed, the mod's eruptive block only at vent tops;
+  - bioluminescent depths: lumen mushrooms in five cap forms (dome, umbrella, plate, bell, lobed)
+    chosen by the mushroom's proportions, stems of one to four blocks across, leaning and curving,
+    gills under the cap and bulbs hanging from them; each mushroom must fit its cave whole (tried
+    smaller three times, else left out); young colonies, moss and sprouts, moss and bulbs on low
+    ceilings, ponds with sea pickles. Giant lumen mushrooms stay as rare as the mod made them
+    (tall caves and megacaves only).
+  - Pools (`FormationKind.POOL`) are only the floor cells whose neighbours hold rock at the
+    water's level (checked against the cave model), and the block step writes fluid only into
+    natural ground, never into air, so a pool cannot spill.
+
+Surface content
+
+- Painted strata, ashen wastes, bone dunes: own surface styles (`#vastlands:nature/surface/strata|ashen|dunes`).
+  Strata: banded spires, tors, scree and arches in the strata colours (the `STRATA` rock follows the
+  same band function as the surface rule). Ashen: basalt boulders and outcrops, hornitos, and
+  volcanic fissures on level, dry ground (a crack 1..3 wide with blackstone lips, magma at its
+  bottom, the mod's ash vents on its lips over magma).
+- Lotus pools are `wetland`, the twilight thicket `dark` for formations.
+- Forests (Agent 5 system): two new woods with the mod's blocks, `DUSK` (twilight thicket: dusk
+  trees of every age, hanging dusk leaves, broad elders, rare ancients, snags, huge mushroom
+  patches, ferns and mushroom groups on the floor; the mod's own dusk bloom patches stay, guarded)
+  and `CHARRED` (ashen wastes: sparse charred snags of several heights and stumps, a dead bush here
+  and there). `#vastlands:forest/dusk|charred` name the biomes. Trees avoid underground structure
+  pieces that reach the surface.
+- Dunes (`biome/DuneField`, `nature/DuneSand`): the bone dunes get transverse dunes across the
+  geography's prevailing wind: a long windward slope, a short slip face, sinuous crests that break
+  into crescents, spacing of about 45..65 blocks, up to 11 blocks high, ripples on the windward
+  slopes. The height is a pure function of the column; it is zero at the region's border, near
+  higher-priority regions, in river valleys, within 12 blocks of water (4-block lattice) and of any
+  structure piece reaching the ground. It is written after the surface formations in the same
+  feature (sand only into air over sand of a bone dunes column), so vegetation and the mod's
+  ribcages and skulls (placed at the ground under the dunes through `WORLD_SURFACE_WG`) end up on
+  and half buried in the dunes.
+
+Structures (Sincerelyuq's Overhaul)
+
+- Theme extensions: `vastlands:add_biomes` structure modifiers
+  (`data/vastlands/neoforge/structure_modifier/overhaul_*.json`) let chosen structures also start in
+  the new biomes: camps, half portals and fake treasure in the ashen wastes; chest traps in the bone
+  dunes; the firefly bush and old village at the lotus pools; redstone bunches and camps on the
+  painted strata; the mushroom ring, spruce well, camps and half portals in the twilight thicket;
+  amethyst lakes and fake geodes in the amethyst caves; bones in the smoldering cave; the trial
+  fragment and copper bloom in the bioluminescent depths. Lists: `#vastlands:overhaul/<biome>`
+  (structures) and the biome tag of the same name. Vastlands worlds only (checked at server start).
+- Site checks (`compat/StructureSites`, `ChunkGeneratorMixin`): starts are dropped when the ground
+  under the start piece is not level (`#vastlands:site/level_ground`), is water (`dry_ground`), when
+  an underground piece would open into flooded or lava-filled cave space (`sealed`), or when a
+  structure would stand within 3 chunks of a possible strata sanctum start (`apart_from_sanctum`).
+  Pure model queries only, so every generation order agrees. `/locate` does not run these checks
+  (it may name a start that was dropped).
+- Protection from decorations: formations and forests already step aside for every structure
+  piece (Agent 5, 6); the kept Biomes features are guarded; dunes fall away near pieces.
+- The Overhaul's expanded Ancient City replaces template pools of vanilla's `minecraft:ancient_city`
+  (same pool names and connectors), so it is placed by vanilla's structure at Y -27 in the deep
+  dark, which the Vastlands caves keep at that height (Caves). Its pieces are in
+  `#vastlands:site/sealed` only through the structures listed there; vanilla's ancient city is not
+  site-checked (unchanged placement).
+
+
 Vanilla Isolation
 
 - Vanilla world types are untouched: only `vastlands:*` data is added, plus one entry appended to
@@ -1647,6 +1789,13 @@ Vanilla Isolation
   world, but it places nothing unless the generator is a `VastlandsChunkGenerator`. No vanilla
   feature, biome or block is changed; vanilla's cave biome features (dripstone clusters, pointed
   dripstone, sculk patches) run as before, then the cave formations.
+- Integration (Agent 7): every reference to Sincerelyuq's Biomes or Overhaul is an optional tag
+  entry or a block looked up by id; the biome source's regional and luminous lists, the integration
+  surface rules (`NoiseBasedChunkGeneratorMixin`, only with a Vastlands context), the placement
+  filters of `#vastlands:integration/*` (`PlacedFeatureMixin`, only for `VastlandsChunkGenerator`),
+  the structure modifiers (`vastlands:add_biomes`, only when the server's overworld is a Vastlands
+  world) and the site checks (`ChunkGeneratorMixin`, only for `VastlandsChunkGenerator`) change
+  nothing in other worlds, and nothing at all without the mods (`IntegrationDataTest`).
 - Forests (Agent 5): `vastlands:forest` is added to vanilla biomes by a NeoForge biome modifier, so
   it is in their feature lists in every world, but it places nothing unless the generator is a
   `VastlandsChunkGenerator`. `PlacedFeatureMixin` appends the `vastlands:outside_forests` filter

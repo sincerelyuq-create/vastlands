@@ -1,0 +1,16 @@
+{
+  "values": [
+    {
+      "id": "sincerelyuqs_biomes:giant_ribcage",
+      "required": false
+    },
+    {
+      "id": "sincerelyuqs_biomes:giant_skull",
+      "required": false
+    },
+    {
+      "id": "sincerelyuqs_biomes:lotus_pool",
+      "required": false
+    }
+  ]
+}

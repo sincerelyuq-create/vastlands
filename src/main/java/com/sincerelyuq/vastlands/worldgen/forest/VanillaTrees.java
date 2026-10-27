@@ -5,6 +5,7 @@ import com.mojang.serialization.MapCodec;
 import com.sincerelyuq.vastlands.Vastlands;
 import com.sincerelyuq.vastlands.registry.VastlandsRegistries;
 import com.sincerelyuq.vastlands.worldgen.VastlandsChunkGenerator;
+import com.sincerelyuq.vastlands.worldgen.compat.IntegrationFeatures;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -33,7 +34,9 @@ import net.minecraft.world.level.levelgen.placement.PlacementModifierType;
  * filter reads) belongs to a forest community ({@link VastlandsForests#replacesVanillaTrees}). Everywhere else (biomes of other
  * mods that reuse a vanilla tree feature, unmanaged vanilla biomes) they place exactly as
  * before, with the same random sequence; in other worlds nothing changes. Other mods' and
- * datapacks' features are never touched unless the tag lists them.
+ * datapacks' features are never touched unless the tag lists them. Other mods' features that
+ * Vastlands replaces or keeps clear of structures get their filters here too (see
+ * {@link IntegrationFeatures}).
  *
  * <p>The placed features in {@code #vastlands:forest/buried} (vanilla's underground lava lakes) get
  * the same filter judged at the ground above them, and only while they start less than
@@ -60,11 +63,16 @@ public final class VanillaTrees {
         Optional<PlacedFeature> filtered = FILTERED.computeIfAbsent(feature, f -> {
             Holder<PlacedFeature> holder = level.registryAccess().lookupOrThrow(Registries.PLACED_FEATURE).wrapAsHolder(f);
             Filter filter = holder.is(DISPLACED) ? Filter.INSTANCE : (holder.is(BURIED) ? Filter.BURIED : null);
-            if (filter == null) {
+            // Other mods' features that Vastlands replaces or guards (see IntegrationFeatures).
+            List<PlacementModifier> integration = IntegrationFeatures.filters(holder);
+            if (filter == null && integration.isEmpty()) {
                 return Optional.empty();
             }
             List<PlacementModifier> placement = new ArrayList<>(f.placement());
-            placement.add(filter);
+            if (filter != null) {
+                placement.add(filter);
+            }
+            placement.addAll(integration);
             return Optional.of(new PlacedFeature(f.feature(), List.copyOf(placement)));
         });
         if (filtered.isEmpty() || ForestBiomes.forests(level, generator).isEmpty()) {

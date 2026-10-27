@@ -53,7 +53,11 @@ final class CaveBiomes {
     private final CaveSettings settings;
     private final ThreadLocal<double[]> scratch = ThreadLocal.withInitial(() -> new double[2]);
     private final SimplexNoise warpX, warpZ, layers;
-    private final ThreadLocal<KeyedCache<CaveBiome>> provinces = ThreadLocal.withInitial(() -> new KeyedCache<>(512));
+    /** Province codes: the slot's ordinal, plus {@link #LUMINOUS} where a lumen biome may take its place. */
+    private final ThreadLocal<KeyedCache<Integer>> provinces = ThreadLocal.withInitial(() -> new KeyedCache<>(512));
+    private static final int LUMINOUS = 0x100;
+    /** Share of the eligible (warm, humid, middle and deep) lush and dripstone provinces that are luminous. */
+    private static final double LUMINOUS_SHARE = 0.5;
 
     CaveBiomes(long seed, GeographyModel geography, CaveGeology geology, FluidDomains domains, Megacaves megacaves, CaveModel.Ground ground,
                int seaTop, CaveSettings settings) {
@@ -75,8 +79,23 @@ final class CaveBiomes {
      * aquitard's mean height, the megacave whose footprint holds the column and the province.
      */
     CaveBiome at(int x, int y, int z, double surface) {
+        return CaveBiome.VALUES[this.code(x, y, z, surface) & 0xFF];
+    }
+
+    /**
+     * True if the block lies in a luminous cave province or megacave: a lush or dripstone one of
+     * the middle or deep layer under a warm, humid climate (half of them), where a luminous cave
+     * biome (Sincerelyuq's Biomes' bioluminescent depths, the {@code luminous} tag) takes the
+     * place of the slot's biome. Without such a biome nothing changes: the slot stays as it was.
+     */
+    boolean luminous(int x, int y, int z, double surface) {
+        return (this.code(x, y, z, surface) & LUMINOUS) != 0;
+    }
+
+    /** The slot ordinal of a block, with {@link #LUMINOUS} set for luminous provinces and megacaves. */
+    private int code(int x, int y, int z, double surface) {
         if (y > surface - SURFACE_DEPTH) {
-            return CaveBiome.SURFACE;
+            return CaveBiome.SURFACE.ordinal();
         }
         boolean deep = y < this.domains.aquitard(x, z);
         double[] q = this.scratch.get();
@@ -84,10 +103,11 @@ final class CaveBiomes {
         if (m != null && q[0] < 1.0 && y >= m.bottom() - 10.0 && y <= m.top() + 10.0) {
             CaveBiome theme = this.theme(m);
             if (theme == CaveBiome.LUSH) {
-                return this.plausible(theme, x, y, z, surface, deep);
+                CaveBiome slot = this.plausible(theme, x, y, z, surface, deep);
+                return slot.ordinal() | (slot == CaveBiome.LUSH && luminous(m) ? LUMINOUS : 0);
             }
             if (theme != null) {
-                return theme;
+                return theme.ordinal() | (theme == CaveBiome.DRIPSTONE && luminous(m) ? LUMINOUS : 0);
             }
         }
         int layer;
@@ -97,8 +117,15 @@ final class CaveBiomes {
             double shallow = surface - SHALLOW_DEPTH - 15.0 * this.layers.sample(x / 140.0, z / 140.0);
             layer = y > shallow ? 0 : 1;
         }
-        CaveBiome slot = this.province(x, z, layer);
-        return this.plausible(slot, x, y, z, surface, deep);
+        int province = this.province(x, z, layer);
+        CaveBiome slot = this.plausible(CaveBiome.VALUES[province & 0xFF], x, y, z, surface, deep);
+        return slot.ordinal() | (slot.ordinal() == (province & 0xFF) ? province & LUMINOUS : 0);
+    }
+
+    /** A lush or dripstone megacave under a warm, humid climate is luminous for 40% of them. */
+    private static boolean luminous(Megacaves.Megacave m) {
+        return m.temperature > -0.1 && m.wetness > 0.45 && m.volcanic < 0.5
+                && (SimplexNoise.mix(m.seed ^ 0x4C756D656EL) >>> 11) * 0x1.0p-53 < 0.4;
     }
 
     /** Checks a slot against the column itself: no lush caves under cold ground or the sea, no deep dark out of its band or in flooded rock. */
@@ -151,7 +178,7 @@ final class CaveBiomes {
         return t < 0.6 ? CaveBiome.CRYSTAL : null;
     }
 
-    private CaveBiome province(int x, int z, int layer) {
+    private int province(int x, int z, int layer) {
         double cell = layer == 0 ? SHALLOW_CELL : (layer == 1 ? MIDDLE_CELL : DEEP_CELL);
         double scale = 0.9 * cell;
         double wx = x + 0.3 * cell * this.warpX.sample(x / scale + 13.0 * layer, z / scale);
@@ -180,7 +207,26 @@ final class CaveBiomes {
         long site = best;
         long fi = bi;
         long fj = bj;
-        return this.provinces.get().get(key, k -> this.slot(site, fi, fj, cell, layer));
+        return this.provinces.get().get(key, k -> {
+            CaveBiome slot = this.slot(site, fi, fj, cell, layer);
+            return slot.ordinal() | (this.luminous(slot, site, fi, fj, cell, layer) ? LUMINOUS : 0);
+        });
+    }
+
+    /**
+     * Whether a province of the middle or deep layer is luminous: lush and dripstone provinces
+     * under a warm, humid climate off volcanic rock, a share {@value #LUMINOUS_SHARE} of them (an
+     * own draw of the site, so the slot itself is the same as without it).
+     */
+    private boolean luminous(CaveBiome slot, long h, long i, long j, double cell, int layer) {
+        if (layer == 0 || slot != CaveBiome.LUSH && slot != CaveBiome.DRIPSTONE || FluidDomains.unit(h, 7) >= LUMINOUS_SHARE) {
+            return false;
+        }
+        double sx = (i + 0.15 + 0.7 * FluidDomains.unit(h, 0)) * cell;
+        double sz = (j + 0.15 + 0.7 * FluidDomains.unit(h, 1)) * cell;
+        GeographySample g = this.geography.sample(sx, sz);
+        CaveGeology.Geology geo = this.geology.at(sx, sz, g);
+        return g.continentalness() > 0.0 && g.temperature() > -0.05 && geo.wetness() > 0.4 && geo.volcanic() < 0.4;
     }
 
     /** The slot of a province, from the climate and the rock at its site. */

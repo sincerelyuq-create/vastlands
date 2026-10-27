@@ -5,6 +5,9 @@ import static com.sincerelyuq.vastlands.worldgen.nature.FormationBlocks.SNAP_CEI
 import static com.sincerelyuq.vastlands.worldgen.nature.FormationBlocks.SNAP_FLOOR;
 import static com.sincerelyuq.vastlands.worldgen.nature.FormationBlocks.WET;
 
+import com.sincerelyuq.vastlands.worldgen.compat.ModBlock;
+import net.minecraft.core.Direction;
+
 import com.sincerelyuq.vastlands.worldgen.noise.SimplexNoise;
 
 /**
@@ -80,6 +83,18 @@ final class FormationShapes {
             case GIANT_DRIPSTONE -> giantDripstone(c);
             case SPIKE_FIELD -> spikeField(c);
             case GIANT_COLUMN -> column(c, spec.radius(), spec.has(FormationSpec.LUSH), 0.45, 0.75);
+            case FISSURE -> fissure(c);
+            case LUMEN_MUSHROOM -> lumenMushroom(c, false);
+            case LUMEN_GIANT -> lumenMushroom(c, true);
+            case LUMEN_COLONY -> lumenColony(c);
+            case LUMEN_GROWTH -> lumenGrowth(c);
+            case POOL -> pool(c);
+            case CRYSTAL_GARDEN -> crystalGarden(c);
+            case CRYSTAL_SPIRES -> crystalSpires(c);
+            case GIANT_CRYSTAL -> giantCrystal(c);
+            case MAGMA_VENT -> magmaVent(c);
+            case GEOTHERMAL_FIELD -> geothermalField(c);
+            case ASH_VENTS -> ashVents(c);
         }
         return b.build();
     }
@@ -1350,5 +1365,834 @@ final class FormationShapes {
                 }
             }
         }
+    }
+
+    // ---------------------------------------------------------------- other mods' biomes (Agent 7)
+
+    /** Lumen mushroom cap forms. */
+    private static final int CAP_DOME = 0;
+    private static final int CAP_UMBRELLA = 1;
+    private static final int CAP_PLATE = 2;
+    private static final int CAP_BELL = 3;
+    private static final int CAP_LOBED = 4;
+
+    /** Cells of a planned part, kept apart from the builder until the whole part fits its cave. */
+    private static final class Plan {
+        final it.unimi.dsi.fastutil.ints.IntArrayList cells = new it.unimi.dsi.fastutil.ints.IntArrayList();
+        final it.unimi.dsi.fastutil.ints.IntArrayList codes = new it.unimi.dsi.fastutil.ints.IntArrayList();
+        final it.unimi.dsi.fastutil.ints.IntArrayList feet = new it.unimi.dsi.fastutil.ints.IntArrayList();
+
+        void add(int dx, int dy, int dz, int code) {
+            this.cells.add(FormationShape.pack(dx, dy, dz));
+            this.codes.add(code);
+        }
+
+        void clear() {
+            this.cells.clear();
+            this.codes.clear();
+            this.feet.clear();
+        }
+
+        /** True if every cell lies in open cave space within the reach (an EMBED cell may sit in rock). */
+        boolean fits(Ctx c) {
+            int reach = c.b.reach();
+            for (int k = 0; k < this.cells.size(); k++) {
+                int p = this.cells.getInt(k);
+                int dx = FormationShape.dx(p);
+                int dz = FormationShape.dz(p);
+                if (Math.abs(dx) > reach || Math.abs(dz) > reach) {
+                    return false;
+                }
+                if (!FormationBlocks.has(this.codes.getInt(k), EMBED) && !c.cave(dx, FormationShape.dy(p), dz)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        void commit(Ctx c) {
+            for (int k = 0; k < this.cells.size(); k++) {
+                int p = this.cells.getInt(k);
+                int code = this.codes.getInt(k);
+                if (FormationBlocks.isSolid(code)) {
+                    c.b.solid(FormationShape.dx(p), FormationShape.dy(p), FormationShape.dz(p), code);
+                } else {
+                    c.b.decor(FormationShape.dx(p), FormationShape.dy(p), FormationShape.dz(p), code);
+                }
+            }
+            for (int k = 0; k < this.feet.size(); k++) {
+                int p = this.feet.getInt(k);
+                c.b.foot(FormationShape.dx(p), FormationShape.dz(p), 4);
+            }
+        }
+    }
+
+    /**
+     * A lumen mushroom (bioluminescent depths): a stem of lumen stem blocks rising from the floor,
+     * leaning and curving a little, thicker under bigger caps (a single column, a plus, a 3 x 3,
+     * a broad round trunk for giants) with a flared foot; a cap of lumen cap blocks with lumen gills
+     * on its underside and bulbs hanging from a few gills. Five cap forms (dome, umbrella with a
+     * skirt, flat plate, tall bell with its rim reaching down, lobed and lopsided), chosen from the
+     * mushroom's height against its width, so tall narrow ones carry bells and domes and low wide
+     * ones umbrellas and plates. The whole mushroom must lie in the open cave (cap included):
+     * otherwise it is tried smaller, three times, and left out (never cut by the ceiling or a
+     * wall). Young mushrooms at the foot of the bigger ones, glowing moss and sprouts around the stem.
+     */
+    private static void lumenMushroom(Ctx c, boolean giant) {
+        double height = c.spec.height();
+        double radius = c.spec.radius();
+        double ratio = height / Math.max(1.0, radius);
+        double u = c.r.next();
+        int form;
+        if (ratio > 2.2) {
+            form = u < 0.45 ? CAP_BELL : (u < 0.8 ? CAP_DOME : CAP_LOBED);
+        } else if (ratio < 1.25) {
+            form = u < 0.45 ? CAP_UMBRELLA : (u < 0.78 ? CAP_PLATE : CAP_LOBED);
+        } else {
+            form = u < 0.32 ? CAP_DOME : (u < 0.58 ? CAP_UMBRELLA : (u < 0.8 ? CAP_LOBED : CAP_BELL));
+        }
+        double leanAngle = c.r.next() * Math.PI * 2;
+        double lean = c.r.range(0.0, giant ? 0.16 : 0.24);
+        double bend = c.r.range(1.2, 2.2);
+        long capSeed = c.r.nextLong();
+        Plan plan = new Plan();
+        double h = height;
+        double r = radius;
+        boolean built = false;
+        for (int attempt = 0; attempt < 4 && h >= 3.0 && r >= 1.2; attempt++) {
+            plan.clear();
+            mushroomPlan(c, plan, 0, 0, 0, h, r, form, Math.cos(leanAngle) * lean * h, Math.sin(leanAngle) * lean * h, bend, capSeed, true);
+            if (plan.fits(c)) {
+                plan.commit(c);
+                built = true;
+                break;
+            }
+            h *= 0.8;
+            r *= 0.8;
+        }
+        if (!built) {
+            return;
+        }
+        // Young mushrooms at its foot, out of the stem's way, each only where it fits.
+        int young = c.r.between(giant ? 3 : 0, giant ? 7 : 3);
+        for (int k = 0; k < young; k++) {
+            double a = c.r.next() * Math.PI * 2;
+            double d = c.r.range(Math.max(2.0, r * 0.45), Math.max(3.0, r * 1.25));
+            int ox = (int) Math.round(Math.cos(a) * d);
+            int oz = (int) Math.round(Math.sin(a) * d);
+            int base = c.floor(ox, 0, oz, 4);
+            if (base == Integer.MIN_VALUE) {
+                continue;
+            }
+            double yh = c.r.range(2.0, Math.min(5.5, Math.max(2.5, h * 0.4)));
+            plan.clear();
+            mushroomPlan(c, plan, ox, base, oz, yh, c.r.range(1.0, 2.2), c.r.chance(0.6) ? CAP_DOME : CAP_UMBRELLA, c.r.range(-0.6, 0.6),
+                    c.r.range(-0.6, 0.6), 1.5, c.r.nextLong(), false);
+            if (plan.fits(c)) {
+                plan.commit(c);
+            }
+        }
+        lumenFloor(c, Math.max(2.5, r * 0.75), 0.75, 0.22);
+    }
+
+    /**
+     * The cells of one lumen mushroom into a plan: stem from (bx, by, bz) up to the cap's
+     * underside {@code height} blocks up, its top offset by (topX, topZ) along a curve
+     * (exponent {@code bend}), the cap of radius {@code radius} and form {@code form}.
+     */
+    private static void mushroomPlan(Ctx c, Plan plan, int bx, int by, int bz, double height, double radius, int form, double topX, double topZ,
+                                     double bend, long seed, boolean flare) {
+        int stem = FormationBlocks.mod(ModBlock.LUMEN_STEM, 0);
+        int cap = FormationBlocks.mod(ModBlock.LUMEN_CAP);
+        int gills = FormationBlocks.mod(ModBlock.LUMEN_GILLS);
+        int bulb = FormationBlocks.mod(ModBlock.LUMEN_BULB);
+        int top = Math.max(2, (int) Math.round(height));
+        double sr = radius < 3.2 ? 0.0 : (radius < 5.5 ? 0.6 : (radius < 8.5 ? 1.05 : 1.6));
+        NatureRandom r = new NatureRandom(seed);
+        double cx = bx;
+        double cz = bz;
+        for (int dy = flare ? -1 : 0; dy < top; dy++) {
+            double t = Math.max(0, dy) / (double) top;
+            int lastX = (int) Math.round(cx);
+            int lastZ = (int) Math.round(cz);
+            cx = bx + topX * Math.pow(t, bend);
+            cz = bz + topZ * Math.pow(t, bend);
+            if (sr == 0.0 && dy > 0 && ((int) Math.round(cx) != lastX || (int) Math.round(cz) != lastZ)) {
+                // A thin stem stepping aside stays joined face to face.
+                plan.add((int) Math.round(cx), by + dy - 1, (int) Math.round(cz), stem);
+            }
+            // A flared foot sunk one block into the floor.
+            double rr = sr + (flare && dy <= 1 && sr > 0.0 ? 0.8 - 0.35 * Math.max(0, dy) : 0.0) + (flare && dy <= 0 && sr == 0.0 ? 0.6 : 0.0);
+            int ri = (int) Math.ceil(rr + 0.5);
+            for (int dz = -ri; dz <= ri; dz++) {
+                for (int dx = -ri; dx <= ri; dx++) {
+                    int x = (int) Math.round(cx) + dx;
+                    int z = (int) Math.round(cz) + dz;
+                    if (Math.hypot(x - cx, z - cz) > rr + 0.5) {
+                        continue;
+                    }
+                    plan.add(x, by + dy, z, dy < 0 ? stem | EMBED : stem);
+                    if (dy == 0) {
+                        plan.feet.add(FormationShape.pack(x, 0, z));
+                    }
+                }
+            }
+        }
+        // The cap: an outline that wanders (lobes for the lopsided form), a profile by form.
+        int y0 = by + top;
+        double ccx = cx;
+        double ccz = cz;
+        double lobePhase = r.next() * Math.PI * 2;
+        int lobes = r.between(2, 3);
+        if (form == CAP_LOBED) {
+            double a = r.next() * Math.PI * 2;
+            ccx += Math.cos(a) * radius * 0.22;
+            ccz += Math.sin(a) * radius * 0.22;
+        }
+        double capH = switch (form) {
+            case CAP_DOME -> Math.max(1.6, radius * 0.55);
+            case CAP_UMBRELLA -> Math.max(1.2, radius * 0.3);
+            case CAP_PLATE -> 1.0;
+            case CAP_BELL -> Math.max(2.0, radius * 1.05);
+            default -> Math.max(1.4, radius * 0.42);
+        };
+        double skirt = form == CAP_BELL ? radius * 0.65 : (form == CAP_UMBRELLA ? 1.0 : 0.0);
+        int ri = (int) Math.ceil(radius * 1.3 + 1);
+        for (int dz = -ri; dz <= ri; dz++) {
+            for (int dx = -ri; dx <= ri; dx++) {
+                double ex = bx + dx + (Math.round(ccx) - bx) - ccx;
+                double ez = bz + dz + (Math.round(ccz) - bz) - ccz;
+                double angle = Math.atan2(ez, ex);
+                double outline = radius * (1.0 + 0.08 * (r.next() - 0.5));
+                if (form == CAP_LOBED) {
+                    outline *= 0.8 + 0.3 * (0.5 + 0.5 * Math.cos(lobes * angle + lobePhase));
+                }
+                double q = Math.hypot(ex, ez) / outline;
+                if (q > 1.0) {
+                    continue;
+                }
+                int x = (int) Math.round(ccx) + dx;
+                int z = (int) Math.round(ccz) + dz;
+                int lower = switch (form) {
+                    case CAP_BELL -> y0 - (int) Math.round(skirt * Math.pow(q, 3.0));
+                    case CAP_UMBRELLA -> y0 - (q > 0.8 ? (int) Math.round(skirt) : 0);
+                    case CAP_DOME -> y0 - (q > 0.75 ? 1 : 0);
+                    default -> y0;
+                };
+                double rise = switch (form) {
+                    case CAP_DOME, CAP_LOBED -> capH * Math.sqrt(Math.max(0.0, 1.0 - q * q));
+                    case CAP_BELL -> capH * Math.sqrt(Math.max(0.0, 1.0 - Math.pow(q, 1.6)));
+                    case CAP_UMBRELLA -> capH * (1.0 - q) + 0.6;
+                    default -> q < 0.6 ? 1.0 : 0.4;
+                };
+                int upper = y0 + (int) Math.round(rise);
+                for (int y = lower; y <= Math.max(lower, upper); y++) {
+                    boolean underside = y == lower && q < 0.9;
+                    plan.add(x, y, z, underside ? gills : cap);
+                }
+                if (lower <= y0 && q > 0.3 && q < 0.85 && r.chance(0.07)) {
+                    plan.add(x, lower - 1, z, bulb);
+                }
+            }
+        }
+    }
+
+    /** Glowing moss on the floor around a point (snapped: the floor block becomes moss), sprouts on part of it. */
+    private static void lumenFloor(Ctx c, double radius, double cover, double sprouts) {
+        int moss = FormationBlocks.mod(ModBlock.LUMEN_MOSS);
+        int sprout = FormationBlocks.mod(ModBlock.LUMEN_SPROUTS);
+        int ri = (int) Math.ceil(radius + 1);
+        for (int dz = -ri; dz <= ri; dz++) {
+            for (int dx = -ri; dx <= ri; dx++) {
+                double d = Math.hypot(dx, dz) / radius + 0.45 * (c.lump(dx * 1.4, 0, dz * 1.4) - 0.5);
+                if (d > 1.0 || c.b.isSolid(dx, 0, dz) || c.b.isSolid(dx, -1, dz) || c.r.next() > cover) {
+                    continue;
+                }
+                floorPlant(c, dx, 0, dz, moss, c.r.chance(sprouts) ? sprout : 0);
+            }
+        }
+    }
+
+    /** Bioluminescent depths: a colony of young lumen mushrooms on moss. */
+    private static void lumenColony(Ctx c) {
+        double radius = c.spec.radius();
+        int n = c.r.between(3, 7);
+        Plan plan = new Plan();
+        for (int k = 0; k < n; k++) {
+            double a = c.r.next() * Math.PI * 2;
+            double d = k == 0 ? 0.0 : radius * Math.sqrt(c.r.next());
+            int ox = (int) Math.round(Math.cos(a) * d);
+            int oz = (int) Math.round(Math.sin(a) * d);
+            int base = c.floor(ox, 0, oz, 3);
+            if (base == Integer.MIN_VALUE) {
+                continue;
+            }
+            double h = c.r.range(2.0, Math.max(2.2, c.spec.height()));
+            plan.clear();
+            mushroomPlan(c, plan, ox, base, oz, h, c.r.range(0.8, 2.0), c.r.chance(0.55) ? CAP_DOME : (c.r.chance(0.6) ? CAP_UMBRELLA : CAP_BELL),
+                    c.r.range(-0.7, 0.7), c.r.range(-0.7, 0.7), 1.4, c.r.nextLong(), false);
+            if (plan.fits(c)) {
+                plan.commit(c);
+            }
+        }
+        lumenFloor(c, radius + 1.0, 0.7, 0.3);
+    }
+
+    /** Bioluminescent depths: moss and sprouts on the floor; on a low ceiling a patch of moss with bulbs hanging from it. */
+    private static void lumenGrowth(Ctx c) {
+        double radius = c.spec.radius();
+        lumenFloor(c, radius, 0.85, 0.35);
+        int span = c.spec.span();
+        if (span > 14) {
+            return;
+        }
+        int moss = FormationBlocks.mod(ModBlock.LUMEN_MOSS);
+        int bulb = FormationBlocks.mod(ModBlock.LUMEN_BULB);
+        int ri = (int) Math.ceil(radius);
+        for (int dz = -ri; dz <= ri; dz++) {
+            for (int dx = -ri; dx <= ri; dx++) {
+                if (Math.hypot(dx, dz) / radius + 0.5 * (c.lump(dx * 1.3, 7, dz * 1.3) - 0.5) > 0.9) {
+                    continue;
+                }
+                c.b.decor(dx, span, dz, moss | SNAP_CEILING);
+                if (c.r.chance(0.16)) {
+                    c.b.decor(dx, span - 1, dz, bulb | SNAP_CEILING);
+                }
+            }
+        }
+    }
+
+    /**
+     * A pool dug into a level stretch of cave floor: a lumen pond (water over clay, sea pickles,
+     * moss around) or a spinel pool (lavender spinel in a smooth basalt basin, amethyst buds at its
+     * rim). Its cells are only the columns of the root's floor height whose neighbours hold rock
+     * at the water's level (or more pool), checked against the caves, so the pool cannot spill; a
+     * second layer in the middle where the rock under it and beside it holds. Writing only ever
+     * replaces natural ground (never air), so the pool keeps that promise in the world.
+     */
+    private static void pool(Ctx c) {
+        double radius = c.spec.radius();
+        boolean spinel = c.spec.has(FormationSpec.SPINEL);
+        int ri = (int) Math.ceil(radius + 1);
+        int side = 2 * ri + 1;
+        boolean[] in = new boolean[side * side];
+        int count = 0;
+        for (int dz = -ri; dz <= ri; dz++) {
+            for (int dx = -ri; dx <= ri; dx++) {
+                double q = Math.hypot(dx, dz) / radius + 0.4 * (c.lump(dx, 0, dz) - 0.5);
+                if (q <= 1.0 && c.cave(dx, 0, dz) && !c.cave(dx, -1, dz) && !c.cave(dx, -2, dz)) {
+                    in[(dz + ri) * side + dx + ri] = true;
+                    count++;
+                }
+            }
+        }
+        int[][] n4 = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+        boolean changed = true;
+        while (changed && count > 0) {
+            changed = false;
+            for (int dz = -ri; dz <= ri; dz++) {
+                for (int dx = -ri; dx <= ri; dx++) {
+                    if (!in[(dz + ri) * side + dx + ri]) {
+                        continue;
+                    }
+                    for (int[] n : n4) {
+                        int nx = dx + n[0];
+                        int nz = dz + n[1];
+                        boolean neighbour = Math.abs(nx) <= ri && Math.abs(nz) <= ri && in[(nz + ri) * side + nx + ri];
+                        if (!neighbour && c.cave(nx, -1, nz)) {
+                            in[(dz + ri) * side + dx + ri] = false;
+                            count--;
+                            changed = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if (count < 5) {
+            return;
+        }
+        int depth = (int) Math.round(c.spec.height());
+        int fluid = FormationBlocks.code(FormationBlocks.POOL, spinel ? 1 : 0);
+        int bed = spinel ? FormationBlocks.code(FormationBlocks.SMOOTH_BASALT, 0) : FormationBlocks.code(FormationBlocks.CLAY, 0);
+        for (int dz = -ri; dz <= ri; dz++) {
+            for (int dx = -ri; dx <= ri; dx++) {
+                if (!in[(dz + ri) * side + dx + ri]) {
+                    continue;
+                }
+                boolean interior = true;
+                for (int[] n : n4) {
+                    int nx = dx + n[0];
+                    int nz = dz + n[1];
+                    interior &= Math.abs(nx) <= ri && Math.abs(nz) <= ri && in[(nz + ri) * side + nx + ri] && !c.cave(nx, -2, nz);
+                }
+                boolean deep = depth >= 2 && interior && !c.cave(dx, -3, dz);
+                int lowest = deep ? -2 : -1;
+                for (int dy = -1; dy >= lowest; dy--) {
+                    int code = fluid;
+                    if (!spinel && dy == lowest && c.r.chance(0.18)) {
+                        // A sea pickle on the bed (a water source with pickles: the pool stays whole).
+                        code = FormationBlocks.code(FormationBlocks.POOL, c.r.between(1, 4) << 1);
+                    }
+                    c.b.force(dx, dy, dz, code | EMBED);
+                }
+                c.b.force(dx, lowest - 1, dz, bed | EMBED);
+            }
+        }
+        // The rim: basalt round spinel, moss and clay round a lumen pond; buds or sprouts on it.
+        for (int dz = -ri - 1; dz <= ri + 1; dz++) {
+            for (int dx = -ri - 1; dx <= ri + 1; dx++) {
+                boolean inside = Math.abs(dx) <= ri && Math.abs(dz) <= ri && in[(dz + ri) * side + dx + ri];
+                if (inside) {
+                    continue;
+                }
+                boolean rim = false;
+                for (int[] n : n4) {
+                    int nx = dx + n[0];
+                    int nz = dz + n[1];
+                    rim |= Math.abs(nx) <= ri && Math.abs(nz) <= ri && in[(nz + ri) * side + nx + ri];
+                }
+                if (!rim || !c.cave(dx, 0, dz)) {
+                    continue;
+                }
+                if (spinel) {
+                    c.b.force(dx, -1, dz, FormationBlocks.code(FormationBlocks.SMOOTH_BASALT, 0) | EMBED);
+                    if (c.r.chance(0.3)) {
+                        c.b.decor(dx, 0, dz, FormationBlocks.code(FormationBlocks.AMETHYST, 1 | c.r.between(0, 3) << 3));
+                    }
+                } else {
+                    int ground = c.r.chance(0.6) ? FormationBlocks.mod(ModBlock.LUMEN_MOSS) : FormationBlocks.code(FormationBlocks.CLAY, 0);
+                    c.b.force(dx, -1, dz, ground | EMBED);
+                    if (c.r.chance(0.3)) {
+                        c.b.decor(dx, 0, dz, FormationBlocks.mod(ModBlock.LUMEN_SPROUTS));
+                    }
+                }
+            }
+        }
+        if (!spinel) {
+            lumenFloor(c, radius + 3.0, 0.4, 0.3);
+        }
+    }
+
+    /**
+     * Amethyst caves: a crystal garden: amethyst spikes of many lengths (the mod's spike blocks,
+     * base to tip) standing on the floor or hanging from the ceiling, on amethyst and glowing
+     * amethyst set into the rock, with buds between them.
+     */
+    private static void crystalGarden(Ctx c) {
+        boolean ceiling = c.spec.has(FormationSpec.CEILING);
+        int span = c.spec.span();
+        double radius = c.spec.radius();
+        int n = c.r.between(4, 10);
+        int keep = FormationBlocks.code(FormationBlocks.KEEP, 0);
+        int amethyst = FormationBlocks.code(FormationBlocks.AMETHYST_BLOCK, 0);
+        int glowing = FormationBlocks.mod(ModBlock.GLOWING_AMETHYST);
+        int snap = ceiling ? SNAP_CEILING : SNAP_FLOOR;
+        int anchorY = ceiling ? span : -1;
+        int dir = ceiling ? -1 : 1;
+        for (int k = 0; k < n; k++) {
+            double a = c.r.next() * Math.PI * 2;
+            double d = k == 0 ? 0.0 : radius * Math.sqrt(c.r.next());
+            int dx = (int) Math.round(Math.cos(a) * d);
+            int dz = (int) Math.round(Math.sin(a) * d);
+            if (!c.b.isEmpty(dx, anchorY + dir, dz)) {
+                continue;
+            }
+            int length = Math.max(1, Math.min((int) Math.round(c.r.skewed(1.0, Math.max(1.0, c.spec.height()), 1.6)), Math.max(1, span / 2)));
+            double u = c.r.next();
+            c.b.decor(dx, anchorY, dz, (u < 0.45 ? amethyst : (u < 0.62 ? glowing : keep)) | snap);
+            for (int i = 0; i < length; i++) {
+                c.b.decor(dx, anchorY + dir * (i + 1), dz, FormationBlocks.mod(ModBlock.AMETHYST_SPIKE, NatureBlocks.spikeState(i, length, !ceiling)) | snap);
+            }
+        }
+        // Buds and clusters on the rock between them.
+        int ri = (int) Math.ceil(radius + 1);
+        for (int dz = -ri; dz <= ri; dz++) {
+            for (int dx = -ri; dx <= ri; dx++) {
+                if (Math.hypot(dx, dz) > radius + 1 || !c.b.isEmpty(dx, anchorY + dir, dz) || !c.r.chance(0.2)) {
+                    continue;
+                }
+                c.b.decor(dx, anchorY, dz, keep | snap);
+                c.b.decor(dx, anchorY + dir, dz, FormationBlocks.code(FormationBlocks.AMETHYST, (ceiling ? 0 : 1) | c.r.between(0, 3) << 3) | snap);
+            }
+        }
+    }
+
+    /**
+     * A crystal: a cone of amethyst rock (amethyst, calcite, glowing amethyst) from a base on the
+     * floor or ceiling, leaning by (leanX, leanZ) at its tip, ending in amethyst spike segments.
+     * Its axis is checked against the cave and the crystal shortened where it would run into rock.
+     */
+    private static void crystal(Ctx c, double bx, int by, double bz, boolean up, double r0, double length, double leanX, double leanZ) {
+        int dir = up ? 1 : -1;
+        // Shorten to the open cave along the axis.
+        int n = Math.max(2, (int) Math.round(length));
+        for (int i = 1; i <= n; i++) {
+            double t = i / (double) n;
+            int ax = (int) Math.round(bx + leanX * t);
+            int az = (int) Math.round(bz + leanZ * t);
+            if (!c.cave(ax, by + dir * i, az) || !c.cave(ax, by + dir * (i + 1), az)) {
+                n = Math.max(1, i - 2);
+                leanX *= n / length;
+                leanZ *= n / length;
+                break;
+            }
+        }
+        if (n < 2) {
+            return;
+        }
+        int lastX = (int) Math.round(bx);
+        int lastZ = (int) Math.round(bz);
+        int lastI = 0;
+        for (int i = -1; i < n; i++) {
+            double t = Math.max(0.0, i) / n;
+            double rr = r0 * (1.0 - 0.85 * t);
+            double cx = bx + leanX * t;
+            double cz = bz + leanZ * t;
+            int icx = (int) Math.round(cx);
+            int icz = (int) Math.round(cz);
+            if (i > 0 && (icx != lastX || icz != lastZ)) {
+                c.b.solid(icx, by + dir * (i - 1), icz, c.rock(icx, by + dir * (i - 1), icz));
+            }
+            disc(c, cx, by + dir * i, cz, Math.max(0.45, rr), 0.15, 0, i < 0 ? EMBED : 0);
+            if (i <= 0) {
+                int rb = (int) Math.ceil(rr + 1.0);
+                for (int dz = icz - rb; dz <= icz + rb; dz++) {
+                    for (int dx = icx - rb; dx <= icx + rb; dx++) {
+                        if (c.b.isSolid(dx, by, dz)) {
+                            if (up) {
+                                c.b.foot(dx, dz, 5);
+                            } else {
+                                c.b.hang(dx, dz, 5);
+                            }
+                        }
+                    }
+                }
+            }
+            lastX = icx;
+            lastZ = icz;
+            lastI = i;
+            if (rr < 0.5) {
+                break;
+            }
+        }
+        int tip = 0;
+        while (tip < Math.max(1, Math.min(3, (int) Math.round(r0))) && c.cave(lastX, by + dir * (lastI + 1 + tip), lastZ)) {
+            tip++;
+        }
+        for (int k = 0; k < tip; k++) {
+            c.b.decor(lastX, by + dir * (lastI + 1 + k), lastZ, FormationBlocks.mod(ModBlock.AMETHYST_SPIKE, NatureBlocks.spikeState(k, tip, up)));
+        }
+    }
+
+    /**
+     * Amethyst caves: a group of large crystals leaning out from a common root on the floor or the
+     * ceiling, each its own length and angle, over a geode-like collar of calcite and smooth basalt
+     * with buds.
+     */
+    private static void crystalSpires(Ctx c) {
+        boolean ceiling = c.spec.has(FormationSpec.CEILING);
+        int span = c.spec.span();
+        int by = ceiling ? span - 1 : 0;
+        double radius = c.spec.radius();
+        int n = c.r.between(2, 6);
+        for (int k = 0; k < n; k++) {
+            double a = c.r.next() * Math.PI * 2;
+            double d = k == 0 ? 0.0 : c.r.range(0.5, radius * 0.45);
+            double bx = Math.cos(a) * d;
+            double bz = Math.sin(a) * d;
+            int base = ceiling ? c.ceiling((int) Math.round(bx), by, (int) Math.round(bz), 5) : c.floor((int) Math.round(bx), by, (int) Math.round(bz), 5);
+            if (base == Integer.MIN_VALUE) {
+                continue;
+            }
+            double length = c.spec.height() * (k == 0 ? 1.0 : c.r.range(0.35, 0.8));
+            double r0 = Math.max(0.7, Math.min(2.4, length * c.r.range(0.12, 0.2)));
+            double tilt = c.r.range(0.15, 0.6) * (k == 0 ? 0.5 : 1.0);
+            double out = Math.min(radius * 0.8, length * tilt);
+            crystal(c, bx, base, bz, !ceiling, r0, length, Math.cos(a) * out, Math.sin(a) * out);
+        }
+        geodeCollar(c, radius * 0.7, ceiling ? span : -1, ceiling);
+    }
+
+    /** Calcite and smooth basalt set into the floor (ceiling) around a crystal group, buds on it. */
+    private static void geodeCollar(Ctx c, double radius, int anchorY, boolean ceiling) {
+        int snap = ceiling ? SNAP_CEILING : SNAP_FLOOR;
+        int dir = ceiling ? -1 : 1;
+        int ri = (int) Math.ceil(radius + 1);
+        for (int dz = -ri; dz <= ri; dz++) {
+            for (int dx = -ri; dx <= ri; dx++) {
+                double q = Math.hypot(dx, dz) / radius + 0.35 * (c.lump(dx, 3, dz) - 0.5);
+                if (q > 1.0 || !c.b.isEmpty(dx, anchorY + dir, dz) || !c.b.isEmpty(dx, anchorY, dz)) {
+                    continue;
+                }
+                int ground = q < 0.6 ? FormationBlocks.code(FormationBlocks.CALCITE, 0) : FormationBlocks.code(FormationBlocks.SMOOTH_BASALT, 0);
+                c.b.decor(dx, anchorY, dz, ground | snap);
+                if (c.r.chance(0.18)) {
+                    c.b.decor(dx, anchorY + dir, dz, FormationBlocks.code(FormationBlocks.AMETHYST, (ceiling ? 0 : 1) | c.r.between(0, 3) << 3) | snap);
+                }
+            }
+        }
+    }
+
+    /**
+     * Amethyst caves: a giant crystal of a megacave: a broad faceted shaft of amethyst leaning out of
+     * the floor tens of blocks long, glowing in patches, with smaller crystals round its foot and a
+     * wide geode collar.
+     */
+    private static void giantCrystal(Ctx c) {
+        double length = c.spec.height();
+        double r0 = c.spec.radius();
+        double a = c.r.next() * Math.PI * 2;
+        double out = Math.min(c.b.reach() - r0 - 2.0, length * c.r.range(0.15, 0.4));
+        crystal(c, 0, 0, 0, true, r0, length, Math.cos(a) * out, Math.sin(a) * out);
+        int around = c.r.between(2, 5);
+        for (int k = 0; k < around; k++) {
+            double b = c.r.next() * Math.PI * 2;
+            double d = r0 + c.r.range(1.5, 4.0);
+            int ox = (int) Math.round(Math.cos(b) * d);
+            int oz = (int) Math.round(Math.sin(b) * d);
+            int base = c.floor(ox, 0, oz, 6);
+            if (base == Integer.MIN_VALUE) {
+                continue;
+            }
+            double len = c.r.range(4.0, Math.max(5.0, length * 0.3));
+            double tilt = c.r.range(0.2, 0.7);
+            crystal(c, ox, base, oz, true, Math.max(0.8, len * 0.14), len, Math.cos(b) * len * tilt * 0.6, Math.sin(b) * len * tilt * 0.6);
+        }
+        geodeCollar(c, r0 + 4.0, -1, false);
+    }
+
+    /**
+     * Smoldering caves: a vent: a low cone of magma-veined rock with a crater at its top: a pit two
+     * blocks deep over a floor of magma, the mod's smoldering magma glowing in the pit's walls under
+     * the rim. Smoldering magma erupts by itself only when open above (an explosion, then lava), so
+     * it is never placed open above: a vent stays quiet until a player breaks its rim. Hot ground
+     * around it.
+     */
+    private static void magmaVent(Ctx c) {
+        double radius = c.spec.radius();
+        int h = Math.max(2, (int) Math.round(Math.max(2.0, c.spec.height())));
+        int pit = radius >= 3.2 ? 1 : 0;
+        cone(c, 0, 0, 0, h, radius, pit + 1.4);
+        footAll(c, 4);
+        crater(c, 0, h, 0, pit);
+        hotGround(c, radius + 2.5, 0.55);
+    }
+
+    /**
+     * A cone of rock standing on a floor (the first open layer {@code floor}, its foot sunk one block
+     * into the ground) up to {@code top}, its radius narrowing to {@code topRadius}.
+     */
+    private static void cone(Ctx c, int x, int floor, int z, int top, double radius, double topRadius) {
+        for (int dy = floor - 1; dy <= top; dy++) {
+            double t = Math.max(0.0, dy - floor) / Math.max(1.0, top - floor);
+            double rr = Math.max(topRadius, radius - (radius - topRadius) * t);
+            disc(c, x, dy, z, rr, 0.5, 0, dy < floor ? EMBED : 0);
+        }
+    }
+
+    /**
+     * The crater of a vent whose top layer is {@code top}: a pit of radius {@code pit} (0: one
+     * column, 1: three by three) two blocks deep, magma at its floor, smoldering magma (or magma) in
+     * the cells of its walls one below the rim, each under a rim block, so none is open above.
+     */
+    private static void crater(Ctx c, int x, int top, int z, int pit) {
+        int magma = FormationBlocks.code(FormationBlocks.MAGMA, 0);
+        int smoldering = FormationBlocks.mod(ModBlock.SMOLDERING_MAGMA);
+        for (int dz = -pit; dz <= pit; dz++) {
+            for (int dx = -pit; dx <= pit; dx++) {
+                c.b.remove(x + dx, top, z + dz);
+                c.b.remove(x + dx, top - 1, z + dz);
+                c.b.force(x + dx, top - 2, z + dz, magma);
+            }
+        }
+        int placed = 0;
+        for (int dz = -pit - 1; dz <= pit + 1; dz++) {
+            for (int dx = -pit - 1; dx <= pit + 1; dx++) {
+                boolean wall = (Math.abs(dx) == pit + 1) != (Math.abs(dz) == pit + 1);
+                if (!wall || !c.b.isSolid(x + dx, top, z + dz) || !c.b.isSolid(x + dx, top - 1, z + dz)) {
+                    continue;
+                }
+                boolean glow = placed == 0 || c.r.chance(0.55);
+                c.b.force(x + dx, top - 1, z + dz, glow ? smoldering : magma);
+                placed += glow ? 1 : 0;
+            }
+        }
+    }
+
+    /** Magma, blackstone and basalt set into the floor around a point (snapped), thinning to the edge. */
+    private static void hotGround(Ctx c, double radius, double share) {
+        int ri = (int) Math.ceil(radius + 1);
+        for (int dz = -ri; dz <= ri; dz++) {
+            for (int dx = -ri; dx <= ri; dx++) {
+                double q = Math.hypot(dx, dz) / radius + 0.4 * (c.lump(dx * 1.2, 5, dz * 1.2) - 0.5);
+                if (q > 1.0 || c.b.isSolid(dx, 0, dz) || c.b.isSolid(dx, -1, dz) || c.r.next() > share * (1.2 - q)) {
+                    continue;
+                }
+                double v = c.lump(dx * 2.0, 9, dz * 2.0);
+                int ground = q < 0.55 && v < 0.55 ? FormationBlocks.code(FormationBlocks.MAGMA, 0)
+                        : (v < 0.7 ? FormationBlocks.code(FormationBlocks.BLACKSTONE, 0) : FormationBlocks.code(FormationBlocks.BASALT, 0));
+                c.b.decor(dx, -1, dz, ground | SNAP_FLOOR);
+            }
+        }
+    }
+
+    /**
+     * Smoldering caves: a geothermal field in a great hall: a broad floor of magma and hot rock,
+     * vents of several sizes, magma-veined pillars where the vault is low enough.
+     */
+    private static void geothermalField(Ctx c) {
+        double radius = c.spec.radius();
+        int span = c.spec.span();
+        hotGround(c, radius, 0.85);
+        int vents = c.r.between(2, 4);
+        for (int k = 0; k < vents; k++) {
+            double a = c.r.next() * Math.PI * 2;
+            double d = c.r.range(0.0, radius * 0.7);
+            int ox = (int) Math.round(Math.cos(a) * d);
+            int oz = (int) Math.round(Math.sin(a) * d);
+            int base = c.floor(ox, 0, oz, 5);
+            if (base == Integer.MIN_VALUE) {
+                continue;
+            }
+            double vr = c.r.range(2.0, 3.6);
+            int vh = Math.max(2, (int) Math.round(c.r.range(2.0, Math.min(6.0, Math.max(2.0, c.spec.height())))));
+            int pit = vr >= 3.2 ? 1 : 0;
+            cone(c, ox, base, oz, base + vh, vr, pit + 1.4);
+            crater(c, ox, base + vh, oz, pit);
+            for (int dz = -4; dz <= 4; dz++) {
+                for (int dx = -4; dx <= 4; dx++) {
+                    if (c.b.isSolid(ox + dx, base, oz + dz)) {
+                        c.b.foot(ox + dx, oz + dz, 4);
+                    }
+                }
+            }
+        }
+        if (span <= 48) {
+            int pillars = c.r.between(1, 3);
+            for (int k = 0; k < pillars; k++) {
+                double a = c.r.next() * Math.PI * 2;
+                double d = c.r.range(radius * 0.4, radius * 0.9);
+                int ox = (int) Math.round(Math.cos(a) * d);
+                int oz = (int) Math.round(Math.sin(a) * d);
+                int base = c.floor(ox, 0, oz, 5);
+                if (base == Integer.MIN_VALUE) {
+                    continue;
+                }
+                int top = c.ceiling(ox, base, oz, span + 8);
+                if (top == Integer.MIN_VALUE || top - base < 6) {
+                    continue;
+                }
+                double pr = c.r.range(1.4, 2.6);
+                for (int dy = base - 1; dy <= top + 1; dy++) {
+                    double t = (dy - base) / (double) Math.max(1, top - base);
+                    double rr = pr * (1.0 - 0.35 * Math.sin(Math.PI * Math.max(0.0, Math.min(1.0, t))));
+                    disc(c, ox, dy, oz, rr, 0.5, 0, dy < base || dy > top ? EMBED : 0);
+                }
+            }
+        }
+    }
+
+    /**
+     * Ashen wastes: a volcanic fissure: a crack in the ground one to three blocks wide and a few deep,
+     * tapering at both ends, its lips of blackstone and basalt, magma glowing at its bottom, and ash
+     * vents (Sincerelyuq's Biomes' block: hot ash, damage) on a few spots of its lips.
+     */
+    private static void fissure(Ctx c) {
+        double width = c.spec.span();
+        double half = Math.min(c.spec.radius() * 0.6, c.b.reach() - width * 0.5 - 3.0);
+        double depth = c.spec.height();
+        double cos = Math.cos(c.spec.angle());
+        double sin = Math.sin(c.spec.angle());
+        int cut = FormationBlocks.code(FormationBlocks.CUT, 0);
+        int magma = FormationBlocks.code(FormationBlocks.MAGMA, 0);
+        int black = FormationBlocks.code(FormationBlocks.BLACKSTONE, 0);
+        int basalt = FormationBlocks.code(FormationBlocks.BASALT, 0);
+        double wobble = c.r.next() * 10.0;
+        int ri = (int) Math.ceil(half + width + 2);
+        for (int dz = -ri; dz <= ri; dz++) {
+            for (int dx = -ri; dx <= ri; dx++) {
+                double along = dx * cos + dz * sin;
+                double across = -dx * sin + dz * cos - 1.2 * Math.sin(along * 0.35 + wobble);
+                double t = Math.abs(along) / half;
+                if (t > 1.0) {
+                    continue;
+                }
+                double w = width * 0.5 * (1.0 - t * t) + 0.3;
+                double a = Math.abs(across);
+                int ground = c.ground(dx, dz);
+                if (a <= w) {
+                    int d = Math.max(1, (int) Math.round(depth * (1.0 - t * t) * (1.0 - 0.4 * a / Math.max(0.5, w))));
+                    for (int k = 0; k < d; k++) {
+                        c.b.force(dx, ground - k, dz, cut);
+                    }
+                    c.b.force(dx, ground - d, dz, (d >= 2 && t < 0.7 ? magma : black) | EMBED);
+                } else if (a <= w + 1.3) {
+                    c.b.force(dx, ground, dz, (c.lump(dx, 0, dz) < 0.5 ? black : basalt) | EMBED);
+                }
+            }
+        }
+        int vents = c.spec.span() >= 2 ? c.r.between(1, 3) : c.r.between(0, 1);
+        int vent = FormationBlocks.mod(ModBlock.ASH_VENT);
+        for (int k = 0; k < vents; k++) {
+            // On a lip (the crack's own frame, wobble included), never over the crack itself.
+            double along = c.r.range(-0.6, 0.6) * half;
+            double t = Math.abs(along) / half;
+            double side = (c.r.chance(0.5) ? 1 : -1) * (width * 0.5 * (1.0 - t * t) + 0.3 + 0.9);
+            double shifted = side + 1.2 * Math.sin(along * 0.35 + wobble);
+            int vx = (int) Math.round(along * cos - shifted * sin);
+            int vz = (int) Math.round(along * sin + shifted * cos);
+            double va = vx * cos + vz * sin;
+            double vt = Math.abs(va) / half;
+            double vacross = Math.abs(-vx * sin + vz * cos - 1.2 * Math.sin(va * 0.35 + wobble));
+            double vw = width * 0.5 * (1.0 - vt * vt) + 0.3;
+            if (vt > 1.0 || vacross <= vw || vacross > vw + 1.3) {
+                continue;
+            }
+            int ground = c.ground(vx, vz);
+            c.b.force(vx, ground, vz, vent | EMBED);
+            c.b.force(vx, ground - 1, vz, magma | EMBED);
+        }
+    }
+
+    /**
+     * Ashen wastes: fumaroles: one to three of Sincerelyuq's Biomes' ash vents (hot ash, damage)
+     * within a few blocks, each over magma in a ring of basalt and smooth basalt set into the ground
+     * with a few raised blocks, as the mod builds them; each on its own column's ground.
+     */
+    private static void ashVents(Ctx c) {
+        int n = Math.max(1, c.spec.span());
+        double spread = c.spec.radius();
+        int vent = FormationBlocks.mod(ModBlock.ASH_VENT);
+        int magma = FormationBlocks.code(FormationBlocks.MAGMA, 0);
+        int basalt = FormationBlocks.code(FormationBlocks.BASALT, 0);
+        int smooth = FormationBlocks.code(FormationBlocks.SMOOTH_BASALT, 0);
+        for (int k = 0; k < n; k++) {
+            double a = c.r.next() * Math.PI * 2;
+            double d = k == 0 ? 0.0 : c.r.range(1.5, spread + 1.0);
+            int vx = (int) Math.round(Math.cos(a) * d);
+            int vz = (int) Math.round(Math.sin(a) * d);
+            int ground = c.ground(vx, vz);
+            for (int dz = -2; dz <= 2; dz++) {
+                for (int dx = -2; dx <= 2; dx++) {
+                    int d2 = dx * dx + dz * dz;
+                    int g = c.ground(vx + dx, vz + dz);
+                    int there = c.b.get(vx + dx, g, vz + dz);
+                    if (d2 == 0 || d2 > 5 || FormationBlocks.kind(there) == FormationBlocks.MOD && FormationBlocks.modBlock(there) == ModBlock.ASH_VENT) {
+                        continue;
+                    }
+                    if (Math.abs(g - ground) > 1) {
+                        continue;
+                    }
+                    c.b.force(vx + dx, g, vz + dz, (c.r.chance(0.33) ? smooth : basalt) | EMBED);
+                    if (d2 <= 2 && c.r.chance(0.5)) {
+                        c.b.solid(vx + dx, g + 1, vz + dz, basalt);
+                    }
+                }
+            }
+            c.b.force(vx, ground, vz, vent | EMBED);
+            c.b.force(vx, ground - 1, vz, magma | EMBED);
+        }
+        footAll(c, 3);
     }
 }

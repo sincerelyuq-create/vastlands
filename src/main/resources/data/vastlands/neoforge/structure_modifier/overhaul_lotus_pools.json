@@ -1,0 +1,5 @@
+{
+  "type": "vastlands:add_biomes",
+  "structures": "#vastlands:overhaul/lotus_pools",
+  "biomes": "#vastlands:overhaul/lotus_pools"
+}

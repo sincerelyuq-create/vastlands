@@ -1,0 +1,16 @@
+{
+  "values": [
+    {
+      "id": "sincerelyuq:desert_chest_tnt",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:sand_chest_legit",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:pot_trap",
+      "required": false
+    }
+  ]
+}

@@ -1,5 +1,7 @@
 package com.sincerelyuq.vastlands.worldgen.nature;
 
+import com.sincerelyuq.vastlands.worldgen.compat.ModBlock;
+
 /**
  * Block codes of natural formations: plain ints, so the model stays pure Java and the block step
  * ({@link NatureBlocks}) turns them into block states. A code is
@@ -20,6 +22,14 @@ package com.sincerelyuq.vastlands.worldgen.nature;
  *     bits 3..4 the size (0 small bud .. 3 cluster).</li>
  *     <li>{@link #BASALT}: bits 0..1 the axis.</li>
  *     <li>{@link #AZALEA}, {@link #AZALEA_LEAVES}: bit 0 flowering.</li>
+ *     <li>{@link #MOD} (Agent 7): a block of another mod, extra bits 0..5 the {@link ModBlock}
+ *     ordinal, bits 6..13 a property value (an amethyst spike's {@code onebyone}, a pillar's
+ *     axis 0 y, 1 x, 2 z); solid or a decoration by {@link ModBlock#solid}.</li>
+ *     <li>{@link #POOL} (Agent 7): the fluid of a pool dug into a cave floor (extra bit 0: 0 water,
+ *     1 the amethyst caves' lavender spinel; bits 1..3 a count of sea pickles standing in the
+ *     water): only ever replaces natural ground, never air, so the pool cannot spill.</li>
+ *     <li>{@link #CUT} (Agent 7): air cut into natural ground (a volcanic fissure).</li>
+ *     <li>{@link #SEA_PICKLE}: extra the count 1..4 (always in water).</li>
  * </ul>
  *
  * Flags: {@link #EMBED} may replace natural ground (the foot of a rock sunk into the soil);
@@ -60,6 +70,13 @@ public final class FormationBlocks {
     public static final int PACKED_MUD = 26;
     /** The floor or ceiling block a snapped stack is aligned to, left as it is. */
     public static final int KEEP = 27;
+    public static final int MOD = 28;
+    public static final int POOL = 29;
+    public static final int CUT = 30;
+    public static final int SEA_PICKLE = 31;
+    public static final int SMOOTH_BASALT = 32;
+    public static final int BLACKSTONE = 33;
+    public static final int TUFF = 34;
 
     /** Roles of a rock cell. */
     public static final int BODY = 0;
@@ -109,7 +126,36 @@ public final class FormationBlocks {
         int kind = code & 63;
         return kind == ROCK || kind == DRIPSTONE || kind == MOSS_BLOCK || kind == ROOTED_DIRT || kind == SCULK || kind == LOG || kind == GRAVEL
                 || kind == CLAY || kind == CALCITE || kind == AMETHYST_BLOCK || kind == BASALT || kind == MAGMA || kind == COARSE_DIRT
-                || kind == MUD || kind == SAND || kind == PACKED_MUD;
+                || kind == MUD || kind == SAND || kind == PACKED_MUD || kind == SMOOTH_BASALT || kind == BLACKSTONE || kind == TUFF
+                || kind == POOL || kind == MOD && modBlock(code).solid;
+    }
+
+    /** A block of another mod with a property value (see {@link #MOD}). */
+    public static int mod(ModBlock block, int property) {
+        return code(MOD, block.ordinal() | property << 6);
+    }
+
+    public static int mod(ModBlock block) {
+        return mod(block, 0);
+    }
+
+    /** The other mod's block of a {@link #MOD} code. */
+    public static ModBlock modBlock(int code) {
+        return ModBlock.VALUES[extra(code) & 63];
+    }
+
+    /** The property value of a {@link #MOD} code. */
+    public static int modProperty(int code) {
+        return (extra(code) >>> 6) & 255;
+    }
+
+    /** True for an amethyst spike or a lumen bulb hanging from the block above. */
+    static boolean modHangs(int code) {
+        if ((code & 63) != MOD) {
+            return false;
+        }
+        ModBlock b = modBlock(code);
+        return b == ModBlock.LUMEN_BULB || b == ModBlock.AMETHYST_SPIKE && modProperty(code) >= 5;
     }
 
     /** Rock palette of a {@link #ROCK} code. */

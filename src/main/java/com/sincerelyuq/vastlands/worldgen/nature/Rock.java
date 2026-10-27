@@ -32,7 +32,13 @@ public enum Rock {
     /** Crystal caves: calcite with amethyst. */
     CALCITE,
     /** Pale rock of cold coasts and snowfields: diorite and stone. */
-    PALE;
+    PALE,
+    /** Amethyst caves (Sincerelyuq's Biomes): amethyst with calcite, glowing and budding amethyst. */
+    AMETHYST,
+    /** Smoldering caves: basalt and blackstone veined with magma. */
+    MAGMATIC,
+    /** Painted strata: the strata's colour bands of terracotta by height. */
+    STRATA;
 
     public static final Rock[] VALUES = values();
 

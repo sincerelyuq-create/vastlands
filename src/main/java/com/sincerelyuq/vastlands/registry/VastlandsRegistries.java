@@ -4,6 +4,8 @@ import com.mojang.serialization.MapCodec;
 import com.sincerelyuq.vastlands.Vastlands;
 import com.sincerelyuq.vastlands.worldgen.VastlandsChunkGenerator;
 import com.sincerelyuq.vastlands.worldgen.biome.VastlandsBiomeSource;
+import com.sincerelyuq.vastlands.worldgen.compat.AddBiomesModifier;
+import com.sincerelyuq.vastlands.worldgen.compat.IntegrationFeatures;
 import com.sincerelyuq.vastlands.worldgen.density.HydrologyParameterFunction;
 import com.sincerelyuq.vastlands.worldgen.density.StageDensityFunction;
 import com.sincerelyuq.vastlands.worldgen.density.TerrainParameterFunction;
@@ -17,6 +19,8 @@ import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.feature.Feature;
 import net.minecraft.world.level.levelgen.placement.PlacementModifierType;
 import net.neoforged.bus.api.IEventBus;
+import net.neoforged.neoforge.common.world.StructureModifier;
+import net.neoforged.neoforge.registries.NeoForgeRegistries;
 import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
 
@@ -35,6 +39,8 @@ public final class VastlandsRegistries {
     public static final DeferredRegister<Feature<?>> FEATURES = DeferredRegister.create(Registries.FEATURE, Vastlands.MOD_ID);
     public static final DeferredRegister<PlacementModifierType<?>> PLACEMENT_MODIFIER_TYPES =
             DeferredRegister.create(Registries.PLACEMENT_MODIFIER_TYPE, Vastlands.MOD_ID);
+    public static final DeferredRegister<MapCodec<? extends StructureModifier>> STRUCTURE_MODIFIERS =
+            DeferredRegister.create(NeoForgeRegistries.Keys.STRUCTURE_MODIFIER_SERIALIZERS, Vastlands.MOD_ID);
 
     /** {@code "type": "vastlands:noise"} in a dimension's generator. */
     public static final DeferredHolder<MapCodec<? extends ChunkGenerator>, MapCodec<VastlandsChunkGenerator>> NOISE_GENERATOR =
@@ -54,6 +60,14 @@ public final class VastlandsRegistries {
     public static final DeferredHolder<PlacementModifierType<?>, PlacementModifierType<VanillaTrees.Filter>> OUTSIDE_FORESTS =
             PLACEMENT_MODIFIER_TYPES.register("outside_forests", () -> () -> VanillaTrees.Filter.CODEC);
 
+    /** Appended to other mods' features in Vastlands worlds: replaced ones never place, guarded ones keep clear of structures. */
+    public static final DeferredHolder<PlacementModifierType<?>, PlacementModifierType<IntegrationFeatures.Filter>> INTEGRATION_FILTER =
+            PLACEMENT_MODIFIER_TYPES.register("integration", () -> () -> IntegrationFeatures.Filter.CODEC);
+
+    /** {@code "type": "vastlands:add_biomes"} in a structure modifier: more biomes for some structures, in Vastlands worlds. */
+    public static final DeferredHolder<MapCodec<? extends StructureModifier>, MapCodec<AddBiomesModifier>> ADD_BIOMES =
+            STRUCTURE_MODIFIERS.register("add_biomes", () -> AddBiomesModifier.CODEC);
+
     static {
         for (StageDensityFunction.Stage stage : StageDensityFunction.Stage.values()) {
             DENSITY_FUNCTION_TYPES.register(stage.getSerializedName(), () -> stage.codec().codec());
@@ -71,5 +85,6 @@ public final class VastlandsRegistries {
         BIOME_SOURCES.register(modEventBus);
         FEATURES.register(modEventBus);
         PLACEMENT_MODIFIER_TYPES.register(modEventBus);
+        STRUCTURE_MODIFIERS.register(modEventBus);
     }
 }

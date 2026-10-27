@@ -21,6 +21,14 @@
     "minecraft:trees_swamp",
     "minecraft:trees_badlands",
     "minecraft:trees_water",
-    "minecraft:lake_lava_surface"
+    "minecraft:lake_lava_surface",
+    {
+      "id": "sincerelyuqs_biomes:dusk_tree",
+      "required": false
+    },
+    {
+      "id": "sincerelyuqs_biomes:charred_tree",
+      "required": false
+    }
   ]
 }

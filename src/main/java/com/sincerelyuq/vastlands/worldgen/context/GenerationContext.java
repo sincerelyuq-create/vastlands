@@ -1,7 +1,11 @@
 package com.sincerelyuq.vastlands.worldgen.context;
 
+import com.sincerelyuq.vastlands.worldgen.biome.RegionalBiomes;
+import com.sincerelyuq.vastlands.worldgen.caves.VastlandsCaves;
+import com.sincerelyuq.vastlands.worldgen.hydrology.VastlandsHydrology;
 import com.sincerelyuq.vastlands.worldgen.system.GenerationSetup;
 import com.sincerelyuq.vastlands.worldgen.system.GenerationSystems;
+import com.sincerelyuq.vastlands.worldgen.terrain.TerrainColumn;
 import com.google.common.collect.MapMaker;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentMap;
@@ -30,6 +34,9 @@ public final class GenerationContext {
 
     private final GenerationSetup setup;
     private final GenerationSystems systems;
+    /** Built on first use (the biome source asks for it once tags name a regional biome). */
+    @Nullable
+    private volatile RegionalBiomes regions;
 
     public GenerationContext(GenerationSetup setup) {
         this.setup = setup;
@@ -77,5 +84,38 @@ public final class GenerationContext {
 
     public GenerationSystems systems() {
         return this.systems;
+    }
+
+    /** The regional surface biomes of this world (see {@link RegionalBiomes}). */
+    public RegionalBiomes regions() {
+        RegionalBiomes r = this.regions;
+        if (r == null) {
+            synchronized (this) {
+                r = this.regions;
+                if (r == null) {
+                    GenerationSystems s = this.systems;
+                    RegionalBiomes.Land land = new RegionalBiomes.Land() {
+                        @Override
+                        public TerrainColumn column(int x, int z) {
+                            return s.terrain().column(x, z);
+                        }
+
+                        @Override
+                        public double volcanic(int x, int z) {
+                            return s.caves() instanceof VastlandsCaves caves ? caves.geology(x, z)[2] : 0.0;
+                        }
+
+                        @Override
+                        public double valleyDepth(int x, int z) {
+                            return s.hydrology() instanceof VastlandsHydrology rivers
+                                    ? Math.max(0.0, s.terrain().column(x, z).height() - rivers.carvedHeight(x, z)) : 0.0;
+                        }
+                    };
+                    r = new RegionalBiomes(this.setup.random("regions").fromHashOf("regional_biomes").nextLong(), land, this.setup.seaLevel());
+                    this.regions = r;
+                }
+            }
+        }
+        return r;
     }
 }

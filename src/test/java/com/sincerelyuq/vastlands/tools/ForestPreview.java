@@ -140,6 +140,8 @@ public final class ForestPreview {
             case JUNGLE -> 0x5A4A1E;
             case ACACIA -> 0x6A645A;
             case MUSHROOM -> 0xCFC9B9;
+            case DUSK -> 0x3B3047;
+            case CHARRED -> 0x262222;
         };
     }
 
@@ -152,6 +154,8 @@ public final class ForestPreview {
             case JUNGLE -> 0x3B8A1E;
             case ACACIA -> 0x5B7E22;
             case MUSHROOM -> 0x92684A;
+            case DUSK -> 0x6E4C9E;
+            case CHARRED -> 0x3A3434;
         };
     }
 

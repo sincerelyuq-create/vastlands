@@ -1,0 +1,12 @@
+{
+  "values": [
+    {
+      "id": "sincerelyuq:bones_stone",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:bones_deepslate",
+      "required": false
+    }
+  ]
+}

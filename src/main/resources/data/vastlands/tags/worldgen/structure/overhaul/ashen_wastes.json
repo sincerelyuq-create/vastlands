@@ -1,0 +1,20 @@
+{
+  "values": [
+    {
+      "id": "sincerelyuq:last_camp",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:half_portal",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:deepslate_nether_portal",
+      "required": false
+    },
+    {
+      "id": "sincerelyuq:fake_treasure",
+      "required": false
+    }
+  ]
+}
