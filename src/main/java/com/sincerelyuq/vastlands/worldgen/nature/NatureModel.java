@@ -2,6 +2,7 @@ package com.sincerelyuq.vastlands.worldgen.nature;
 
 import static com.sincerelyuq.vastlands.worldgen.noise.NoiseMath.smoothstep;
 
+import com.sincerelyuq.vastlands.worldgen.WorldHeight;
 import com.sincerelyuq.vastlands.worldgen.caves.VastlandsCaves;
 import com.sincerelyuq.vastlands.worldgen.geography.GeographySample;
 import com.sincerelyuq.vastlands.worldgen.hydrology.WaterColumn;
@@ -93,6 +94,8 @@ public final class NatureModel {
     private final Biomes biomes;
     private final NatureSettings settings;
     private final int seaLevel;
+    /** Highest block a surface formation may reach: two under the top of the world. */
+    private final int ceiling;
     private final SimplexNoise rockiness;
     private final SimplexNoise richness;
     /** Groves of lumen mushrooms against open stretches of the bioluminescent depths (~110 blocks). */
@@ -107,11 +110,17 @@ public final class NatureModel {
     }
 
     public NatureModel(long seed, Land land, Biomes biomes, NatureSettings settings, int seaLevel) {
+        this(seed, land, biomes, settings, seaLevel, WorldHeight.MAX_Y);
+    }
+
+    /** @param worldTop the highest buildable block of the world */
+    public NatureModel(long seed, Land land, Biomes biomes, NatureSettings settings, int seaLevel, int worldTop) {
         this.seed = seed;
         this.land = land;
         this.biomes = biomes;
         this.settings = settings;
         this.seaLevel = seaLevel;
+        this.ceiling = worldTop - 2;
         this.rockiness = new SimplexNoise(seed + 1);
         this.richness = new SimplexNoise(seed + 2);
         this.groves = new SimplexNoise(seed + 3);
@@ -167,6 +176,23 @@ public final class NatureModel {
         c.specs = new FormationSpec[] {spec};
         c.footprints = new double[] {footprint};
         c.accepted = new byte[] {-1};
+    }
+
+    /** Blocks of an arch above its rise (the rib's crest, see {@code FormationShapes.arch}). */
+    private static final double ARCH_CREST = 6.0;
+
+    /**
+     * A tall surface formation's height, cut to the room under the world's top (its crest at most
+     * {@link #ceiling}, {@code extra} blocks above its height), or NaN if less than
+     * {@code minimum} is left: a great spire on one of the highest summits (Y 470+) is shorter
+     * instead of losing its tip to the top of the world.
+     */
+    private double headroom(int y, double height, double extra, double minimum) {
+        double room = this.ceiling - extra - y;
+        if (height <= room) {
+            return height;
+        }
+        return room >= minimum ? room : Double.NaN;
     }
 
     // ------------------------------------------------------------------ the surface
@@ -626,16 +652,16 @@ public final class NatureModel {
             double half = r.range(6.0, 11.0);
             double rise = r.range(6.0, 12.0);
             double angle = r.next() * Math.PI;
-            if (!this.archFits(c.x, c.z, s.ground, half, angle, rise, coast)) {
+            if (y + rise + ARCH_CREST > this.ceiling || !this.archFits(c.x, c.z, s.ground, half, angle, rise, coast)) {
                 return;
             }
             this.set(c, new FormationSpec(this.specKey(c, 0), FormationKind.ARCH, c.x, c.z, y, rise, half, 0, angle, rock, flags, r.nextLong()), half + 4.0);
             return;
         }
         if (dry || s.style == SurfaceStyle.MOUNTAIN || coast) {
-            double height = r.range(16.0, 30.0);
+            double height = this.headroom(y, r.range(16.0, 30.0), 1.0, 12.0);
             double radius = r.range(2.4, 4.4);
-            if (s.slope > 0.9 || !this.clearSurface(c.x, c.z, y, radius + 2, false)) {
+            if (Double.isNaN(height) || s.slope > 0.9 || !this.clearSurface(c.x, c.z, y, radius + 2, false)) {
                 return;
             }
             this.set(c, new FormationSpec(this.specKey(c, 0), FormationKind.SPIRE, c.x, c.z, y, height, radius, 0, 0, rock, flags, r.nextLong()), radius + 2.5);
@@ -687,15 +713,15 @@ public final class NatureModel {
             double half = r.range(14.0, 22.0);
             double rise = r.range(14.0, 28.0);
             double angle = r.next() * Math.PI;
-            if (!this.archFits(c.x, c.z, s.ground, half, angle, rise, false)) {
+            if (y + rise + ARCH_CREST > this.ceiling || !this.archFits(c.x, c.z, s.ground, half, angle, rise, false)) {
                 return;
             }
             this.set(c, new FormationSpec(this.specKey(c, 0), FormationKind.GREAT_ARCH, c.x, c.z, y, rise, half, 0, angle, rock, flags, r.nextLong()),
                     half + 8.0);
         } else {
             double radius = r.range(6.0, 9.0);
-            double height = r.range(35.0, 70.0);
-            if (s.slope > 0.8 || !this.clearSurface(c.x, c.z, y, radius + 3, false)) {
+            double height = this.headroom(y, r.range(35.0, 70.0), 1.0, 24.0);
+            if (Double.isNaN(height) || s.slope > 0.8 || !this.clearSurface(c.x, c.z, y, radius + 3, false)) {
                 return;
             }
             this.set(c, new FormationSpec(this.specKey(c, 0), FormationKind.GREAT_SPIRE, c.x, c.z, y, height, radius, 0, 0, rock, flags, r.nextLong()),

@@ -11,7 +11,9 @@ import org.junit.jupiter.api.Test;
 /** The height field on its own: determinism, continuity, bounds and the shape of its height distribution. */
 class TerrainModelTest {
     private static final double SEA = 63.0;
-    private static final double MAX = 470.0;
+    private static final double MAX = VastlandsTerrain.MAX_SURFACE;
+    /** The noise settings' top slide begins here: the surface must stay below it. */
+    private static final double TOP_SLIDE = 488.0;
     private static final long[] SEEDS = {1L, 42L, 20261018L, -7L};
 
     @Test
@@ -134,7 +136,7 @@ class TerrainModelTest {
             assertTrue(above200 > 0.005 * n && above200 < 0.08 * n, where + "above 200: " + above200);
             assertTrue(above300 < 0.015 * n, where + "above 300: " + above300);
             assertTrue(above300 < above200 / 2, where + "high mountains must be rarer");
-            assertTrue(max < MAX, where + "max " + max);
+            assertTrue(max < TOP_SLIDE, where + "max " + max);
             assertTrue(min > -200.0, where + "min " + min);
         }
     }
@@ -156,6 +158,32 @@ class TerrainModelTest {
                 assertTrue(column.climateContinentalness() >= -0.19, "dry column must not read as ocean: " + column);
             }
         }
+    }
+
+    /**
+     * The summits of an exceptional mountain system stand highest, at about Y 475, those of other
+     * great ranges lower (Y 455..474) instead of every great summit at one flattened height, and
+     * none comes near the top slide. Six summits of seed 20261018 found over 262 144 blocks (raw
+     * heights Y 570..670 before the cap): two of an exceptional system, four of other great ranges.
+     */
+    @Test
+    void exceptionalSystemsStandAboveTheGreatRanges() {
+        TerrainModel model = new TerrainModel(20261018L, SEA, MAX);
+        int[][] exceptional = {{48475, 50461}, {129466, -49580}};
+        int[][] great = {{58945, 10193}, {-21368, 5812}, {-45386, -89724}, {-135, 90095}};
+        double lowestExceptional = Double.POSITIVE_INFINITY;
+        for (int[] summit : exceptional) {
+            double h = model.sample(summit[0], summit[1]).height();
+            assertTrue(h > 472.0 && h < TOP_SLIDE - 6.0, "summit of an exceptional system at " + summit[0] + "," + summit[1] + ": " + h);
+            lowestExceptional = Math.min(lowestExceptional, h);
+        }
+        double lowestGreat = Double.POSITIVE_INFINITY;
+        for (int[] summit : great) {
+            double h = model.sample(summit[0], summit[1]).height();
+            assertTrue(h > 455.0 && h < lowestExceptional, "summit of a great range at " + summit[0] + "," + summit[1] + ": " + h);
+            lowestGreat = Math.min(lowestGreat, h);
+        }
+        assertTrue(lowestExceptional - lowestGreat > 6.0, "summit heights spread, not one flattened level: " + lowestExceptional + " vs " + lowestGreat);
     }
 
     @Test

@@ -23,6 +23,7 @@ import javax.annotation.Nullable;
 public final class VastlandsNature implements NatureSystem {
     private final long seed;
     private final int seaLevel;
+    private final int worldTop;
     private final NatureSettings settings;
     private final NatureModel.Land land;
     @Nullable
@@ -37,6 +38,7 @@ public final class VastlandsNature implements NatureSystem {
     public VastlandsNature(GenerationSetup setup, TerrainSystem terrain, HydrologySystem hydrology, CaveSystem caves, NatureSettings settings) {
         this.seed = setup.random("nature").fromHashOf("nature_model").nextLong();
         this.seaLevel = setup.seaLevel();
+        this.worldTop = setup.minY() + setup.height() - 1;
         this.settings = settings;
         VastlandsCaves cave = caves instanceof VastlandsCaves vc ? vc : null;
         VastlandsHydrology rivers = hydrology instanceof VastlandsHydrology vh ? vh : null;
@@ -85,7 +87,7 @@ public final class VastlandsNature implements NatureSystem {
         }
         synchronized (this) {
             if (this.model == null) {
-                this.model = new NatureModel(this.seed, this.land, biomes, this.settings, this.seaLevel);
+                this.model = new NatureModel(this.seed, this.land, biomes, this.settings, this.seaLevel, this.worldTop);
                 this.boundTo = owner;
             }
         }

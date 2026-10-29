@@ -22,8 +22,15 @@ public final class VastlandsTerrain implements TerrainSystem {
      */
     public static final double DENSITY_PER_BLOCK = 0.125;
     public static final double DENSITY_LIMIT = 128.0;
-    /** Highest surface the model may approach, if the world is tall enough. */
-    public static final double MAX_SURFACE = 470.0;
+    /**
+     * Asymptote of the surface, if the world is tall enough ({@link #TOP_CLEARANCE} under its top).
+     * The model never comes near it: its raw relief is bounded (about Y 770 at the very most), so
+     * the highest summits stand at about Y 465..480, below the top slide of the noise settings
+     * (Y 488..504) and leaving room for snow and the formations on them.
+     */
+    public static final double MAX_SURFACE = 500.0;
+    /** Blocks between the asymptote and the top of the world. */
+    public static final int TOP_CLEARANCE = 11;
     /** Vanilla's depth parameter changes by 1 per 128 blocks. */
     private static final double DEPTH_PER_BLOCK = 1.0 / 128.0;
     /**
@@ -49,7 +56,7 @@ public final class VastlandsTerrain implements TerrainSystem {
     public VastlandsTerrain(GenerationSetup setup, GeographySettings settings) {
         int top = setup.minY() + setup.height() - 1;
         long seed = setup.random("terrain").fromHashOf("height_field").nextLong();
-        this.model = new TerrainModel(seed, setup.seaLevel(), Math.min(MAX_SURFACE, top - 41), settings);
+        this.model = new TerrainModel(seed, setup.seaLevel(), Math.min(MAX_SURFACE, top - TOP_CLEARANCE), settings);
         this.cache = ThreadLocal.withInitial(() -> new ColumnCache(this.model));
     }
 
