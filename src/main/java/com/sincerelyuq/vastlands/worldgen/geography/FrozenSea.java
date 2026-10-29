@@ -15,7 +15,9 @@ import com.sincerelyuq.vastlands.worldgen.noise.SimplexNoise;
  * closed pressure ridges; and smaller cracks (~60 blocks) that run partly across the floes and end
  * where their own noise says so, so the network branches instead of forming closed polygons
  * everywhere. Towards the warm edge of the ice field (lower strength) leads widen and floes shrink
- * until only drifting pieces remain. Some floes are thick multi-year ice.
+ * until only drifting pieces remain, in a marginal zone a few hundred blocks wide: the whole
+ * freezing band is frozen ocean in the biome table, so it is covered by ice except at its edge.
+ * Some floes are thick multi-year ice.
  *
  * <p>The edge distance is exact for the jittered cells it considers, so cracks are continuous across
  * cell and chunk borders. Immutable and thread-safe; no game classes.
@@ -23,13 +25,19 @@ import com.sincerelyuq.vastlands.worldgen.noise.SimplexNoise;
 public final class FrozenSea {
     /** Vanilla's frozen temperature band starts here; no ice field above it. */
     public static final double FREEZE_TEMPERATURE = -0.45;
-    /** Sea-level temperature at which the field is a closed sheet. */
+    /** Sea-level temperature at which the strength reaches 1 (the field is firm well before, see {@link #MARGIN}). */
     public static final double SOLID_TEMPERATURE = -0.65;
     /** Size of the large floes and of the small crack cells, in blocks. */
     static final double FLOE_CELL = 170.0;
     static final double CRACK_CELL = 58.0;
     /** Share of the large floes that are thick multi-year ice. */
     static final double THICK_FLOES = 0.25;
+    /**
+     * Depth into the freezing band (see {@link #depth}) at which the field is firm: 0.07 of
+     * temperature, about 370 blocks at the median temperature gradient near the ice edge (210 where
+     * it is steepest, 960 where it is gentlest, measured over seed 20261018).
+     */
+    static final double MARGIN = 0.35;
 
     /** What covers one column of the sea surface. */
     public enum Cover {
@@ -73,6 +81,24 @@ public final class FrozenSea {
     }
 
     /**
+     * How open the field is (0 for a firm field .. 1 at the ice edge) at a depth into the freezing
+     * band (0 at its warm edge, 1 at {@link #SOLID_TEMPERATURE}). Every sea of the band is a frozen
+     * ocean biome, so the field closes within {@link #MARGIN} of it: the floes shrink and part only
+     * in a marginal zone of broken ice along the edge (at the median temperature gradient a
+     * quarter ice 50 blocks in, half at 100, three quarters at 160, a firm field beyond ~200).
+     */
+    static double openness(double depth) {
+        double d = clamp01(depth / MARGIN);
+        double closed = Math.sqrt(d);
+        return (1.0 - closed) * Math.sqrt(1.0 - closed);
+    }
+
+    /** Depth into the freezing band (0..1, linear in temperature) of a column of the given strength: the inverse of {@link #strength}. */
+    static double depth(double strength) {
+        return 0.5 - Math.sin(Math.asin(1.0 - 2.0 * clamp01(strength)) / 3.0);
+    }
+
+    /**
      * Surface cover at (x, z) for an ice field of the given regional strength (0..1, from
      * {@link #strength}); a noise roughens the ice edge before the floes are cut.
      */
@@ -80,9 +106,11 @@ public final class FrozenSea {
         if (strength <= 0.0) {
             return Cover.OPEN_WATER;
         }
-        // The ice edge follows the temperature only roughly: tongues and bays of a few thousand blocks.
-        strength = clamp01(strength + 0.35 * fbm(this.iceEdge, x / 2200.0, z / 2200.0, 2, 0.5) * smoothstep(0.0, 0.3, strength));
-        double open = 1.0 - strength;
+        // The ice edge follows the temperature only roughly: the marginal zone of broken ice widens
+        // and narrows along it by up to ~90 blocks, but never opens bays into the firm field.
+        double depth = depth(strength);
+        depth = Math.max(0.0, depth + 0.1 * fbm(this.iceEdge, x / 2200.0, z / 2200.0, 2, 0.5) * smoothstep(0.0, 0.1, depth));
+        double open = openness(depth);
         // Warped coordinates: floe edges curve, and jag at the scale of a few blocks.
         double wx = this.warpX(x, z);
         double wz = this.warpZ(x, z);

@@ -111,24 +111,54 @@ class FrozenSeaTest {
         }
     }
 
-    /** Towards the warm edge the ice opens up step by step until little remains. */
+    /**
+     * Towards the warm edge the ice opens up step by step until little remains, within a marginal
+     * zone at the edge of the freezing band (depths in the band: 0 at its edge, 1 at the solid
+     * temperature; 0.1 is ~100 blocks at the median temperature gradient).
+     */
     @Test
     void iceBreaksUpTowardsTheEdge() {
         FrozenSea sea = new FrozenSea(5L);
         double previous = 1.0;
-        for (double strength : new double[] {1.0, 0.7, 0.45, 0.25, 0.08}) {
-            boolean[][] open = render(sea, 40_000, 40_000, strength);
-            int ice = 0;
-            for (boolean[] row : open) {
-                for (boolean b : row) {
-                    ice += b ? 0 : 1;
-                }
-            }
-            double share = (double) ice / (SIZE * SIZE);
-            assertTrue(share < previous, "ice share must fall with strength: " + share + " at " + strength);
+        for (double depth : new double[] {0.35, 0.2, 0.1, 0.05, 0.02, 0.004}) {
+            double share = iceShare(sea, FrozenSea.strength(FrozenSea.FREEZE_TEMPERATURE - 0.2 * depth));
+            assertTrue(share < previous, "ice share must fall towards the edge: " + share + " at depth " + depth);
             previous = share;
         }
         assertTrue(previous < 0.2, "the outer edge must be mostly open water: " + previous);
+    }
+
+    /**
+     * The whole freezing band is frozen ocean in the biome table (frozen and deep frozen ocean), so
+     * it is covered by the field except in the marginal zone at its edge. Before, the break-up ran
+     * over half the band: deep frozen oceans had 0..5% ice and frozen oceans down to -0.55 under 20%.
+     */
+    @Test
+    void theFreezingBandIsFrozen() {
+        FrozenSea sea = new FrozenSea(6L);
+        // ~100 and ~200 blocks inside the edge (measured over 12 seeds: 56% and 83%; one square varies with the edge noise).
+        double atHundredBlocks = iceShare(sea, FrozenSea.strength(FrozenSea.FREEZE_TEMPERATURE - 0.02));
+        assertTrue(atHundredBlocks > 0.4, "ice ~100 blocks inside the edge: " + atHundredBlocks);
+        double atTwoHundredBlocks = iceShare(sea, FrozenSea.strength(FrozenSea.FREEZE_TEMPERATURE - 0.04));
+        assertTrue(atTwoHundredBlocks > 0.7, "ice ~200 blocks inside the edge: " + atTwoHundredBlocks);
+        for (double temperature : new double[] {-0.53, -0.58, -0.7}) {
+            double share = iceShare(sea, FrozenSea.strength(temperature));
+            assertTrue(share > 0.8, "a firm field at " + temperature + ": " + share);
+        }
+        // Deep frozen ocean (strength up to 0.3, see BiomeClimate) is frozen beyond the marginal zone too.
+        double deepFrozen = iceShare(sea, 0.3);
+        assertTrue(deepFrozen > 0.8, "deep frozen ocean: " + deepFrozen);
+    }
+
+    private static double iceShare(FrozenSea sea, double strength) {
+        boolean[][] open = render(sea, 40_000, 40_000, strength);
+        int ice = 0;
+        for (boolean[] row : open) {
+            for (boolean b : row) {
+                ice += b ? 0 : 1;
+            }
+        }
+        return (double) ice / (SIZE * SIZE);
     }
 
     /** The pattern has no notion of chunks: neighbours across chunk borders agree as often as inside chunks. */
