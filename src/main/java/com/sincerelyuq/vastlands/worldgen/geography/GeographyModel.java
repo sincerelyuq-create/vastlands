@@ -47,7 +47,8 @@ public final class GeographyModel {
     /**
      * The greatest mountain systems: in a few regions of a 30 000-block field, the cores of major
      * ranges (stature near 1) rise up to this share higher, so their summits stand above those of
-     * every other range (about Y 470..480 after the terrain's soft cap, against 455..470).
+     * every other range (about Y 475 after the terrain's soft cap, against 460..474 for the
+     * other great ranges, measured over 262 144 blocks of seeds 1 and 20261018).
      */
     private static final double EXCEPTIONAL_UPLIFT = 0.16;
     private static final double EXCEPTIONAL_SCALE = 30000.0;

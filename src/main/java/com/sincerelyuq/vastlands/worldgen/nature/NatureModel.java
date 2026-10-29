@@ -187,8 +187,8 @@ public final class NatureModel {
     /**
      * A tall surface formation's height, cut to the room under the world's top (its crest at most
      * {@link #ceiling}, {@code extra} blocks above its height), or NaN if less than
-     * {@code minimum} is left: a great spire on one of the highest summits (Y 470+) is shorter
-     * instead of losing its tip to the top of the world.
+     * {@code minimum} is left: a great spire on one of the highest summits (Y 440 and up) is
+     * shorter instead of losing its tip to the top of the world.
      */
     private double headroom(int y, double height, double extra, double minimum) {
         double room = this.ceiling - extra - y;

@@ -2,12 +2,16 @@ Vastlands — Development Progress
 
 Current Status
 
-Phase: Terrain, geography, hydrology, caves (overhauled by Agent 4.5), forests and natural formations complete, ready for Agent 7
+Phase: Terrain, geography, hydrology, caves (overhauled by Agent 4.5), forests, natural formations, integration of Sincerelyuq's Biomes and Overhaul (Agent 7) and the final polish (Agent 8) complete
 Project: Vastlands
 Minecraft: 1.21.8
 Loader: NeoForge 21.8.57
 
-The project builds and all 88 tests pass. The "Vastlands" world type generates a
+Build status: Agent 8's session could not run Gradle (the network policy refused
+maven.neoforged.net and the Mojang hosts, see "Agent 8" below):
+its changes were compiled and tested with javac and JUnit on the game-free sources (55 of the 104
+test methods, all pass); the game-dependent tests, `./gradlew build` and in-game checks were not
+run and are the first thing to do next. The "Vastlands" world type generates a
 continent-scale geography in a world of Y -256..511: open oceans with shelves, continental slopes,
 abyssal plains (Y -22..-30), mid-ocean ridges, seamounts and rare trenches (to Y ~-160); continents
 with vast plains provinces, hill country, mountain systems with branch ranges (peaks up to Y ~450),
@@ -53,6 +57,155 @@ Development Roadmap
 - [x] Agent 4.5 — Underground overhaul: wider passages, density, galleries, megacaves, cave biomes, verticality, underground water.
 - [x] Agent 5 — Forests: Implement large forests, giant trees, and tree variations.
 - [x] Agent 6 — Natural Wonders: natural formations at the surface and in the caves, moss by grass colour, procedural mushrooms, deadwood.
+- [x] Agent 7 — Integration: Sincerelyuq's Biomes and Sincerelyuq's Overhaul as optional parts of one world (see ARCHITECTURE.md, Integration).
+- [x] Agent 8 — Final polish: frozen seas and rivers, exceptional mountain systems, lava tubes, expanded bioluminescent depths, audit.
+
+Latest Completed Work (Agent 8 — Final Polish: Frozen Water, Mountains, Lava Tubes, Bioluminescent Depths)
+
+How this was built and checked (read first): the session's network policy refused
+`maven.neoforged.net`, `piston-meta.mojang.com` and `libraries.minecraft.net` (HTTP 403 at the
+proxy), so Gradle could not resolve NeoForm or Minecraft and `./gradlew build`, the game-dependent
+tests, the dev server and the client could not run. Every model the changes touch is pure Java,
+so a scratch harness (outside the repository) compiled them with javac against small stand-ins for
+the few game types they name (the Xoroshiro random sources reimplemented bit for bit:
+`caveSurvey` of seed 1 at 0,0 reproduced Agent 4.5's documented row exactly, ground Y 138, cave
+share 11.82%, 141 930 open water, 4 611 entrances) and ran the game-free JUnit tests and the
+preview tools on them. Numbers below come from that harness; nothing was seen in game.
+
+1. Frozen oceans and frozen rivers without surface ice (the reported bug). Root cause, measured
+   over the polar seas of seed 20261018 within ±60 000 blocks:
+   - The ice field (`FrozenSea.cover`) broke up over the outer half of the freezing band
+     (strength 0..~0.6, sea-level temperature -0.45..-0.58) and its ice-edge noise opened bays
+     deeper still, while the biome table makes every sea of that band a frozen ocean
+     (`BiomeClimate`: deep frozen ocean below strength 0.3, frozen ocean above). Frozen oceans
+     held 0% ice down to -0.49, 8% to -0.53, 19% to -0.55; deep frozen oceans 0..5% everywhere.
+     Vanilla gives deep frozen oceans temperature 0.5, so neither `freeze_top_layer` nor weather
+     froze anything there: icebergs (features and the frozen-ocean surface rule) stood in open
+     water under "frozen" biomes.
+   - The ice field step (`OceanSurface.placeIceFields`) took every column with its ground below
+     sea level for open sea, also the river water Vastlands places at sea level: it laid its
+     cracks and leads over the lower courses of polar rivers and replaced the ice
+     `freeze_top_layer` had given frozen rivers (a third of ~1.2 million such columns in the
+     area), and `ServerLevelMixin` kept those "leads" from refreezing.
+   Fix: the pattern now reads the depth into the band and is open only in a marginal zone along
+   the edge (`FrozenSea.openness`, `MARGIN`): 27% ice in the outer 0.02 of temperature (~100
+   blocks), 74% in the next, 85% (a firm field) beyond, in frozen and deep frozen oceans alike;
+   the edge noise moves the zone by up to ~90 blocks but no longer opens bays. Placed river and
+   lake water is no ice-field column (`OceanSurface.iceFieldColumn`, also for the mixin), so
+   rivers keep their biome's ice. Warm and cold (non-frozen) oceans are unchanged (no ice outside
+   the band). Image: `docs/geography/preview8-ice-edge-before-after.jpg`.
+2. Mountains. The soft cap (knee Y 410, asymptote 470) squeezed every raw summit of the greatest
+   ranges (Y 540..611 before it, 12 summits per seed over 262 144 blocks) into Y 452..456 and
+   flattened their massifs into smooth domes (1-block relief view:
+   `docs/terrain/preview8-exceptional-summit-768.jpg`). Now only the macro elevation is
+   compressed (knee 410, asymptote 500), gullies are cut and crags added after the cap, and a
+   peak cap keeps the surface under 487 (the top slide starts at 488); a rare 30 000-block field
+   lifts major ranges by up to 16% (exceptional systems). Highest summits: Y 476.9 / 476.6
+   (exceptional, seeds 20261018 and 1), other great ranges 461..474; share above Y 400 0.053% ->
+   0.057%; nothing below 410 changed; steepest neighbour step at the summit 4.4 -> 4.2.
+   `VastlandsTerrain.MAX_SURFACE` 470 -> 500 (`TOP_CLEARANCE` 11). Tall surface formations are
+   cut to the room under the world's top (great spires of 35..70 blocks on summits above ~440 lost
+   their tips to Y 511 before).
+3. Lava tubes (`caves/LavaTubes`): rare winding passages from Y -247 to -206 in the lava domains of
+   the deep zone, joined only within one domain, 8..20 blocks wide (6..28) and 5..14 high, rooms
+   over lava pools; flooded, half flooded or dry along their own lava; dams, aquitard and
+   clearance as for all pieces; nothing opens below `minY + 7`, so the bedrock floor and the stone
+   on it stay. Seed 20261018, 32 × 32 km: 34% of 1 km squares hold some, ~2 tubes per km². Fluid
+   check (vanilla's rules, `CaveVolume.check`) over three systems of 384² columns: 0 unstable, 0
+   water touching lava. Image: `docs/caves/preview8-lava-tubes-slices.jpg`.
+4. Bioluminescent depths, only with Sincerelyuq's Biomes installed (`GenerationSetup.luminousCaves`
+   from its blocks; without it every cave block, slot and luminous flag is identical to before at
+   seven places, luminous ones included): 70% of eligible provinces and 65% of eligible megacaves
+   luminous (50%, 40% before); roomier network there (node presence ×1.3, tunnels a third wider
+   and 15% taller, chambers 2.2 times as likely and a third larger, 28% halls, two-lobed
+   chambers); lumen mushrooms in groves × 26-block clumps, proportions from slender bells to broad
+   plates, companions, an understory of small ones, ceiling moss to 20 blocks. Three squares of
+   256 blocks at luminous places: luminous cave space 2.6 -> 9.3 million blocks, cave space 6.5 ->
+   10.4 million, mushroom formations 22 -> 95, caps 71 -> 417, mushrooms in groups of two or more
+   36% -> 45%. Found on the way: thin lumen stems left a gap where their curve ran between cells
+   or stepped diagonally (56 solid blocks held by nothing in those squares before; 0 of 26 063
+   now). Image: `docs/nature/preview8-luminous-before-after.jpg`.
+5. Audit (beyond the above): the ice step and the mixin share one column test; Overhaul's
+   underground structures listed in `#vastlands:site/sealed` are dropped where they would open
+   into the new lava tubes or luminous caves' fluids, as before (pure model queries); structures
+   in the luminous biome (`trial_fragment`, `copper_bloom`) are in that list. Hard-coded heights
+   searched (only the cap and its tests used 470). Not changed: river valleys in mountains take
+   vanilla's valley biomes (a temperate high river stays liquid between snowy slopes), deep frozen
+   oceans keep vanilla's rain (see Known Issues).
+6. Performance: the terrain evaluates nothing new (the cap is applied twice to a number); the ice
+   step adds one hydrology water query per sea-level column only in polar chunks with rivers in
+   reach; the lava tubes add a cell lookup per column (`cavePreview --bench` at a tube system,
+   warm, one thread, old/new alternated twice: columns 3.2..3.5 / 2.8..3.4 ms, density
+   4.6..5.5 / 4.6..7.3 ms per chunk, within the run-to-run spread); the luminous expansion adds a
+   cave biome lookup per network node level, only with the mod. No end-to-end chunk timing could
+   be taken (no server).
+
+Files and Modules Affected (Agent 8)
+
+- `geography/FrozenSea` (marginal zone), `ocean/OceanSurface` (`iceFieldColumn`), the ice field
+  part of `ServerLevelMixin`'s check through it.
+- `geography/GeographyModel` (exceptional uplift), `terrain/TerrainModel` (caps),
+  `terrain/VastlandsTerrain` (`MAX_SURFACE` 500, `TOP_CLEARANCE`).
+- `caves/LavaTubes` (new), `CaveModel`, `CaveSettings` (`lavaTubes`, `luminousCaves`,
+  `withLuminousCaves`), `CaveNetwork` (roomier luminous provinces), `CaveBiomes` (expanded
+  shares), `VastlandsCaves` (settings from the setup, census of tubes).
+- `system/GenerationSetup` (`luminousCaves`, from `CompatBlocks.biomesInstalled()`).
+- `nature/NatureModel` (headroom under the world's top; luminous groves, clumps, sizes,
+  understory), `nature/FormationShapes` (companions, understory, thin stem gap, ceiling moss),
+  `nature/VastlandsNature` (world top).
+- Tests: `FrozenSeaTest` (break-up within the marginal zone, `theFreezingBandIsFrozen`),
+  `TerrainModelTest` (bounds, `exceptionalSystemsStandAboveTheGreatRanges`),
+  `VastlandsTerrainTest`, `GeographyModelTest` (new cap), `CaveModelTest`
+  (`lavaTubesHoldTheirLavaAboveTheBedrock`), `LuminousCavesTest`, `LuminousNatureTest` (new).
+- Docs: ARCHITECTURE.md (height, terrain, geography, frozen seas, hydrology, caves, integration,
+  testing, limitations), README.md, `docs/*/preview8-*` and the docs READMEs.
+
+Build and Test Results (Agent 8)
+
+- `./gradlew build`: not run (dependencies unreachable, see above). Every changed main source was
+  compiled with javac: the game-free ones against stand-ins for the few game types they name,
+  `OceanSurface` against compile-only stand-ins of its game types. The real game API was not
+  available, so a full compile is still owed (the edited lines call only Vastlands APIs and game
+  methods the files already called).
+- JUnit on the harness, final code: FrozenSeaTest 7, GeographyModelTest 7, TerrainModelTest 9,
+  VastlandsTerrainTest 7, GenerationSetupTest 3, CaveModelTest 7, HydrologyModelTest 8,
+  IntegrationShapesTest 5, LuminousCavesTest 1, LuminousNatureTest 1: 55 of 55 pass. The 50 of
+  them that existed before also pass on the original code (463cc4e); one of those,
+  `FrozenSeaTest.iceBreaksUpTowardsTheEdge`, was rewritten for the narrower marginal zone.
+  `IntegrationShapesTest` builds the same lumen mushrooms before and after (176 built / 24 left
+  out, giants 135/65, colonies 196/4). Not run: the 49 test methods that
+  need the game or vanilla's biome table (PresetDataTest, TerrainBiomeTest, CaveBiomeTest,
+  RiverWaterTest, NatureDataTest, NatureModelTest, ForestModelTest, ForestGameTest,
+  IntegrationDataTest, IntegrationNatureTest, RegionalBiomesTest, WorldHeightDataTest,
+  RandomStateBindingTest, StageDensityFunctionTest, TerrainParameterFunctionTest).
+- Not verified: anything in game (no world was generated), Sincerelyuq's Biomes and Overhaul
+  (their jars were not available; the luminous expansion was exercised by setting its flag),
+  seeds other than 20261018 and 1.
+
+Known Issues (Agent 8; the lists of earlier agents below still apply)
+
+- Deep frozen oceans keep vanilla's temperature 0.5: rain falls on their ice field.
+- In temperate zones a river through high mountains takes vanilla's valley biome and stays liquid
+  between snowy slopes (vanilla's rule; changing it would move biomes and structures).
+- Fall sills in cold biomes freeze at generation by `freeze_top_layer` (Agent 3's known issue
+  with weather): a block update beside the curtain then drains it.
+- The marginal ice zone follows the sea-level temperature: where it changes fast the zone is
+  ~60 blocks wide, where slowly up to ~270.
+- Lava tubes inherit the deep caves' rule that vanilla structures (strongholds, mineshafts) are
+  not site-checked: a deep stronghold corridor may still cut into a tube (as into the existing deep
+  lava lakes).
+
+Instructions for the Next Agent
+
+1. Run `./gradlew build` first (needs maven.neoforged.net and the Mojang hosts) and fix anything
+   the game-dependent tests report; expect `TerrainBiomeTest` to see a few more mountain biomes
+   above Y 300 (higher summits).
+2. Check in game (seed 20261018, `tools/worldcheck/generate.py`): the ice edge at 38542,67989 and a
+   polar river at sea level near -53856,4512 (e.g. -53384,4868, frozen over now) with
+   `oceancheck.py`; the exceptional summit at 48475,50461 (Y ~477) with `heightmap.py`; lava tubes
+   at 5629,-8594 (partly flooded, Y -247..-206) and -3584,7680 with `cavecheck.py`; with
+   Sincerelyuq's Biomes installed, the luminous caves at -6048,3552 and 672,6432 with
+   `naturecheck.py` and `integrationcheck.py`.
 
 Latest Completed Work (Agent 6 — Natural Formations, Cave Enrichment, Moss and Mushrooms)
 

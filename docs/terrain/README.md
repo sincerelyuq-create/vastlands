@@ -17,3 +17,12 @@ distance 16, clouds off, HUD hidden) taken with `tools/worldcheck/screenshot.py`
 | `ingame-c1r-foothills.jpg` | world `c1r`: grassy foothill slope with exposed stone, close up |
 | `ingame-m1-overview-early-model.jpg` | world `m1` (around 300,5000, a cold region; an earlier version of the model without crags and ground roughness): the massif from the north-east at Y 395 |
 | `ingame-m1-valley-early-model.jpg` | world `m1`: from a valley floor (Y ~128) up to the massif |
+
+Agent 8: relief rendered from the terrain model with the classes of the code before and after (a
+scratch harness on the pure-Java models: the Gradle build could not run in Agent 8's session).
+Hillshade, contours every 25 blocks, white above Y 400.
+
+| File | What |
+|---|---|
+| `preview8-exceptional-massif-4k.jpg` | 4 096 blocks around 48475,50461, 4 blocks per pixel, before (left, highest Y 455.4) and after (right, Y 476.6): the core of an exceptional mountain system; the massif keeps its crags and gullies above Y 410 |
+| `preview8-exceptional-summit-768.jpg` | 768 blocks around the same summit, 1 block per pixel: before, the soft cap flattened it into a smooth dome; after, crags and erosion texture continue up to the top (steepest neighbour step 4.4 before, 4.2 after) |

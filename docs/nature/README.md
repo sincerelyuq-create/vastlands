@@ -30,3 +30,13 @@ formations blend with vanilla's dripstone. Weak points seen: the great arch is s
 landmark seen end on (its depth is about its rib's height), the badlands around it are flat with
 few hoodoos in this square, and the giant mushroom shot is hidden behind trunks (the canopy
 shot shows the caps better).
+
+Agent 8: a scratch view harness (isometric, ceilings cut away) on the pure-Java models, the cave
+slots standing in for the biomes and the bioluminescent depths in the luminous provinces as with
+Sincerelyuq's Biomes installed (the Gradle build could not run in Agent 8's session): floors in
+luminous provinces bluish, lumen caps cyan, stems pale, moss and sprouts teal (magenta: pool water,
+uncoloured).
+
+| File | What |
+|---|---|
+| `preview8-luminous-before-after.jpg` | 160 × 160 × 60 blocks around -6048,-162,3552, before (left) and after (right): the province now luminous throughout, wider passages, more lumen mushrooms in groups of different sizes with an understory of small ones |
