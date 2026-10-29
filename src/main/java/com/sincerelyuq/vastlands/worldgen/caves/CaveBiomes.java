@@ -56,8 +56,15 @@ final class CaveBiomes {
     /** Province codes: the slot's ordinal, plus {@link #LUMINOUS} where a lumen biome may take its place. */
     private final ThreadLocal<KeyedCache<Integer>> provinces = ThreadLocal.withInitial(() -> new KeyedCache<>(512));
     private static final int LUMINOUS = 0x100;
-    /** Share of the eligible (warm, humid, middle and deep) lush and dripstone provinces that are luminous. */
+    /**
+     * Share of the eligible (warm, humid, middle and deep) lush and dripstone provinces that are
+     * luminous, and of the eligible megacaves; each rises by its {@code _EXPANDED} amount with
+     * {@code CaveSettings.luminousCaves} (Agent 8: the bioluminescent depths spread further).
+     */
     private static final double LUMINOUS_SHARE = 0.5;
+    private static final double LUMINOUS_SHARE_EXPANDED = 0.2;
+    private static final double LUMINOUS_MEGACAVES = 0.4;
+    private static final double LUMINOUS_MEGACAVES_EXPANDED = 0.25;
 
     CaveBiomes(long seed, GeographyModel geography, CaveGeology geology, FluidDomains domains, Megacaves megacaves, CaveModel.Ground ground,
                int seaTop, CaveSettings settings) {
@@ -104,10 +111,10 @@ final class CaveBiomes {
             CaveBiome theme = this.theme(m);
             if (theme == CaveBiome.LUSH) {
                 CaveBiome slot = this.plausible(theme, x, y, z, surface, deep);
-                return slot.ordinal() | (slot == CaveBiome.LUSH && luminous(m) ? LUMINOUS : 0);
+                return slot.ordinal() | (slot == CaveBiome.LUSH && this.luminous(m) ? LUMINOUS : 0);
             }
             if (theme != null) {
-                return theme.ordinal() | (theme == CaveBiome.DRIPSTONE && luminous(m) ? LUMINOUS : 0);
+                return theme.ordinal() | (theme == CaveBiome.DRIPSTONE && this.luminous(m) ? LUMINOUS : 0);
             }
         }
         int layer;
@@ -122,10 +129,10 @@ final class CaveBiomes {
         return slot.ordinal() | (slot.ordinal() == (province & 0xFF) ? province & LUMINOUS : 0);
     }
 
-    /** A lush or dripstone megacave under a warm, humid climate is luminous for 40% of them. */
-    private static boolean luminous(Megacaves.Megacave m) {
+    /** A lush or dripstone megacave under a warm, humid climate is luminous for 40% of them (65% expanded). */
+    private boolean luminous(Megacaves.Megacave m) {
         return m.temperature > -0.1 && m.wetness > 0.45 && m.volcanic < 0.5
-                && (SimplexNoise.mix(m.seed ^ 0x4C756D656EL) >>> 11) * 0x1.0p-53 < 0.4;
+                && (SimplexNoise.mix(m.seed ^ 0x4C756D656EL) >>> 11) * 0x1.0p-53 < LUMINOUS_MEGACAVES + LUMINOUS_MEGACAVES_EXPANDED * this.settings.luminousCaves();
     }
 
     /** Checks a slot against the column itself: no lush caves under cold ground or the sea, no deep dark out of its band or in flooded rock. */
@@ -219,7 +226,8 @@ final class CaveBiomes {
      * own draw of the site, so the slot itself is the same as without it).
      */
     private boolean luminous(CaveBiome slot, long h, long i, long j, double cell, int layer) {
-        if (layer == 0 || slot != CaveBiome.LUSH && slot != CaveBiome.DRIPSTONE || FluidDomains.unit(h, 7) >= LUMINOUS_SHARE) {
+        if (layer == 0 || slot != CaveBiome.LUSH && slot != CaveBiome.DRIPSTONE
+                || FluidDomains.unit(h, 7) >= LUMINOUS_SHARE + LUMINOUS_SHARE_EXPANDED * this.settings.luminousCaves()) {
             return false;
         }
         double sx = (i + 0.15 + 0.7 * FluidDomains.unit(h, 0)) * cell;

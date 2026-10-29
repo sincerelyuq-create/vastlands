@@ -44,6 +44,12 @@ import java.util.function.Consumer;
  * (downhill, sometimes a very large mouth), a sea cave mouth on a coast or a submerged cliff, a
  * doline in karst, or a blue hole (a flooded sinkhole) in the sea floor.
  *
+ * <p>In the luminous provinces of the middle and deep caves ({@link CaveBiomes#luminous}, only
+ * when {@code CaveSettings.luminousCaves} is set: a luminous cave biome is installed) the network
+ * is roomier (Agent 8): more nodes, tunnels a third wider and taller, twice as many chambers, a
+ * third larger, more of them halls, and some with a second lobe, so the bioluminescent depths
+ * open into the wide, irregular spaces their mushroom groves fill.
+ *
  * <p>Everything is a pure function of the seed and lattice coordinates (nodes read the geography
  * and the generated ground at their own position), so neighbouring chunks build the same graph.
  * Cells are cached per thread. No piece reaches more than {@value #REACH_CELLS} cells beyond its
@@ -85,6 +91,8 @@ final class CaveNetwork {
         final CaveGeology.Geology geology;
         /** Height of the node on each level, NaN where inactive. */
         final double[] y = new double[LEVELS];
+        /** The node lies in a luminous province on each level (expanded settings only). */
+        final boolean[] luminous = new boolean[LEVELS];
 
         Node(double x, double z, double surface, double slopeX, double slopeZ, CaveGeology.Geology geology) {
             this.x = x;
@@ -130,12 +138,15 @@ final class CaveNetwork {
     private final CaveSettings settings;
     private final Ground ground;
     private final int seaTop;
+    /** The cave biomes, for the roomier luminous provinces; null when they are not expanded. */
+    private final CaveBiomes luminous;
     private final SimplexNoise undulation;
     private final SimplexNoise development;
     private final ThreadLocal<KeyedCache<Node>> nodes = ThreadLocal.withInitial(() -> new KeyedCache<>(1024));
     private final ThreadLocal<KeyedCache<Cell>> cells = ThreadLocal.withInitial(() -> new KeyedCache<>(512));
 
-    CaveNetwork(long seed, GeographyModel geography, CaveGeology geology, FluidDomains domains, CaveSettings settings, Ground ground, int seaTop) {
+    CaveNetwork(long seed, GeographyModel geography, CaveGeology geology, FluidDomains domains, CaveSettings settings, Ground ground, int seaTop,
+                CaveBiomes luminous) {
         this.seed = SimplexNoise.mix(seed ^ 0x4E4554574F524BL);
         this.geography = geography;
         this.geology = geology;
@@ -143,6 +154,7 @@ final class CaveNetwork {
         this.settings = settings;
         this.ground = ground;
         this.seaTop = seaTop;
+        this.luminous = luminous;
         this.undulation = new SimplexNoise(seed + 301);
         this.development = new SimplexNoise(seed + 302);
     }
@@ -207,6 +219,11 @@ final class CaveNetwork {
                 valid = y <= aquitard - FluidDomains.AQUITARD_HALF - 10.0 && y >= -232.0 && y <= room;
             }
             double presence = clamp((0.12 + 0.75 * Math.sqrt(geo.density()) * (0.45 + 0.55 * strength)) * this.settings.frequency(), 0.0, 0.96);
+            if (valid && this.luminous != null && k != COASTAL
+                    && this.luminous.luminous((int) Math.floor(x), (int) Math.floor(y), (int) Math.floor(z), surface)) {
+                node.luminous[k] = true;
+                presence = Math.min(0.96, presence * (1.0 + 0.3 * this.settings.luminousCaves()));
+            }
             if (valid && unit(h, 30 + k) < presence) {
                 node.y[k] = y;
             } else {
@@ -383,7 +400,13 @@ final class CaveNetwork {
         if (unit(h, 5) < 0.12) {
             radius *= 0.45;
         }
-        return clamp(radius, 1.6, 16.0);
+        double roomier = this.roomier(u, v, level);
+        return clamp(radius * (1.0 + 0.3 * roomier), 1.6, 16.0 + 4.0 * roomier);
+    }
+
+    /** 0, or the luminous expansion where both ends of a tunnel lie in a luminous province on its level. */
+    private double roomier(Node u, Node v, int level) {
+        return u.luminous[level] && v.luminous[level] ? this.settings.luminousCaves() : 0.0;
     }
 
     /** A tunnel from node u on a level to node v on {@code toLevel} (the same level, or a lower one for a ramp). */
@@ -420,6 +443,8 @@ final class CaveNetwork {
         if (ramp) {
             radius *= 0.8;
             shape = Math.max(shape, 0.9);
+        } else {
+            shape *= 1.0 + 0.15 * this.roomier(u, v, level);
         }
         // The tunnel stays inside the rock: its middle (the curve's apex) must be covered too.
         double mx = 0.25 * u.x + 0.5 * cx + 0.25 * v.x;
@@ -484,12 +509,14 @@ final class CaveNetwork {
             // Under the cover of rock, and on its own side of the aquitard.
             double ceiling = deep ? n.aquitard - FluidDomains.AQUITARD_HALF - 4.0 : n.surface - COVER - 4.0;
             double floor = deep ? -238.0 : n.aquitard + FluidDomains.AQUITARD_HALF + 4.0;
-            double chamberChance = (0.14 + 0.16 * geo.karst() + 0.05 * geo.fracture()) * this.settings.chambers() * (deep ? 1.3 : 1.0);
+            double roomier = n.luminous[k] ? this.settings.luminousCaves() : 0.0;
+            double chamberChance = (0.14 + 0.16 * geo.karst() + 0.05 * geo.fracture()) * this.settings.chambers() * (deep ? 1.3 : 1.0)
+                    * (1.0 + 1.2 * roomier);
             if (degrees[k] >= 2 && unit(h, 20 + k) < chamberChance) {
                 double u = unit(h, 40 + k);
-                double rh = (deep ? 12.0 + 30.0 * Math.pow(u, 1.5) : 10.0 + 26.0 * Math.pow(u, 1.5)) * geo.scale();
+                double rh = (deep ? 12.0 + 30.0 * Math.pow(u, 1.5) : 10.0 + 26.0 * Math.pow(u, 1.5)) * geo.scale() * (1.0 + 0.3 * roomier);
                 double rv = rh * (0.4 + 0.3 * unit(h, 60 + k));
-                if (unit(h, 70 + k) < 0.1) {
+                if (unit(h, 70 + k) < 0.1 + 0.18 * roomier) {
                     // A hall: much larger, long and low.
                     rh *= 1.8;
                     rv *= 1.25;
@@ -503,6 +530,22 @@ final class CaveNetwork {
                     double angle = Math.PI * unit(h, 90 + k);
                     double elongation = 0.1 + 0.35 * unit(h, 95 + k);
                     out.add(CavePrimitive.chamber(n.x, centre, n.z, rh, rv, floorDepth, angle, elongation, 1.4 + 0.07 * rh, h + 200 + k));
+                    if (roomier > 0.0 && unit(h, 140 + k) < 0.45 * roomier) {
+                        // A second lobe off one end of the long axis, lower or higher: an irregular
+                        // hall of two bays instead of one oval. Within 0.6 of the radius, so it stays
+                        // inside the reach of the node's cells.
+                        double side = unit(h, 141 + k) < 0.5 ? -1.0 : 1.0;
+                        double offset = rh * (0.4 + 0.2 * unit(h, 142 + k)) * side;
+                        double turn = angle + (unit(h, 143 + k) - 0.5) * 1.2;
+                        double lobe = rh * (0.4 + 0.2 * unit(h, 144 + k));
+                        double lobeRv = Math.min(rv * (0.6 + 0.35 * unit(h, 145 + k)), 0.8 * lobe);
+                        double lobeCentre = centre + (unit(h, 146 + k) - 0.5) * 0.6 * rv;
+                        lobeRv = Math.min(lobeRv, Math.min((ceiling - lobeCentre) / 1.05, (lobeCentre - floor) / (floorDepth + 0.15)));
+                        if (lobeRv >= 4.0) {
+                            out.add(CavePrimitive.chamber(n.x + Math.cos(turn) * offset, lobeCentre, n.z + Math.sin(turn) * offset, lobe, lobeRv, floorDepth,
+                                    turn + 0.6 * (unit(h, 147 + k) - 0.5), 0.1 + 0.3 * unit(h, 148 + k), 1.4 + 0.07 * lobe, h + 400 + k));
+                        }
+                    }
                 }
             } else if (degrees[k] >= 3 && unit(h, 25 + k) < 0.5 * this.settings.chambers()) {
                 // A widened junction: a room a little wider than the widest tunnel meeting here.

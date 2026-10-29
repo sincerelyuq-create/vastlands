@@ -117,12 +117,14 @@ public final class CaveModel {
         this.domains = new FluidDomains(s, geography, this.geology, settings, this.seaTop);
         this.megacaves = new Megacaves(s, geography, this.geology, this.domains, ground, settings);
         this.domains.attach(this.megacaves);
-        this.network = new CaveNetwork(s, geography, this.geology, this.domains, settings, ground, this.seaTop);
+        // Before the network, which builds the caves of luminous provinces larger (expanded settings only).
+        this.biomes = new CaveBiomes(s, geography, this.geology, this.domains, this.megacaves, ground, this.seaTop, settings);
+        this.network = new CaveNetwork(s, geography, this.geology, this.domains, settings, ground, this.seaTop,
+                settings.luminousCaves() > 0.0 ? this.biomes : null);
         this.galleries = new Galleries(s, geography, this.geology, this.domains, settings, ground);
         this.fractures = new Fractures(s, settings);
         this.lavaTubes = new LavaTubes(s, geography, this.geology, this.domains, settings, minY);
         this.tunnels = new RiverTunnels(s, geography, ground, rivers, waters, this.domains, settings, this.seaTop);
-        this.biomes = new CaveBiomes(s, geography, this.geology, this.domains, this.megacaves, ground, this.seaTop, settings);
         this.roughness = new Noise3(s + 1);
         this.detail = new Noise3(s + 2);
         this.bridges = new Noise3(s + 3);

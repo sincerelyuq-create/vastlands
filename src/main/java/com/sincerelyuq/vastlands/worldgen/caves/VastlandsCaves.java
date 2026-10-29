@@ -47,7 +47,7 @@ public final class VastlandsCaves implements CaveSystem {
     }
 
     public VastlandsCaves(GenerationSetup setup, TerrainSystem terrain, HydrologySystem hydrology) {
-        this(setup, terrain, hydrology, CaveSettings.DEFAULT);
+        this(setup, terrain, hydrology, setup.luminousCaves() ? CaveSettings.DEFAULT.withLuminousCaves(1.0) : CaveSettings.DEFAULT);
     }
 
     public VastlandsCaves(GenerationSetup setup, TerrainSystem terrain, HydrologySystem hydrology, CaveSettings settings) {

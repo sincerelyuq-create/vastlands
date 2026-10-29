@@ -1410,6 +1410,21 @@ final class FormationShapes {
             return true;
         }
 
+        /** True if no cell, or its neighbour sideways or above, holds a solid block the formation already has (a stem, another cap). */
+        boolean clearOf(Ctx c) {
+            for (int k = 0; k < this.cells.size(); k++) {
+                int p = this.cells.getInt(k);
+                int dx = FormationShape.dx(p);
+                int dy = FormationShape.dy(p);
+                int dz = FormationShape.dz(p);
+                if (c.b.isSolid(dx, dy, dz) || c.b.isSolid(dx + 1, dy, dz) || c.b.isSolid(dx - 1, dy, dz) || c.b.isSolid(dx, dy, dz + 1)
+                        || c.b.isSolid(dx, dy, dz - 1) || c.b.isSolid(dx, dy + 1, dz)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         void commit(Ctx c) {
             for (int k = 0; k < this.cells.size(); k++) {
                 int p = this.cells.getInt(k);
@@ -1436,7 +1451,9 @@ final class FormationShapes {
      * mushroom's height against its width, so tall narrow ones carry bells and domes and low wide
      * ones umbrellas and plates. The whole mushroom must lie in the open cave (cap included):
      * otherwise it is tried smaller, three times, and left out (never cut by the ceiling or a
-     * wall). Young mushrooms at the foot of the bigger ones, glowing moss and sprouts around the stem.
+     * wall). Smaller mature companions of its group lean away from it (clusters of two to four
+     * of different heights), young mushrooms at the foot of the bigger ones, glowing moss and
+     * sprouts around the stem.
      */
     private static void lumenMushroom(Ctx c, boolean giant) {
         double height = c.spec.height();
@@ -1473,8 +1490,32 @@ final class FormationShapes {
         if (!built) {
             return;
         }
+        // Companions: smaller mature mushrooms of its group, leaning away from it, so lumen
+        // mushrooms stand in clusters of different heights; each only where it fits whole.
+        int companions = c.r.between(giant ? 1 : 0, giant ? 3 : 2);
+        for (int k = 0; k < companions; k++) {
+            double a = c.r.next() * Math.PI * 2;
+            double ch = h * c.r.range(giant ? 0.3 : 0.45, giant ? 0.6 : 0.75);
+            double cr = Math.max(1.2, Math.min(r * 0.8, ch * c.r.range(0.35, 0.9)));
+            double d = r + cr * c.r.range(0.4, 0.9) + 1.0;
+            int ox = (int) Math.round(Math.cos(a) * d);
+            int oz = (int) Math.round(Math.sin(a) * d);
+            int base = c.floor(ox, 0, oz, 4);
+            double outward = c.r.range(0.08, 0.22) * ch;
+            long seed = c.r.nextLong();
+            if (base == Integer.MIN_VALUE || ch < 3.0) {
+                continue;
+            }
+            double cratio = ch / cr;
+            int cform = cratio > 2.2 ? (c.r.chance(0.5) ? CAP_BELL : CAP_DOME) : (cratio < 1.25 ? (c.r.chance(0.55) ? CAP_UMBRELLA : CAP_PLATE) : CAP_DOME);
+            plan.clear();
+            mushroomPlan(c, plan, ox, base, oz, ch, cr, cform, Math.cos(a) * outward, Math.sin(a) * outward, 1.6, seed, true);
+            if (plan.fits(c) && plan.clearOf(c)) {
+                plan.commit(c);
+            }
+        }
         // Young mushrooms at its foot, out of the stem's way, each only where it fits.
-        int young = c.r.between(giant ? 3 : 0, giant ? 7 : 3);
+        int young = c.r.between(giant ? 3 : 1, giant ? 7 : 4);
         for (int k = 0; k < young; k++) {
             double a = c.r.next() * Math.PI * 2;
             double d = c.r.range(Math.max(2.0, r * 0.45), Math.max(3.0, r * 1.25));
@@ -1488,7 +1529,7 @@ final class FormationShapes {
             plan.clear();
             mushroomPlan(c, plan, ox, base, oz, yh, c.r.range(1.0, 2.2), c.r.chance(0.6) ? CAP_DOME : CAP_UMBRELLA, c.r.range(-0.6, 0.6),
                     c.r.range(-0.6, 0.6), 1.5, c.r.nextLong(), false);
-            if (plan.fits(c)) {
+            if (plan.fits(c) && plan.clearOf(c)) {
                 plan.commit(c);
             }
         }
@@ -1517,9 +1558,19 @@ final class FormationShapes {
             int lastZ = (int) Math.round(cz);
             cx = bx + topX * Math.pow(t, bend);
             cz = bz + topZ * Math.pow(t, bend);
-            if (sr == 0.0 && dy > 0 && ((int) Math.round(cx) != lastX || (int) Math.round(cz) != lastZ)) {
-                // A thin stem stepping aside stays joined face to face.
-                plan.add((int) Math.round(cx), by + dy - 1, (int) Math.round(cz), stem);
+            if (sr == 0.0) {
+                int sx = (int) Math.round(cx);
+                int sz = (int) Math.round(cz);
+                if (dy > 0 && (sx != lastX || sz != lastZ)) {
+                    // A thin stem stepping aside stays joined face to face (a diagonal step by way
+                    // of the column beside both).
+                    if (sx != lastX && sz != lastZ) {
+                        plan.add(sx, by + dy - 1, lastZ, stem);
+                    }
+                    plan.add(sx, by + dy - 1, sz, stem);
+                }
+                // Its own cell at every height: the disc below can miss it when the curve runs between cells.
+                plan.add(sx, by + dy, sz, dy < 0 ? stem | EMBED : stem);
             }
             // A flared foot sunk one block into the floor.
             double rr = sr + (flare && dy <= 1 && sr > 0.0 ? 0.8 - 0.35 * Math.max(0, dy) : 0.0) + (flare && dy <= 0 && sr == 0.0 ? 0.6 : 0.0);
@@ -1638,12 +1689,27 @@ final class FormationShapes {
         lumenFloor(c, radius + 1.0, 0.7, 0.3);
     }
 
-    /** Bioluminescent depths: moss and sprouts on the floor; on a low ceiling a patch of moss with bulbs hanging from it. */
+    /**
+     * Bioluminescent depths: moss and sprouts on the floor, in the thick of a grove a small
+     * mushroom of the understory in the middle (its height in the spec, 0 for none; built only
+     * where it fits whole); on a ceiling up to 20 blocks above a patch of moss with bulbs hanging
+     * from it.
+     */
     private static void lumenGrowth(Ctx c) {
         double radius = c.spec.radius();
+        if (c.spec.height() >= 2.0) {
+            double h = c.spec.height();
+            double r = Math.max(0.8, Math.min(2.0, h * c.r.range(0.35, 0.6)));
+            Plan plan = new Plan();
+            mushroomPlan(c, plan, 0, 0, 0, h, r, c.r.chance(0.6) ? CAP_DOME : (c.r.chance(0.5) ? CAP_UMBRELLA : CAP_BELL), c.r.range(-0.5, 0.5),
+                    c.r.range(-0.5, 0.5), 1.4, c.r.nextLong(), true);
+            if (plan.fits(c)) {
+                plan.commit(c);
+            }
+        }
         lumenFloor(c, radius, 0.85, 0.35);
         int span = c.spec.span();
-        if (span > 14) {
+        if (span > 20) {
             return;
         }
         int moss = FormationBlocks.mod(ModBlock.LUMEN_MOSS);
