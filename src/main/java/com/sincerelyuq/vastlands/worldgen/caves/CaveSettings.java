@@ -28,6 +28,8 @@ package com.sincerelyuq.vastlands.worldgen.caves;
  * @param spillways        share of the notch windows along a dam between two water (or lava)
  *                         levels that are open, so the higher level spills into the lower one
  * @param lava             multiplies the chance that a deep domain or megacave holds lava
+ * @param lavaTubes        multiplies the share of lava domain nodes that hold the lava tubes near
+ *                         the bottom of the world (0 = none)
  *
  * <p>Openings and connections:
  * @param entrances        multiplies the chance of hillside, cliff and valley entrances
@@ -52,6 +54,7 @@ public record CaveSettings(
         double water,
         double spillways,
         double lava,
+        double lavaTubes,
         double entrances,
         double seaCaves,
         double riverTunnels,
@@ -59,7 +62,7 @@ public record CaveSettings(
 ) {
     public static final CaveSettings DEFAULT = new CaveSettings(
             1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
-            1.0, 0.3, 1.0,
+            1.0, 0.3, 1.0, 1.0,
             1.0, 1.0, 0.5,
             0.62);
 }
