@@ -31,6 +31,8 @@ public final class OceanSurface {
     private static final BlockState WATER = Blocks.WATER.defaultBlockState();
     private static final BlockState ICE = Blocks.ICE.defaultBlockState();
     private static final BlockState PACKED_ICE = Blocks.PACKED_ICE.defaultBlockState();
+    /** Ice field strength from which river and lake water at sea level freezes over too. */
+    private static final double RIVER_ICE_STRENGTH = 0.3;
 
     private OceanSurface() {
     }
@@ -74,8 +76,9 @@ public final class OceanSurface {
      * leads. Only touches the water or ice of open sea columns (ground below the surface; see
      * {@link #iceFieldColumn}); icebergs (vanilla's frozen-ocean surface extension and iceberg
      * feature) and other blocks stay, so the bergs stand frozen into the field. River and lake
-     * water that Vastlands places at sea level is not sea: it keeps the ice vanilla's
-     * {@code freeze_top_layer} gave it by its biome (a frozen river freezes over).
+     * water that Vastlands places at sea level is not sea: no cracks or leads open in it; inside
+     * the firm field (strength {@value #RIVER_ICE_STRENGTH} and more) it freezes over whole, also
+     * where its biome would not freeze it (a river mouth in taiga).
      */
     public static void placeIceFields(ChunkAccess chunk, GenerationSystems systems, int seaLevel) {
         GeographyModel geography = systems.terrain().geography();
@@ -99,11 +102,19 @@ public final class OceanSurface {
                 int x = minX + dx;
                 int z = minZ + dz;
                 double strength = FrozenSea.strength(geography.seaLevelTemperature(x, z));
-                if (strength <= 0.0 || !iceFieldColumn(systems, rivers, x, y, z)) {
+                if (strength <= 0.0 || !underWater(systems, x, y, z)) {
                     continue;
                 }
                 BlockState top = chunk.getBlockState(pos.set(x, y, z));
                 if (!top.is(Blocks.WATER) && !top.is(Blocks.ICE)) {
+                    continue;
+                }
+                if (!iceFieldColumn(systems, rivers, x, y, z)) {
+                    // River or lake water at sea level inside the frozen sea (river mouths): frozen
+                    // over whole, whatever its biome (a taiga's would stay open otherwise).
+                    if (top.is(Blocks.WATER) && strength >= RIVER_ICE_STRENGTH) {
+                        chunk.setBlockState(pos, ICE);
+                    }
                     continue;
                 }
                 switch (sea.cover(x, z, strength)) {
@@ -163,10 +174,19 @@ public final class OceanSurface {
      *               water query)
      */
     static boolean iceFieldColumn(GenerationSystems systems, boolean rivers, int x, int y, int z) {
-        if (systems.surfaceHeight(x, z) > y - 0.5) {
+        if (!underWater(systems, x, y, z)) {
             return false;
         }
         return !rivers || !systems.hydrology().water(x, z).placed();
+    }
+
+    /**
+     * True if the landscape's top solid block ({@code ceil(surface) - 1}) lies below {@code y}.
+     * Before, the test was surface &lt;= y - 0.5, which left out the shallowest sea along the
+     * shores (ground top one block under the surface): open water there in taiga and beach biomes.
+     */
+    private static boolean underWater(GenerationSystems systems, int x, int y, int z) {
+        return Math.ceil(systems.surfaceHeight(x, z)) - 1.0 < y;
     }
 
     private static boolean placeIfAir(ChunkAccess chunk, BlockPos pos, BlockState state) {
