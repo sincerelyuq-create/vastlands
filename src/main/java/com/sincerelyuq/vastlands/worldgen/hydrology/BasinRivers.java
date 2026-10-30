@@ -187,6 +187,11 @@ final class BasinRivers {
                 reach.discharge.add(domain.discharge[cur]);
                 byte kind = domain.downKinds[cur];
                 Integer next = kind == DrainageDomain.DOWN_RIVER ? domain.cellIndex.get(domain.downKeys[cur]) : null;
+                if (next != null && !node.containsKey(next)) {
+                    // The cell downstream belongs to another basin (seed 20261018 near 75264,7488,
+                    // where this threw): the reach ends in its own last cell.
+                    next = null;
+                }
                 if (next == null) {
                     if (kind == DrainageDomain.DOWN_OCEAN || kind == DrainageDomain.DOWN_LAKE) {
                         long d = domain.downKeys[cur];
