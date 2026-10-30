@@ -8,8 +8,8 @@ Minecraft: 1.21.8
 Loader: NeoForge 21.8.57
 
 Build status: `./gradlew build` builds the jar (Agent 8 follow-up, after the network was opened);
-`./gradlew test`: 104 tests, 103 passed in the full run, `RiverWaterTest` failed there because its
-test server parameter was null (a harness failure, not an assertion) and passed when rerun alone.
+`./gradlew build` with the follow-up: 104 tests, all pass (an earlier full run had `RiverWaterTest`
+fail once because its test server parameter was null, a harness failure; it passed when rerun).
 Agent 8's changes and the follow-up were checked in generated worlds on the dev server (see
 "Agent 8 follow-up" below). The "Vastlands" world type generates a
 continent-scale geography in a world of Y -256..511: open oceans with shelves, continental slopes,
@@ -93,7 +93,7 @@ dev server, seed 20261018, Sincerelyuq's Biomes 1.0.0 installed (the jar the use
 - A crash found while searching for test places: `BasinRivers` threw a NullPointerException when
   a reach's downstream cell belonged to another basin (model, seed 20261018 near 75264,7488;
   older than Agent 8; not reproduced in game). Fixed; a scan of the model every 640 blocks over
-  ±120 000 for others was still running when this was written (see the commit that follows).
+  ±120 000 hit its 50-minute limit before the end and reported no crash in the part it covered.
 
 Not verified: the user's own world and place; real GPU rendering; the glowing amethyst share
 after its threshold was lowered.
