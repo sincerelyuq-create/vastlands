@@ -177,7 +177,7 @@ public final class IntegrationSurface {
         List<SurfaceRules.RuleSource> amethystCeiling = new ArrayList<>();
         amethystCeiling.add(SurfaceRules.ifTrue(SurfaceRules.noiseCondition(Noises.CALCITE, -0.05, 0.05), state(Blocks.CALCITE)));
         if (glowingAmethyst != null) {
-            amethystCeiling.add(SurfaceRules.ifTrue(SurfaceRules.noiseCondition(Noises.POWDER_SNOW, 0.45), SurfaceRules.state(glowingAmethyst)));
+            amethystCeiling.add(SurfaceRules.ifTrue(SurfaceRules.noiseCondition(Noises.POWDER_SNOW, 0.6), SurfaceRules.state(glowingAmethyst)));
         }
         amethystCeiling.add(state(Blocks.AMETHYST_BLOCK));
         SurfaceRules.RuleSource caveCeilings = SurfaceRules.sequence(
