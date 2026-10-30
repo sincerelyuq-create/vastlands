@@ -35,7 +35,8 @@ import net.minecraft.world.level.levelgen.placement.CaveSurface;
  *     <li>bone dunes: sand over sandstone, like vanilla's deserts;</li>
  *     <li>lotus pools and the twilight thicket: grass over dirt (clay, gravel under water);</li>
  *     <li>the amethyst caves: floors of amethyst with calcite streaks and patches of smooth basalt
- *     (basalt under water), calcite under them;</li>
+ *     (basalt under water), calcite under them; ceilings of amethyst with some glowing amethyst
+ *     and calcite streaks, calcite over them;</li>
  *     <li>the smoldering cave: netherrack floors with patches of magma (not a carpet: the mod's
  *     own rule makes every floor magma) and blackstone rims, basalt on some ceilings; the
  *     eruptive smoldering magma comes only with the cave formations, which keep clear of
@@ -103,10 +104,12 @@ public final class IntegrationSurface {
         }
         BlockState ash = CompatBlocks.state(ModBlock.ASH_BLOCK);
         BlockState lumenMoss = CompatBlocks.state(ModBlock.LUMEN_MOSS);
+        BlockState glowingAmethyst = CompatBlocks.state(ModBlock.GLOWING_AMETHYST);
         SurfaceRules.ConditionSource onFloor = SurfaceRules.stoneDepthCheck(0, false, CaveSurface.FLOOR);
         SurfaceRules.ConditionSource underFloor = SurfaceRules.stoneDepthCheck(0, true, CaveSurface.FLOOR);
         SurfaceRules.ConditionSource deepUnderFloor = SurfaceRules.stoneDepthCheck(0, true, 6, CaveSurface.FLOOR);
         SurfaceRules.ConditionSource onCeiling = SurfaceRules.stoneDepthCheck(0, false, CaveSurface.CEILING);
+        SurfaceRules.ConditionSource overCeiling = SurfaceRules.stoneDepthCheck(0, true, CaveSurface.CEILING);
         SurfaceRules.ConditionSource dry = SurfaceRules.waterBlockCheck(-1, 0);
         // Cheap conditions first, the biome last: a biome condition looks the biome up again at
         // every height of every column it is tested on (vanilla's rules test theirs only near the
@@ -168,15 +171,28 @@ public final class IntegrationSurface {
                 SurfaceRules.ifTrue(SurfaceRules.isBiome(AMETHYST_CAVES), state(Blocks.CALCITE)),
                 SurfaceRules.ifTrue(SurfaceRules.isBiome(SMOLDERING_CAVE), state(Blocks.NETHERRACK)),
                 SurfaceRules.ifTrue(SurfaceRules.isBiome(BIOLUMINESCENT_DEPTHS), state(Blocks.TUFF)));
-        SurfaceRules.RuleSource caveCeilings = SurfaceRules.ifTrue(SurfaceRules.noiseCondition(Noises.GRAVEL, -0.2, 0.2),
-                SurfaceRules.ifTrue(SurfaceRules.isBiome(SMOLDERING_CAVE), state(Blocks.BASALT)));
+        // Amethyst ceilings in place of the mod's ceiling patches (replaced: they reached only
+        // ceilings within 12 blocks of a random height in Y -250..48), glowing amethyst one block in
+        // about twenty as in the mod's patches, calcite streaks and calcite behind.
+        List<SurfaceRules.RuleSource> amethystCeiling = new ArrayList<>();
+        amethystCeiling.add(SurfaceRules.ifTrue(SurfaceRules.noiseCondition(Noises.CALCITE, -0.05, 0.05), state(Blocks.CALCITE)));
+        if (glowingAmethyst != null) {
+            amethystCeiling.add(SurfaceRules.ifTrue(SurfaceRules.noiseCondition(Noises.POWDER_SNOW, 0.45), SurfaceRules.state(glowingAmethyst)));
+        }
+        amethystCeiling.add(state(Blocks.AMETHYST_BLOCK));
+        SurfaceRules.RuleSource caveCeilings = SurfaceRules.sequence(
+                SurfaceRules.ifTrue(SurfaceRules.isBiome(AMETHYST_CAVES), SurfaceRules.sequence(amethystCeiling.toArray(SurfaceRules.RuleSource[]::new))),
+                SurfaceRules.ifTrue(SurfaceRules.noiseCondition(Noises.GRAVEL, -0.2, 0.2),
+                        SurfaceRules.ifTrue(SurfaceRules.isBiome(SMOLDERING_CAVE), state(Blocks.BASALT))));
+        SurfaceRules.RuleSource caveOverCeiling = SurfaceRules.ifTrue(SurfaceRules.isBiome(AMETHYST_CAVES), state(Blocks.CALCITE));
 
         List<SurfaceRules.RuleSource> rules = new ArrayList<>();
         rules.add(SurfaceRules.ifTrue(SurfaceRules.abovePreliminarySurface(), SurfaceRules.sequence(surface.toArray(SurfaceRules.RuleSource[]::new))));
         rules.add(SurfaceRules.ifTrue(SurfaceRules.yBlockCheck(VerticalAnchor.aboveBottom(6), 0), SurfaceRules.sequence(
                 SurfaceRules.ifTrue(onFloor, caveFloors),
                 SurfaceRules.ifTrue(underFloor, caveUnder),
-                SurfaceRules.ifTrue(onCeiling, caveCeilings))));
+                SurfaceRules.ifTrue(onCeiling, caveCeilings),
+                SurfaceRules.ifTrue(overCeiling, caveOverCeiling))));
         return SurfaceRules.sequence(rules.toArray(SurfaceRules.RuleSource[]::new));
     }
 
