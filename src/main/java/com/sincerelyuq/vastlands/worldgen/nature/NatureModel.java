@@ -2,6 +2,7 @@ package com.sincerelyuq.vastlands.worldgen.nature;
 
 import static com.sincerelyuq.vastlands.worldgen.noise.NoiseMath.smoothstep;
 
+import com.sincerelyuq.vastlands.worldgen.WorldHeight;
 import com.sincerelyuq.vastlands.worldgen.caves.VastlandsCaves;
 import com.sincerelyuq.vastlands.worldgen.geography.GeographySample;
 import com.sincerelyuq.vastlands.worldgen.hydrology.WaterColumn;
@@ -93,10 +94,14 @@ public final class NatureModel {
     private final Biomes biomes;
     private final NatureSettings settings;
     private final int seaLevel;
+    /** Highest block a surface formation may reach: two under the top of the world. */
+    private final int ceiling;
     private final SimplexNoise rockiness;
     private final SimplexNoise richness;
     /** Groves of lumen mushrooms against open stretches of the bioluminescent depths (~110 blocks). */
     private final SimplexNoise groves;
+    /** Clumps of lumen mushrooms inside the groves (~26 blocks). */
+    private final SimplexNoise clumps;
     private final ThreadLocal<Caches> caches = ThreadLocal.withInitial(Caches::new);
 
     private static final class Caches {
@@ -107,14 +112,21 @@ public final class NatureModel {
     }
 
     public NatureModel(long seed, Land land, Biomes biomes, NatureSettings settings, int seaLevel) {
+        this(seed, land, biomes, settings, seaLevel, WorldHeight.MAX_Y);
+    }
+
+    /** @param worldTop the highest buildable block of the world */
+    public NatureModel(long seed, Land land, Biomes biomes, NatureSettings settings, int seaLevel, int worldTop) {
         this.seed = seed;
         this.land = land;
         this.biomes = biomes;
         this.settings = settings;
         this.seaLevel = seaLevel;
+        this.ceiling = worldTop - 2;
         this.rockiness = new SimplexNoise(seed + 1);
         this.richness = new SimplexNoise(seed + 2);
         this.groves = new SimplexNoise(seed + 3);
+        this.clumps = new SimplexNoise(seed + 4);
     }
 
     public NatureSettings settings() {
@@ -167,6 +179,23 @@ public final class NatureModel {
         c.specs = new FormationSpec[] {spec};
         c.footprints = new double[] {footprint};
         c.accepted = new byte[] {-1};
+    }
+
+    /** Blocks of an arch above its rise (the rib's crest, see {@code FormationShapes.arch}). */
+    private static final double ARCH_CREST = 6.0;
+
+    /**
+     * A tall surface formation's height, cut to the room under the world's top (its crest at most
+     * {@link #ceiling}, {@code extra} blocks above its height), or NaN if less than
+     * {@code minimum} is left: a great spire on one of the highest summits (Y 440 and up) is
+     * shorter instead of losing its tip to the top of the world.
+     */
+    private double headroom(int y, double height, double extra, double minimum) {
+        double room = this.ceiling - extra - y;
+        if (height <= room) {
+            return height;
+        }
+        return room >= minimum ? room : Double.NaN;
     }
 
     // ------------------------------------------------------------------ the surface
@@ -626,16 +655,16 @@ public final class NatureModel {
             double half = r.range(6.0, 11.0);
             double rise = r.range(6.0, 12.0);
             double angle = r.next() * Math.PI;
-            if (!this.archFits(c.x, c.z, s.ground, half, angle, rise, coast)) {
+            if (y + rise + ARCH_CREST > this.ceiling || !this.archFits(c.x, c.z, s.ground, half, angle, rise, coast)) {
                 return;
             }
             this.set(c, new FormationSpec(this.specKey(c, 0), FormationKind.ARCH, c.x, c.z, y, rise, half, 0, angle, rock, flags, r.nextLong()), half + 4.0);
             return;
         }
         if (dry || s.style == SurfaceStyle.MOUNTAIN || coast) {
-            double height = r.range(16.0, 30.0);
+            double height = this.headroom(y, r.range(16.0, 30.0), 1.0, 12.0);
             double radius = r.range(2.4, 4.4);
-            if (s.slope > 0.9 || !this.clearSurface(c.x, c.z, y, radius + 2, false)) {
+            if (Double.isNaN(height) || s.slope > 0.9 || !this.clearSurface(c.x, c.z, y, radius + 2, false)) {
                 return;
             }
             this.set(c, new FormationSpec(this.specKey(c, 0), FormationKind.SPIRE, c.x, c.z, y, height, radius, 0, 0, rock, flags, r.nextLong()), radius + 2.5);
@@ -687,15 +716,15 @@ public final class NatureModel {
             double half = r.range(14.0, 22.0);
             double rise = r.range(14.0, 28.0);
             double angle = r.next() * Math.PI;
-            if (!this.archFits(c.x, c.z, s.ground, half, angle, rise, false)) {
+            if (y + rise + ARCH_CREST > this.ceiling || !this.archFits(c.x, c.z, s.ground, half, angle, rise, false)) {
                 return;
             }
             this.set(c, new FormationSpec(this.specKey(c, 0), FormationKind.GREAT_ARCH, c.x, c.z, y, rise, half, 0, angle, rock, flags, r.nextLong()),
                     half + 8.0);
         } else {
             double radius = r.range(6.0, 9.0);
-            double height = r.range(35.0, 70.0);
-            if (s.slope > 0.8 || !this.clearSurface(c.x, c.z, y, radius + 3, false)) {
+            double height = this.headroom(y, r.range(35.0, 70.0), 1.0, 24.0);
+            if (Double.isNaN(height) || s.slope > 0.8 || !this.clearSurface(c.x, c.z, y, radius + 3, false)) {
                 return;
             }
             this.set(c, new FormationSpec(this.specKey(c, 0), FormationKind.GREAT_SPIRE, c.x, c.z, y, height, radius, 0, 0, rock, flags, r.nextLong()),
@@ -817,7 +846,7 @@ public final class NatureModel {
             if (geology == null) {
                 geology = this.land.geology(c.x, c.z);
             }
-            CaveSite site = new CaveSite(c, k, run, profile, geology, u, new NatureRandom(shapeSeed));
+            CaveSite site = new CaveSite(c, k, run, profile, geology, u, new NatureRandom(shapeSeed), Math.min(1.0, rich * scale));
             FormationSpec spec = switch (layer) {
                 case C_SMALL -> this.caveSmall(site);
                 case C_MEDIUM -> this.caveMedium(site);
@@ -844,9 +873,17 @@ public final class NatureModel {
         return 0.15 + 1.45 * smoothstep(-0.5, 0.6, NoiseMath.fbm(this.richness, x / 260.0, z / 260.0, 2, 0.5));
     }
 
-    /** 0.4..1.6: groves of lumen mushrooms against open stretches (~110 blocks; bioluminescent depths). */
+    /**
+     * How thickly lumen mushrooms grow at a cave site (bioluminescent depths): groves against open
+     * stretches (~110 blocks, 0.4..1.6) times clumps inside them (~26 blocks, 0.35..1.65), so they
+     * stand in organic clusters with open floor between, not evenly spread. The regional richness
+     * that leaves other caves bare in places (the gate of the cave cells) is made up for here, up
+     * to 2.2 times: the depths are one living cave, its groves and clearings their own pattern.
+     */
     private double grove(CaveSite s) {
-        return 0.4 + 1.2 * smoothstep(-0.35, 0.45, NoiseMath.fbm(this.groves, s.c.x / 110.0, s.c.z / 110.0, 2, 0.5));
+        double grove = 0.4 + 1.2 * smoothstep(-0.35, 0.45, NoiseMath.fbm(this.groves, s.c.x / 110.0, s.c.z / 110.0, 2, 0.5));
+        double clump = 0.35 + 1.3 * smoothstep(-0.3, 0.4, NoiseMath.fbm(this.clumps, s.c.x / 26.0, s.c.z / 26.0, 2, 0.5));
+        return grove * clump / Math.max(0.45, s.richness);
     }
 
     /** An open run of a cave column. */
@@ -866,7 +903,7 @@ public final class NatureModel {
     }
 
     /** A cave candidate's run: {@code u} is its own roll in [0, 1) (the cell passed its gate). */
-    private record CaveSite(Cand c, int run, Run r, CaveProfile profile, double[] geology, double u, NatureRandom random) {
+    private record CaveSite(Cand c, int run, Run r, CaveProfile profile, double[] geology, double u, NatureRandom random, double richness) {
     }
 
     private Rock caveRock(CaveProfile profile, int y, double[] geology, boolean rubble) {
@@ -934,8 +971,11 @@ public final class NatureModel {
         boolean full = run.depth() >= h;
         switch (s.profile) {
             case LUMINOUS -> {
-                if (!full && run.depth() == 0 && s.u < 0.34 * this.grove(s)) {
-                    return this.cave(s, FormationKind.LUMEN_GROWTH, 0, r.range(1.5, 3.2), h, Rock.STONE, flags);
+                double g = this.grove(s);
+                if (!full && run.depth() == 0 && s.u < 0.4 * g) {
+                    // In the thick of a grove a small mushroom of the understory stands in the patch.
+                    double mushroom = h >= 5 && r.chance(0.5 * Math.min(1.0, g - 0.6)) ? r.range(2.0, Math.min(4.5, h - 2.0)) : 0.0;
+                    return this.cave(s, FormationKind.LUMEN_GROWTH, mushroom, r.range(1.5, 3.6), h, Rock.STONE, flags);
                 }
             }
             case AMETHYST -> {
@@ -1040,12 +1080,16 @@ public final class NatureModel {
         switch (s.profile) {
             case LUMINOUS -> {
                 double g = this.grove(s);
-                if (depth == 0 && h >= 8 && room >= 3 && s.u < 0.3 * g) {
-                    double height = r.skewed(4.0, Math.min(12.0, h - 4.0), 1.3);
-                    double radius = Math.min(Math.min(6.5, room * 0.8), Math.max(1.8, height * r.range(0.32, 0.8)));
+                if (depth == 0 && h >= 6 && room >= 3 && s.u < 0.45 * g) {
+                    // Proportions from slender (bells and domes on tall stems) to broad and low
+                    // (umbrellas and plates), a tall slender one now and then in high caves.
+                    boolean slender = h >= 14 && r.chance(0.18);
+                    double height = slender ? r.range(8.0, Math.min(16.0, h - 4.0)) : r.skewed(3.0, Math.min(12.0, h - 3.0), 1.3);
+                    double ratio = slender ? r.range(0.2, 0.32) : r.range(0.28, 1.05);
+                    double radius = Math.min(Math.min(6.5, room * 0.8), Math.max(slender ? 1.4 : 1.8, height * ratio));
                     return this.cave(s, FormationKind.LUMEN_MUSHROOM, height, radius, h, Rock.STONE, flags);
                 }
-                if (depth == 0 && h >= 4 && s.u < 0.42 * g) {
+                if (depth == 0 && h >= 4 && s.u < 0.6 * g) {
                     return this.cave(s, FormationKind.LUMEN_COLONY, Math.min(6.0, h - 2.0), r.range(2.5, 4.5), h, Rock.STONE, flags);
                 }
                 if (depth == 0 && room >= 5 && s.u < 0.52) {
@@ -1169,9 +1213,9 @@ public final class NatureModel {
         }
         switch (s.profile) {
             case LUMINOUS -> {
-                if (depth == 0 && s.u < 0.35 * this.grove(s)) {
+                if (depth == 0 && s.u < 0.4 * this.grove(s)) {
                     double height = r.range(10.0, Math.min(22.0, h - 6.0));
-                    double radius = Math.min(room * 0.7, r.range(5.0, 10.0));
+                    double radius = Math.min(room * 0.7, r.range(4.5, 10.0));
                     return this.cave(s, FormationKind.LUMEN_GIANT, height, radius, h, Rock.STONE, flags);
                 }
                 if (depth == 0 && room >= 8 && s.u < 0.45) {

@@ -47,7 +47,7 @@ public final class VastlandsCaves implements CaveSystem {
     }
 
     public VastlandsCaves(GenerationSetup setup, TerrainSystem terrain, HydrologySystem hydrology) {
-        this(setup, terrain, hydrology, CaveSettings.DEFAULT);
+        this(setup, terrain, hydrology, setup.luminousCaves() ? CaveSettings.DEFAULT.withLuminousCaves(1.0) : CaveSettings.DEFAULT);
     }
 
     public VastlandsCaves(GenerationSetup setup, TerrainSystem terrain, HydrologySystem hydrology, CaveSettings settings) {
@@ -217,8 +217,8 @@ public final class VastlandsCaves implements CaveSystem {
 
     /**
      * Counts of the cave pieces built in the cells over a square (diagnostics): network tunnel
-     * pieces, chambers, entrances, galleries by size class (radius under 30, 30..55, over 55) and
-     * river gallery pieces.
+     * pieces, chambers, entrances, lava tube pieces and rooms, galleries by size class (radius
+     * under 30, 30..55, over 55) and river gallery pieces.
      */
     public java.util.Map<String, Integer> census(int minX, int minZ, int maxX, int maxZ) {
         java.util.Map<String, Integer> out = new java.util.TreeMap<>();
@@ -227,6 +227,13 @@ public final class VastlandsCaves implements CaveSystem {
                 for (CavePrimitive p : this.model.network.cell(i, j).primitives) {
                     String kind = p.type == CavePrimitive.CHAMBER ? "chambers" : p.ignoresCover ? "entrances" : "tunnel pieces";
                     out.merge(kind, 1, Integer::sum);
+                }
+            }
+        }
+        for (long i = Math.floorDiv(minX, (int) LavaTubes.CELL); i <= Math.floorDiv(maxX, (int) LavaTubes.CELL); i++) {
+            for (long j = Math.floorDiv(minZ, (int) LavaTubes.CELL); j <= Math.floorDiv(maxZ, (int) LavaTubes.CELL); j++) {
+                for (CavePrimitive p : this.model.lavaTubes.cell(i, j).primitives) {
+                    out.merge(p.type == CavePrimitive.CHAMBER ? "lava tube rooms" : "lava tube pieces", 1, Integer::sum);
                 }
             }
         }

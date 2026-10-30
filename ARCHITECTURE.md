@@ -26,6 +26,7 @@ Development Modules
 5. Forests — large forests, tree diversity, giant trees, and natural vegetation distribution. (Done: Agent 5.)
 6. Natural wonders — natural formations at the surface and in the caves, moss, mushrooms, deadwood. (Done: Agent 6.)
 7. Integration — Sincerelyuq's Biomes and Sincerelyuq's Overhaul as optional parts of one world. (Done: Agent 7.)
+8. Final polish — frozen seas and rivers, exceptional mountain systems, lava tubes, the expanded bioluminescent depths, audit. (Done: Agent 8.)
 
 Integration Rules
 
@@ -104,7 +105,8 @@ src/main/java/com/sincerelyuq/vastlands/
                                       RiverWater (block step)
     caves/                            caves, cave water and lava, cave biome slots: CaveModel (pure Java:
                                       CaveGeology, FluidDomains, CaveNetwork, Galleries, Megacaves, CavePrimitive,
-                                      Fractures, RiverTunnels, CaveColumn, CaveBiomes, KeyedCache, Noise3),
+                                      Fractures, RiverTunnels, LavaTubes (Agent 8), CaveColumn, CaveBiomes,
+                                      KeyedCache, Noise3),
                                       VastlandsCaves (CaveSystem), CaveBlocks (block step), CaveVolume (model-side
                                       fluid checks), CaveSettings, CaveFluid, CaveBiome, MegacaveInfo
     biome/VastlandsBiomeSource.java   "vastlands:caves" biome source: surface delegate + cave biome slots,
@@ -200,8 +202,10 @@ preset with only the overworld replaced; the Nether and the End are vanilla.
   ("World Type: Vastlands"). Dedicated servers use `level-type=vastlands:vastlands`.
 
 How the height is used: the world builds and stores blocks from -256 to 511, bedrock is at -256.
-The terrain surface spans about Y -30 (abyssal plains; trench floors down to ~-160) to 470
-(asymptote of the highest peaks; the top slide at 488..504 is only a safety net). The caves use the
+The terrain surface spans about Y -30 (abyssal plains; trench floors down to ~-160) to about 477
+(the highest summits of exceptional mountain systems since Agent 8; other great ranges 460..474;
+a final peak cap keeps every column below 487, under the top slide at 488..504, which is only a
+safety net). The caves use the
 whole depth down to Y -248 (see Caves): the caves stage wraps the final density outside the
 slides, so the bottom slide (vanilla's -64..-40, lower under trenches, see Geography, Trenches) no
 longer limits them; it only shapes the landscape density, which is solid there anyway. Vanilla's
@@ -409,6 +413,10 @@ Algorithm (`TerrainModel.sample(x, z)`), three layers:
      ridged aretes near their crests and stronger erosion; old ranges stay rounded (9 000-block noise).
    - Plateaus: a 9 000-block mask with a rough edge term (bays, spurs, buttes), raising the land by
      40..90 blocks behind escarpments; only well inland and away from mountain belts.
+   - Exceptional mountain systems (Agent 8): inside the regions of a 30 000-block field, the
+     stature of major ranges is raised by up to 16% where it is 0.75..1 (`GeographyModel.exceptional`,
+     also in the rain shadow's barrier), so a few mountain systems per continent stand above all
+     others; the rest of the hierarchy (hills, ordinary ranges, great ranges) is unchanged.
 2. Gully erosion (`gullies`): a slope-aligned stripe filter (after Clay John's "eroded terrain
    noise") at cells of 360, 180, 90 and 45 blocks, depth 22% of the cell at full strength. The stripe
    direction follows the gradient of the smoothed macro shape (three samples 32 blocks around the
@@ -419,17 +427,27 @@ Algorithm (`TerrainModel.sample(x, z)`), three layers:
 3. Detail (`detail`): plains undulation (±5, 380 blocks), micro relief (±2.5, 140), sea floor
    texture, and crags and ledges on steep mountain and escarpment ground (ridged noise, 70 blocks,
    ±5..12 blocks, sharper on young ranges and in dry provinces). Undulation is 40% lower in plains
-   provinces and gullies 30% weaker in dry ones. Heights above 410 are compressed towards an
-   asymptote at 470 (`softCap`), so only the highest summits are flattened a little.
+   provinces and gullies 30% weaker in dry ones.
+4. The top (Agent 8): the macro elevation above Y 410 (maxHeight - 90) is compressed towards an
+   asymptote at Y 500 (`softCap(elevation, 410, 90)`); gullies are cut and the detail added after
+   that, and a final cap compresses the surface above Y 470 towards 487 (`PEAK_KNEE`, `PEAK_TOP`).
+   Before, one cap (knee 410, asymptote 470) squeezed the whole relief: the raw summits of the
+   greatest ranges (Y 540..610) all ended at Y 452..456 and their massifs were smooth domes without
+   the crags and gullies of their slopes. Now the highest summits of exceptional systems stand at
+   about Y 476, other great ranges at 460..474 in the order of their raw heights, and the massifs
+   keep their texture; nothing below Y 410 changed. `VastlandsTerrain.MAX_SURFACE` is 500 with
+   `TOP_CLEARANCE` 11 (the asymptote of lower worlds is their top - 11).
 
 Elevation ranges and their frequency: Agent 2 measured (4 seeds × 20 000 random columns over
 ±200 000 blocks) sea floor on 26% of the world, lowlands 63..130 on 59%, mountains above 200 on
 2.7%. With the geography (131 072 × 131 072 blocks around 0,0 at 128 blocks per pixel, seed
 20261018): sea 36.6% (18.7% of the world below Y 0, 0.04% below Y -50: trenches), lowland 63..100
 on 34%, 100..150 on 23%, 150..200 on 4.6%, above 200 on 1.6%, above 300 on 0.25%, above 400 on
-0.04%; highest peaks ~452. The guards of `TerrainModelTest` are: sea 25..50%, lowland
-63..130 over 38%, above 200 0.5..8%, above 300 under 1.5% and rarer than above 200, max under 470,
-min above -200 (trenches). Neighbouring columns differ by at most ~12 blocks (canyon and trench
+0.04%; highest peaks ~452 (Agent 8: ~476, see 4. above; above Y 400 0.053% -> 0.057% of a
+262 144-block square of seed 20261018). The guards of `TerrainModelTest` are: sea 25..50%, lowland
+63..130 over 38%, above 200 0.5..8%, above 300 under 1.5% and rarer than above 200, max under 488
+(the top slide; 470 before Agent 8), min above -200 (trenches); `exceptionalSystemsStandAboveTheGreatRanges`
+checks six summits. Neighbouring columns differ by at most ~12 blocks (canyon and trench
 walls, crest cliffs), and the height field has no discontinuities (same tests as Agent 2's, now also
 over the geography's fields).
 
@@ -613,7 +631,17 @@ Trenches in the world:
 
 Frozen seas (`FrozenSea`, `OceanSurface.placeIceFields`, `ServerLevelMixin`):
 - Ice strength 0..1 from the sea-level temperature: 0 at -0.45 (the edge of vanilla's frozen band),
-  1 at -0.65; a 2 200-block noise roughens the ice edge into tongues and bays.
+  1 at -0.65. Since Agent 8 the pattern reads the depth into the band (linear in temperature, the
+  inverse of the strength's smoothstep) and is open only in a marginal zone along the edge: a
+  quarter ice ~50 blocks inside it, half at ~100, three quarters at ~160, a firm field beyond
+  ~200 (`FrozenSea.openness`, `MARGIN` 0.35 of the band; ΔT 0.02 is ~105 blocks at the median
+  temperature gradient near the edge); a 2 200-block noise shifts the zone by up to ~90 blocks
+  either way but never opens bays into the firm field. Before, the break-up ran over half the band
+  and the ice-edge noise opened bays deeper still, while the biome table makes every sea of the
+  band a frozen ocean (`BiomeClimate`: deep frozen ocean below strength 0.3, frozen ocean above):
+  frozen oceans down to -0.53 held 0..8% ice and deep frozen oceans 0..5% (vanilla gives deep
+  frozen oceans temperature 0.5, so neither `freeze_top_layer` nor weather freezes them), the
+  reported "frozen oceans without surface ice".
 - Pattern: two domain-warped Voronoi networks (warp 40 blocks at 300 plus 5 at 40, so edges curve
   and jag). Large floes (~170 blocks): their edges are, depending on a 650-block noise that varies
   along them, narrow cracks (2–4 blocks), wide open leads (up to ~30 blocks) or closed pressure
@@ -629,11 +657,19 @@ Frozen seas (`FrozenSea`, `OceanSurface.placeIceFields`, `ServerLevelMixin`):
 - In the world: after this chunk's features (so vanilla's `freeze_top_layer` cannot close the
   cracks again), every open-sea column (ground below the surface) with ice strength > 0 gets ice,
   packed ice or water at sea level - 1 by the pattern; only water and ice blocks are touched, so
-  vanilla's icebergs stand frozen into the field. `ServerLevelMixin` stops weather from freezing
-  water in a crack of a Vastlands ice field (vanilla freezes water at ice edges in cold biomes,
-  which would close the cracks within minutes); other worlds and other water are unchanged.
+  vanilla's icebergs stand frozen into the field. River and lake water that Vastlands places at
+  sea level is not sea (`OceanSurface.iceFieldColumn`, Agent 8): it keeps the ice its biome gave
+  it (a frozen river freezes over). Before, the step laid its cracks and leads over the lower
+  courses of polar rivers (a third of ~1.2 million such columns in a 120 km square were opened, the
+  ice of `freeze_top_layer` replaced by water) and the mixin kept them open. `ServerLevelMixin`
+  stops weather from freezing water in a crack of a Vastlands ice field (vanilla freezes water at
+  ice edges in cold biomes, which would close the cracks within minutes); other worlds and other
+  water are unchanged.
 - Model: ice 82–88% of a firm field, the largest connected crack network holds 85–95% of the open
-  water, isolated holes under 10 blocks under 0.1% (`FrozenSeaTest`). Test world `ice5` (16 × 16
+  water, isolated holes under 10 blocks under 0.1% (`FrozenSeaTest`). Agent 8 (seed 20261018, polar
+  seas within ±60 000 blocks): 27% ice in the outer 0.02 of the band, 74% in the next, 85% beyond,
+  in deep frozen and frozen oceans alike (`FrozenSeaTest.theFreezingBandIsFrozen`; the numbers
+  before the `ice5` world below are Agent 2.5's, measured in its firm field). Test world `ice5` (16 × 16
   chunks, seed 20261018 around 30208,-19712): the sea surface agrees with the model in 100% of the
   9 876 open-sea columns more than 16 blocks from an iceberg (93.4% overall: icebergs of vanilla's
   frozen-ocean surface rules cover ~18% of that square); no lava or air in the water.
@@ -852,7 +888,10 @@ Router and integration:
   include the sea, so structures placed before the chunk exists (village paths and houses) stand on
   the water surface rather than on the channel floor.
 - Freezing is vanilla's: rivers and lakes in cold biomes (frozen river, snowy biomes) freeze by
-  `freeze_top_layer` and weather. `ServerLevelMixin` only keeps sea ice field cracks open.
+  `freeze_top_layer` and weather. `ServerLevelMixin` only keeps sea ice field cracks open; since
+  Agent 8 the ice field step and the mixin leave river and lake water at sea level alone (before,
+  they laid the sea's cracks over the lower courses of polar rivers, see Geography, Frozen seas).
+  Fall sills in cold biomes still freeze (PROGRESS.md, Known Issues).
 - F3: a "Vastlands hydrology" line (water kind and top, ground, nearest river: width, top, distance).
 
 Hydrology in numbers (seed 20261018, `hydrologyPreview`; 4 vCPU container):
@@ -1087,6 +1126,24 @@ Layers, coarse to fine (`CaveModel`):
      the Voronoi domain at its centre when that lies inside it; else a lake of its own (LAKE 90%,
      ABYSS 60%, others 22% + 35% wetness, × `water`) up to 4..34% of the height (6%: 85%, a
      submerged cavern); deep volcanic ones lava lakes (top ≤ Y -100); dry otherwise.
+   - Lava tubes (`LavaTubes`, Agent 8): rare winding passages near the bottom of the world, floors
+     from Y `minY + 9` (-247: the caves keep the bedrock floor and the stone above it, nothing opens
+     below `minY + 7`) up to -206, on a jittered lattice of 96-block cells. A node exists only in a
+     lava domain of the deep zone (`FluidDomains.owner`), inside the regions of a 3 000-block field,
+     with a chance of (0.6 + 0.3 volcanic) × the region × `lavaTubes`, and only where its floor (a
+     420-block undulation around Y -229 ± 13 plus jitter) lies within 22 blocks under or 8 over the
+     domain's lava level. Tubes join neighbouring nodes of the same domain (four neighbours, one
+     diagonal per quad; 70% / 35%), so none runs into a dam: quadratic curves with a bend of up to
+     0.35 of their length and a vertical bump, four capsule segments, radius log-normal around 6
+     (3..14, one in six ×1.4), wide and low (height over width 0.55..0.85, less in volcanic rock),
+     flat floors (cut 0.55..0.8), the radius swelling ±30% along them. Junctions of three or more
+     open into low rooms over lava pools (40%), some dead ends end in one (20%). The lava is the
+     domain's, so floors wandering across its level give tubes flooded to the vault, lava rivers
+     under an open vault and dry stretches along a shore of their own lava; dams, the aquitard and
+     the clearance work on them as on every piece. Seed 20261018, 32 × 32 km: 34% of 1 km squares
+     hold some, ~2 tubes per km² (dense systems of up to ~30 tubes per km²); three systems checked
+     with the fluid rules (`CaveVolume.check`, 384² columns each): 0 unstable blocks, no water
+     touching lava; `CaveModelTest.lavaTubesHoldTheirLavaAboveTheBedrock`.
 4. Column (`CaveColumn`, built once per column and cached per thread): the ground (the lowest
    ground within 4 blocks), both domains, the pieces that can reach the column (up to 64: bounds
    and the horizontal distance to their axis; indexed by 16-block slabs), both megacave sections,
@@ -1159,7 +1216,8 @@ their mouths). Measured in the model (`CaveModelTest.seaCavesAndDeepLava`, 1 024
 coast and shelf): 31 sea caves with a mouth at the sea (13 blue holes), all 31 open to the sea and
 stable (Agent 4: 23, 8, 23).
 
-Lava: only in deep domains and deep megacaves (below the aquitard; tops at most Y -100), lava
+Lava: only in deep domains, deep megacaves and the lava tubes near the bottom of the world (below
+the aquitard; tops at most Y -100), lava
 falls only over spillways between lava domains. Water and lava domains are separated by dams, so
 they never touch. Around volcanic lava (`volcanic` > 0.25) `CaveBlocks` lines the stone touching
 lava with magma, blackstone and basalt and the walls up to 8 blocks above it with basalt and smooth
@@ -1211,10 +1269,12 @@ biome slots without cave columns. End to end (dedicated server, 24 × 24 chunks,
 alternated with Agent 4's code): 9.4..11.2 chunks/s against Agent 4's 9.35..9.38: not slower.
 
 Tuning: `CaveSettings.DEFAULT` (frequency, density, passageWidth, largePassages, chambers,
-megacaves, megacaveScale, vertical, regionVariation, water, spillways, lava, entrances, seaCaves,
-riverTunnels, caveBiomes; all 1 except spillways 0.3, riverTunnels 0.5, caveBiomes 0.62); level
-offsets, lattice and entrance rules in `CaveNetwork`; gallery classes in `Galleries`; megacave
-kinds and sizes in `Megacaves`; domain sizes and fluid shares in `FluidDomains`; cover, clearance
+megacaves, megacaveScale, vertical, regionVariation, water, spillways, lava, lavaTubes, entrances,
+seaCaves, riverTunnels, caveBiomes, luminousCaves; all 1 except spillways 0.3, riverTunnels 0.5,
+caveBiomes 0.62 and luminousCaves 0: `VastlandsCaves` sets it to 1 when
+`GenerationSetup.luminousCaves`, see Integration, Cave biomes); level offsets, lattice and
+entrance rules in `CaveNetwork`; gallery classes in `Galleries`; megacave kinds and sizes in
+`Megacaves`; lava tubes in `LavaTubes`; domain sizes and fluid shares in `FluidDomains`; cover, clearance
 and dams in `CaveModel`; province weights in `CaveBiomes`; slot biomes in the tags. Any change
 changes generation (seams against existing chunks). Measure with `caveSurvey`, render with
 `cavePreview` before generating worlds; `CaveModelTest` and `CaveBiomeTest` guard the properties.
@@ -1698,6 +1758,18 @@ Cave biomes
   warm, humid climates (and 40% of such megacaves) luminous (bit 0x100 of the province code, drawn
   after the slot so the slots themselves do not move); there the luminous biome takes the slot's
   place. Empty list: nothing changes.
+- Expanded bioluminescent depths (Agent 8): `GenerationSetup.luminousCaves` is true when
+  Sincerelyuq's Biomes is installed (`CompatBlocks.biomesInstalled()` when the `RandomState` is
+  built); `VastlandsCaves` then uses `CaveSettings.luminousCaves` 1: 70% of the eligible provinces
+  and 65% of the eligible megacaves are luminous, and in luminous provinces (`CaveBiomes.luminous`
+  at each node level) `CaveNetwork` builds roomier caves: node presence ×1.3, tunnels a third
+  wider (radius up to 20) and 15% taller, chambers 2.2 times as likely and a third larger, halls
+  28% instead of 10% of them, 45% of chambers with a second lobe off one end (offset and size 0.4..0.6
+  of the radius, so bounds stay within the network's reach). Without the mod nothing of this
+  runs: seven places (luminous ones among them) give identical cave blocks, slots and luminous
+  flags with the code before (`LuminousCavesTest` checks cold places stay identical with the
+  expansion). Measured with it at a luminous place (128-block square): cave blocks 216 678 ->
+  334 411, luminous 130 167 -> 284 161.
 - Each has its own formation profile (`#vastlands:nature/cave/amethyst|smoldering|luminous`,
   checked before the slot profiles, `CaveProfile.FIRST`):
   - amethyst caves: crystal gardens (the mod's amethyst spikes of many lengths on amethyst and
@@ -1713,6 +1785,18 @@ Cave biomes
     smaller three times, else left out); young colonies, moss and sprouts, moss and bulbs on low
     ceilings, ponds with sea pickles. Giant lumen mushrooms stay as rare as the mod made them
     (tall caves and megacaves only).
+  - Agent 8: mushrooms grow by groves (110 blocks) times clumps (~26 blocks, 0.35..1.65), and in
+    the luminous profile the regional richness gate of the cave cells is made up for (up to 2.2
+    times), so they stand in organic clusters with open floor between; medium mushrooms from
+    6-block caves (heights 3..12, proportions 0.28..1.05: bells and domes to umbrellas and
+    plates; 18% slender ones of 8..16 blocks in caves 14+ high); bigger mushrooms get one or two
+    smaller mature companions leaning away from them (groups of two to four of different
+    heights, each fit-checked against the cave and the blocks already built); growth patches in
+    dense groves carry a small understory mushroom (2..4.5); ceiling moss and bulbs up to 20
+    blocks up. Thin stems no longer leave a gap where the curve runs between cells or steps
+    diagonally (caps held by nothing before). Three squares of 256 blocks at luminous places:
+    mushroom formations 22 -> 95, caps 71 -> 417, 0 of 26 063 solid blocks unanchored
+    (`LuminousNatureTest`).
   - Pools (`FormationKind.POOL`) are only the floor cells whose neighbours hold rock at the
     water's level (checked against the cave model), and the block step writes fluid only into
     natural ground, never into air, so a pool cannot spill.
@@ -1807,7 +1891,7 @@ Vanilla Isolation
 
 Testing and Verification
 
-JUnit (`./gradlew test`, 87 tests):
+JUnit (`./gradlew test`; 104 test methods after Agent 8, which added the five marked below):
 - `WorldHeightDataTest` — data files agree with `WorldHeight` and pass vanilla's codecs.
 - `GenerationSetupTest` — seeded randomness is deterministic and separated per system and seed;
   terrain, hydrology, caves and forests are implemented.
@@ -1832,8 +1916,10 @@ JUnit (`./gradlew test`, 87 tests):
   geography.
 - `FrozenSeaTest` — the cover depends only on position and seed; no ice outside the freezing band;
   the Voronoi edge distance equals a brute-force search; a firm field is 80..97% ice with one
-  connected crack network and few isolated holes; ice falls towards the warm edge; neighbour
-  changes across chunk borders equal those inside chunks.
+  connected crack network and few isolated holes; ice falls towards the warm edge (within the
+  marginal zone since Agent 8); neighbour changes across chunk borders equal those inside chunks;
+  (Agent 8) `theFreezingBandIsFrozen`: over 40% ice ~100 blocks inside the edge, over 70% at ~200,
+  a firm field (over 80%) at -0.53, -0.58 and -0.7 and at the strength of deep frozen oceans.
 - `VastlandsTerrainTest` — one surface per column, cache equals the model from any thread,
   `surfaceHeight` interpolates the grid, outputs inside their declared ranges, initial density
   below the surface, depth semantics (deep dark band), low worlds cap the terrain below their top.
@@ -1879,6 +1965,15 @@ JUnit (`./gradlew test`, 87 tests):
   two thirds of the 1 024-block cells, galleries of all three size classes and underground rivers;
   the natural bridge and swallet near the origin's region exist and the swallet's shaft reaches the
   cave water.
+- Agent 8: `TerrainModelTest.exceptionalSystemsStandAboveTheGreatRanges` (six summits of seed
+  20261018: two of an exceptional system above Y 472, four of other great ranges above Y 455 and
+  below them, a spread of more than 6 blocks, all below the top slide); `CaveModelTest.lavaTubesHoldTheirLavaAboveTheBedrock`
+  (a tube system in the census, a partly flooded tube with 0 unstable fluid blocks and no cave
+  space below `minY + 7`); `LuminousCavesTest` (the expansion only with a luminous biome: more
+  luminous and more cave space at a luminous place, identical caves under cold mountains);
+  `LuminousNatureTest` (the mod's cave biomes standing in their slots, no game classes: 40+ lumen
+  mushrooms in two squares, colonies, growths and pools, giants rare, 30%+ of mushrooms in groups,
+  an understory, sizes spread, every solid block held).
 - `CaveBiomeTest` (test server, Agent 4.5) — the preset's biome source is `vastlands:caves`, lush
   caves, dripstone caves and the deep dark are among its possible biomes and in their slots, the
   climate sampler leads to its world's context; near the ground every biome equals the delegate's
@@ -2091,3 +2186,10 @@ Technical Limitations (verified)
 - Cloud height is vanilla (192); mountains above it cut through the cloud layer (3.2% of all
   columns, 4.3% of the land, lie above Y 192). Not changed: a matter of taste, `cloud_height` in the
   dimension type.
+- Deep frozen oceans have vanilla's temperature 0.5 (rain instead of snow, no freezing by weather):
+  since Agent 8 they carry the ice field like frozen oceans, laid by the generation step, and
+  weather neither melts nor adds to it.
+- River valleys in mountains take vanilla's valley biomes (the middle biome of mid and far inland
+  E0/E1 ground, river in E2+): in temperate zones a high mountain river runs through a strip of
+  forest or plains biome between snowy slopes and stays liquid (vanilla's own rule; not changed by
+  Agent 8, it would move biomes and their structures).

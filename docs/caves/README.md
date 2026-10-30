@@ -29,3 +29,10 @@ Agent 4.5 (underground overhaul), rendered from the cave model with `./gradlew c
 | `preview45-complex-y10.png` | the same complex sliced at Y 10: the shelf with its holes, pillars, partitions, connectors leading out |
 | `preview45-pillars-y100.png` | a pillar cavern at -12680,-10780 under high mountains sliced at Y 100: columns, stubs, the network and chasms around it |
 | `preview45-lava-z.png` | a deep complex holding a lava lake at -236,-1832 under flooded coastal caves |
+
+Agent 8: `cavePreview --slices` (CavePreview compiled against the pure-Java models in a scratch
+harness: the Gradle build could not run in Agent 8's session).
+
+| File | What |
+|---|---|
+| `preview8-lava-tubes-slices.jpg` | lava tubes (seed 20261018, 1 024 blocks around -3584,7680) sliced at Y -236, -226 and -216: lava (orange) fills the tubes low down, at -226 lava pools alternate with dry stretches (black), at -216 only their vaults and dry passages remain |

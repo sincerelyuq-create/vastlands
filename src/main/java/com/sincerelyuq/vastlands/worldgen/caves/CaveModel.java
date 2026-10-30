@@ -14,8 +14,8 @@ import java.util.function.Consumer;
  *     <li>{@link FluidDomains}: dry, flooded and lava domains above and below the aquitard.</li>
  *     <li>Cave space: the {@link CaveNetwork} (multi-level tunnels, chambers, shafts, ramps,
  *     entrances), {@link Galleries} (trunk passages and underground rivers), {@link Fractures}
- *     (chasms, ravines) and {@link Megacaves} (underground landscapes hundreds of blocks
- *     across).</li>
+ *     (chasms, ravines), {@link Megacaves} (underground landscapes hundreds of blocks
+ *     across) and {@link LavaTubes} (lava passages near the bottom of the world).</li>
  *     <li>Per column ({@link #column}): the pieces reaching the column and the heights where cave
  *     space must stay rock: dams between domains that differ, the aquitard where the zones above
  *     and below it differ, and a skin of rock wherever the cave fluid would meet a different fluid
@@ -69,6 +69,7 @@ public final class CaveModel {
     final Galleries galleries;
     final Fractures fractures;
     final Megacaves megacaves;
+    final LavaTubes lavaTubes;
     final RiverTunnels tunnels;
     final CaveBiomes biomes;
     private final Noise3 roughness;
@@ -116,11 +117,14 @@ public final class CaveModel {
         this.domains = new FluidDomains(s, geography, this.geology, settings, this.seaTop);
         this.megacaves = new Megacaves(s, geography, this.geology, this.domains, ground, settings);
         this.domains.attach(this.megacaves);
-        this.network = new CaveNetwork(s, geography, this.geology, this.domains, settings, ground, this.seaTop);
+        // Before the network, which builds the caves of luminous provinces larger (expanded settings only).
+        this.biomes = new CaveBiomes(s, geography, this.geology, this.domains, this.megacaves, ground, this.seaTop, settings);
+        this.network = new CaveNetwork(s, geography, this.geology, this.domains, settings, ground, this.seaTop,
+                settings.luminousCaves() > 0.0 ? this.biomes : null);
         this.galleries = new Galleries(s, geography, this.geology, this.domains, settings, ground);
         this.fractures = new Fractures(s, settings);
+        this.lavaTubes = new LavaTubes(s, geography, this.geology, this.domains, settings, minY);
         this.tunnels = new RiverTunnels(s, geography, ground, rivers, waters, this.domains, settings, this.seaTop);
-        this.biomes = new CaveBiomes(s, geography, this.geology, this.domains, this.megacaves, ground, this.seaTop, settings);
         this.roughness = new Noise3(s + 1);
         this.detail = new Noise3(s + 2);
         this.bridges = new Noise3(s + 3);
@@ -237,6 +241,7 @@ public final class CaveModel {
         this.network.gather(x, z, sink);
         this.galleries.gather(x, z, sink);
         this.megacaves.gather(x, z, sink);
+        this.lavaTubes.gather(x, z, sink);
 
         CaveFluid above = c.upper.at(c.bandHi + 1);
         CaveFluid below = c.deep.at(c.bandLo - 1);

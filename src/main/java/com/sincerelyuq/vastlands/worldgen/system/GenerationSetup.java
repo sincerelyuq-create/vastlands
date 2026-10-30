@@ -1,6 +1,7 @@
 package com.sincerelyuq.vastlands.worldgen.system;
 
 import com.sincerelyuq.vastlands.Vastlands;
+import com.sincerelyuq.vastlands.worldgen.compat.CompatBlocks;
 import net.minecraft.world.level.levelgen.NoiseGeneratorSettings;
 import net.minecraft.world.level.levelgen.PositionalRandomFactory;
 import net.minecraft.world.level.levelgen.WorldgenRandom;
@@ -8,13 +9,22 @@ import net.minecraft.world.level.levelgen.WorldgenRandom;
 /**
  * Immutable inputs available to every generation system when it is created for a world.
  *
- * @param minY     lowest Y of the noise range
- * @param height   height of the noise range
- * @param seaLevel sea level of the noise settings
+ * @param minY          lowest Y of the noise range
+ * @param height        height of the noise range
+ * @param seaLevel      sea level of the noise settings
+ * @param luminousCaves a luminous cave biome is installed (Sincerelyuq's Biomes' bioluminescent
+ *                      depths): the caves of its provinces are built larger. False without the
+ *                      mod, so such worlds keep their caves exactly
  */
-public record GenerationSetup(long worldSeed, int minY, int height, int seaLevel) {
+public record GenerationSetup(long worldSeed, int minY, int height, int seaLevel, boolean luminousCaves) {
+    /** Without a luminous cave biome (tests, previews, worlds without other mods). */
+    public GenerationSetup(long worldSeed, int minY, int height, int seaLevel) {
+        this(worldSeed, minY, height, seaLevel, false);
+    }
+
     public static GenerationSetup of(long worldSeed, NoiseGeneratorSettings settings) {
-        return new GenerationSetup(worldSeed, settings.noiseSettings().minY(), settings.noiseSettings().height(), settings.seaLevel());
+        return new GenerationSetup(worldSeed, settings.noiseSettings().minY(), settings.noiseSettings().height(), settings.seaLevel(),
+                CompatBlocks.biomesInstalled());
     }
 
     /**

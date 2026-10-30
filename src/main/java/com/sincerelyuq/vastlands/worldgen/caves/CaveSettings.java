@@ -28,6 +28,8 @@ package com.sincerelyuq.vastlands.worldgen.caves;
  * @param spillways        share of the notch windows along a dam between two water (or lava)
  *                         levels that are open, so the higher level spills into the lower one
  * @param lava             multiplies the chance that a deep domain or megacave holds lava
+ * @param lavaTubes        multiplies the share of lava domain nodes that hold the lava tubes near
+ *                         the bottom of the world (0 = none)
  *
  * <p>Openings and connections:
  * @param entrances        multiplies the chance of hillside, cliff and valley entrances
@@ -38,6 +40,10 @@ package com.sincerelyuq.vastlands.worldgen.caves;
  * @param caveBiomes       share of cave provinces that hold a cave biome (lush, dripstone, deep
  *                         dark, crystal, volcanic) instead of plain rock caves under the surface
  *                         biome (0..1)
+ * @param luminousCaves    how much the bioluminescent depths of other mods expand (0..1, 0 by
+ *                         default: {@link #withLuminousCaves} when such a biome is installed):
+ *                         more of the eligible provinces and megacaves are luminous, and their
+ *                         network has wider tunnels, more and larger chambers and halls
  */
 public record CaveSettings(
         double frequency,
@@ -52,14 +58,23 @@ public record CaveSettings(
         double water,
         double spillways,
         double lava,
+        double lavaTubes,
         double entrances,
         double seaCaves,
         double riverTunnels,
-        double caveBiomes
+        double caveBiomes,
+        double luminousCaves
 ) {
     public static final CaveSettings DEFAULT = new CaveSettings(
             1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
-            1.0, 0.3, 1.0,
+            1.0, 0.3, 1.0, 1.0,
             1.0, 1.0, 0.5,
-            0.62);
+            0.62, 0.0);
+
+    /** These settings with the bioluminescent depths expanded by {@code luminous} (0..1). */
+    public CaveSettings withLuminousCaves(double luminous) {
+        return new CaveSettings(this.frequency, this.density, this.passageWidth, this.largePassages, this.chambers, this.megacaves, this.megacaveScale,
+                this.vertical, this.regionVariation, this.water, this.spillways, this.lava, this.lavaTubes, this.entrances, this.seaCaves,
+                this.riverTunnels, this.caveBiomes, luminous);
+    }
 }

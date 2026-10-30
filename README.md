@@ -12,12 +12,14 @@ Planned Features
 - Natural terrain without floating islands
 
 Status: Early development. Done: the "Vastlands" world type with the Y=-256..511 world height; the
-terrain (continents and seas, plains and rolling hills, long mountain ranges up to Y ~450 with
-foothills, passes and eroded valleys, plateaus with escarpments); and the geography on top of it:
+terrain (continents and seas, plains and rolling hills, long mountain ranges with foothills,
+passes and eroded valleys, the greatest ranges to Y ~460..474 and a few exceptional mountain
+systems to Y ~476, plateaus with escarpments); and the geography on top of it:
 open oceans with shelves, abyssal plains, mid-ocean ridges, seamounts and rare deep trenches, vast
 plains provinces and hill country, dry regions with tablelands, climate zones thousands of blocks
 across with cold mountain tops and rain shadows, vanilla biomes chosen from landform and climate,
-and polar seas covered by fractured ice fields; and rivers: networks of tributaries that drain every
+and polar seas covered by fractured ice fields (every frozen and deep frozen ocean, broken floes
+only along the ice edge); and rivers: networks of tributaries that drain every
 continent downhill to the sea, meandering across floodplains, broad rivers up to ~100 blocks wide in
 valleys of their own with ragged banks, lakes in basins and where rivers cross flat ground, rocky
 ledges and waterfalls (tall ones off escarpments and in mountains, with a horseshoe lip, a round
@@ -34,7 +36,8 @@ plus the cave biomes of other mods through biome tags, such as the amethyst and 
 Sincerelyuq's Biomes when it is installed); entrances in hillsides, cliffs, sinkholes and the sea
 floor; underground lakes and flooded passages that always stand level, lakes and seas in megacaves,
 underground rivers falling over dams between water levels, deep lava lakes below the aquitard with
-basalt and magma in volcanic regions; and designed connections to the surface water: rivers flowing
+basalt and magma in volcanic regions, rare lava tubes winding near the bedrock (flooded, half
+flooded or running dry along their lava); and designed connections to the surface water: rivers flowing
 through natural tunnels and under natural bridges, rivers pouring into the caves through swallets,
 dry grottoes behind tall waterfalls, sea caves and blue holes open to the sea; and forests: woods
 that follow the biomes, the climate and the ground (oak, birch and mixed woods, dark forests,
@@ -87,10 +90,12 @@ Put either or both jars into `mods/` next to Vastlands and create a new Vastland
   country, bone dunes as sand seas (with real dunes across the wind) in the hottest deserts, lotus
   pools in warm, humid lowlands and floodplains, the twilight thicket in temperate, humid forest
   country (with dusk trees grown by the Vastlands forests); underground the amethyst caves and the
-  smoldering cave take the crystal and volcanic cave provinces, the bioluminescent depths half of
-  the warm, humid lush and dripstone provinces of the middle and deep caves. Each gets its own
+  smoldering cave take the crystal and volcanic cave provinces, the bioluminescent depths 70% of
+  the warm, humid lush and dripstone provinces of the middle and deep caves, where the caves are
+  roomier (wider tunnels, more and larger chambers and halls). Each gets its own
   formations (lumen mushrooms of many forms, crystal gardens and spires, spinel pools, vents,
-  geothermal fields, fissures with ash vents). F3 shows the "Vastlands region" fields.
+  geothermal fields, fissures with ash vents; lumen mushrooms in clustered groves of many sizes,
+  from an understory of small ones to giants). F3 shows the "Vastlands region" fields.
 - Sincerelyuq's Overhaul: its structures keep their placement; some also appear in the biomes
   above where they fit, and starts on bad sites (a slope, a river, a flooded cave, the sanctum's
   doorstep) are dropped. Natural formations, trees and dunes step aside for every structure.

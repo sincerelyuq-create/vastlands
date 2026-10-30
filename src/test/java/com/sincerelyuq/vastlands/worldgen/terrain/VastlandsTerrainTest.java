@@ -121,7 +121,7 @@ class VastlandsTerrainTest {
         VastlandsTerrain terrain = new VastlandsTerrain(new GenerationSetup(1L, -64, 384, 63));
         Random random = new Random(13);
         for (int i = 0; i < 20000; i++) {
-            assertTrue(terrain.column(random.nextInt(400_000) - 200_000, random.nextInt(400_000) - 200_000).height() < 319 - 41);
+            assertTrue(terrain.column(random.nextInt(400_000) - 200_000, random.nextInt(400_000) - 200_000).height() < 319 - VastlandsTerrain.TOP_CLEARANCE);
         }
     }
 }

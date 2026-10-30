@@ -107,6 +107,38 @@ class CaveModelTest {
         assertTrue(spills > 20, "underground rivers should fall over spillways: " + spills);
     }
 
+    /**
+     * Lava tubes (Agent 8): near the bottom of the world, in lava domains only, partly flooded with
+     * dry stretches above the lava, every fluid where vanilla's rules leave it, and the bedrock
+     * floor with the stone above it untouched (no cave space below Y {@code minY + 7}).
+     */
+    @Test
+    void lavaTubesHoldTheirLavaAboveTheBedrock() {
+        java.util.Map<String, Integer> census = caves.census(-4096, 7168, -3073, 8191);
+        assertTrue(census.getOrDefault("lava tube pieces", 0) > 40, "a lava tube system: " + census);
+        int x0 = 5629 - 64;
+        int z0 = -8594 - 64;
+        CaveVolume.Check check = volume.check(x0, z0, 128, 128);
+        Vastlands.LOGGER.info("CaveModelTest: lava tubes {}", check);
+        assertEquals(0, check.unstable(), "unstable fluids at a lava tube: " + check);
+        long lava = 0;
+        long air = 0;
+        for (int x = x0; x < x0 + 128; x++) {
+            for (int z = z0; z < z0 + 128; z++) {
+                for (int y = WorldHeight.MIN_Y; y <= (int) LavaTubes.TOP; y++) {
+                    if (!caves.isCave(x, y, z)) {
+                        continue;
+                    }
+                    assertTrue(y >= WorldHeight.MIN_Y + 7, "cave space in the bedrock floor at " + x + " " + y + " " + z);
+                    CaveFluid fluid = caves.caveFluid(x, y, z);
+                    lava += fluid == CaveFluid.LAVA ? 1 : 0;
+                    air += fluid == CaveFluid.AIR ? 1 : 0;
+                }
+            }
+        }
+        assertTrue(lava > 2000 && air > 2000, "a tube partly flooded with lava: lava " + lava + ", air " + air);
+    }
+
     /** No cave space under the water of a river or lake within its clearance (swallets aside). */
     @Test
     void riverAndLakeBedsStayIntact() {

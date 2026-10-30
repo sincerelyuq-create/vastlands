@@ -17,7 +17,8 @@ import net.minecraft.world.level.chunk.ChunkAccess;
  *     <li>{@link #fillDeepWater}: after noise filling and after carving, the open water of abyssal
  *     trenches below Y -54 is water, not the lava (and the aquifer lid above it) vanilla puts there.</li>
  *     <li>{@link #placeIceFields}: after feature decoration, the surface of polar seas becomes the
- *     fractured ice field of {@link FrozenSea}, replacing vanilla's frozen-ocean freezing.</li>
+ *     fractured ice field of {@link FrozenSea}, replacing vanilla's frozen-ocean freezing (rivers
+ *     and lakes keep vanilla's).</li>
  * </ul>
  * Both only read the chunk's own columns and pure functions of (x, z), so they do not depend on
  * generation order.
@@ -70,9 +71,11 @@ public final class OceanSurface {
     /**
      * Lays the fractured ice field over the polar sea columns of a chunk: ice, thick packed-ice
      * floes and pressure ridges at the water surface (sea level - 1), open water in cracks and
-     * leads. Only touches the water or ice of open sea columns (ground below the surface); icebergs
-     * (vanilla's frozen-ocean surface extension and iceberg feature) and other blocks stay, so the
-     * bergs stand frozen into the field.
+     * leads. Only touches the water or ice of open sea columns (ground below the surface; see
+     * {@link #iceFieldColumn}); icebergs (vanilla's frozen-ocean surface extension and iceberg
+     * feature) and other blocks stay, so the bergs stand frozen into the field. River and lake
+     * water that Vastlands places at sea level is not sea: it keeps the ice vanilla's
+     * {@code freeze_top_layer} gave it by its biome (a frozen river freezes over).
      */
     public static void placeIceFields(ChunkAccess chunk, GenerationSystems systems, int seaLevel) {
         GeographyModel geography = systems.terrain().geography();
@@ -89,13 +92,14 @@ public final class OceanSurface {
         }
         FrozenSea sea = geography.frozenSea();
         int y = seaLevel - 1;
+        boolean rivers = systems.hydrology().mayHoldWater(minX, minZ, minX + 15, minZ + 15);
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
         for (int dx = 0; dx < 16; dx++) {
             for (int dz = 0; dz < 16; dz++) {
                 int x = minX + dx;
                 int z = minZ + dz;
                 double strength = FrozenSea.strength(geography.seaLevelTemperature(x, z));
-                if (strength <= 0.0 || systems.surfaceHeight(x, z) > y - 0.5) {
+                if (strength <= 0.0 || !iceFieldColumn(systems, rivers, x, y, z)) {
                     continue;
                 }
                 BlockState top = chunk.getBlockState(pos.set(x, y, z));
@@ -143,9 +147,26 @@ public final class OceanSurface {
             GeographyModel geography = systems.terrain().geography();
             double strength = FrozenSea.strength(geography.seaLevelTemperature(water.getX(), water.getZ()));
             return strength > 0.0
-                    && systems.surfaceHeight(water.getX(), water.getZ()) <= water.getY() - 0.5
+                    && iceFieldColumn(systems, true, water.getX(), water.getY(), water.getZ())
                     && geography.frozenSea().cover(water.getX(), water.getZ(), strength) == FrozenSea.Cover.OPEN_WATER;
         }).orElse(false);
+    }
+
+    /**
+     * True if the surface block at {@code y} (sea level - 1) of a column belongs to an ice field:
+     * the ground lies below it and the water is the sea's (open sea, a sea-level basin, a river
+     * mouth), not river or lake water that Vastlands places at sea level. Those are frozen, or not,
+     * by their biome like every other river and lake; before, the field's cracks and leads opened
+     * the lower courses of polar rivers, and weather could not close them again.
+     *
+     * @param rivers false if the hydrology says no placed water can lie near the column (skips the
+     *               water query)
+     */
+    static boolean iceFieldColumn(GenerationSystems systems, boolean rivers, int x, int y, int z) {
+        if (systems.surfaceHeight(x, z) > y - 0.5) {
+            return false;
+        }
+        return !rivers || !systems.hydrology().water(x, z).placed();
     }
 
     private static boolean placeIfAir(ChunkAccess chunk, BlockPos pos, BlockState state) {

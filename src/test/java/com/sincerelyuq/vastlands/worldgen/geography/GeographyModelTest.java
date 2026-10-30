@@ -198,7 +198,7 @@ class GeographyModelTest {
     /** The terrain model is built on the geography: same continents, same climate. */
     @Test
     void terrainUsesTheGeography() {
-        TerrainModel terrain = new TerrainModel(5L, SEA, 470.0);
+        TerrainModel terrain = new TerrainModel(5L, SEA, 500.0);
         GeographyModel geography = model(5L);
         Random random = new Random(5);
         for (int i = 0; i < 500; i++) {

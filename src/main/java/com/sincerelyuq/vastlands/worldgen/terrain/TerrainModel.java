@@ -35,8 +35,23 @@ public final class TerrainModel {
     /** Gully depth of an octave relative to its cell size, at full strength. */
     private static final double GULLY_DEPTH = 0.22;
     private static final double GULLY_BRANCHING = 1.5;
-    /** Heights above maxHeight - SOFT_CAP_RANGE are compressed towards maxHeight. */
-    private static final double SOFT_CAP_RANGE = 60.0;
+    /**
+     * The macro elevation is compressed above maxHeight - CAP_KNEE (Y 410 in Vastlands worlds)
+     * towards an asymptote CAP_RANGE above the knee (Y 500), so the raw summits of the greatest
+     * ranges (Y 570..670) end at about Y 460..477 in the order of their heights. Gullies and crags
+     * are cut and added after that: the summit massifs keep the crags and gullies of their slopes
+     * (compressed with the rest of the relief they were a smooth dome, every great summit at
+     * Y 452..456).
+     */
+    private static final double CAP_KNEE = 90.0;
+    private static final double CAP_RANGE = 90.0;
+    /**
+     * The surface itself is compressed only above maxHeight - PEAK_KNEE (Y 470), towards
+     * maxHeight - PEAK_TOP (Y 487, below the top slide of the noise settings at 488): a safety
+     * margin for crags on the highest summits.
+     */
+    private static final double PEAK_KNEE = 30.0;
+    private static final double PEAK_TOP = 13.0;
 
     private final double seaLevel;
     private final double maxHeight;
@@ -83,7 +98,12 @@ public final class TerrainModel {
         double slope = Math.sqrt(slopeX * slopeX + slopeZ * slopeZ);
 
         double gullyDepth = -this.gullies(x, z, slopeX, slopeZ, slope, g);
-        double height = this.softCap(g.elevation() - gullyDepth + this.detail(x, z, g, slope));
+        double elevation = softCap(g.elevation(), this.maxHeight - CAP_KNEE, CAP_RANGE);
+        if (elevation < g.elevation()) {
+            // The gullies never cut below the regional base, also where the cap lowered the massif.
+            gullyDepth = Math.min(gullyDepth, Math.max(0.0, elevation - Math.max(g.baseHeight(), this.seaLevel + 2.0)));
+        }
+        double height = softCap(elevation - gullyDepth + this.detail(x, z, g, slope), this.maxHeight - PEAK_KNEE, PEAK_KNEE - PEAK_TOP);
 
         double relief = Math.max(0.0, height - g.baseHeight());
         double ruggedness = clamp01(Math.max(Math.max(g.mountainHeight() / 200.0, g.hilliness() * 0.5), smoothstep(0.3, 1.2, slope) * 0.7));
@@ -204,16 +224,12 @@ public final class TerrainModel {
         return x * (1.0 - x2 / 6.0 * (1.0 - x2 / 20.0 * (1.0 - x2 / 42.0 * (1.0 - x2 / 72.0))));
     }
 
-    /**
-     * Compresses heights approaching the top of the world into an asymptote at {@link #maxHeight}.
-     * The knee is high, so only the very highest summits are flattened a little.
-     */
-    private double softCap(double h) {
-        double knee = this.maxHeight - SOFT_CAP_RANGE;
+    /** Compresses heights above {@code knee} into an asymptote {@code range} above it. */
+    private static double softCap(double h, double knee, double range) {
         if (h <= knee) {
             return h;
         }
         double over = h - knee;
-        return knee + over / (1.0 + over / SOFT_CAP_RANGE);
+        return knee + over / (1.0 + over / range);
     }
 }

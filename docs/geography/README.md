@@ -27,3 +27,10 @@ with `tools/worldcheck/oceancheck.py --png`.
 | `ingame-dry-flank.jpg` | world `dry2`: badlands on the flank of the dry range (terracotta bands) |
 | `ingame-dry-range-summit.jpg` | world `dry1`: the summit of the same range above Y 250 (frozen peaks: high ground is cold even in a hot region) |
 | `ingame-foothills.jpg` | world `pm1`: old growth birch forest on the hills at the foot of a mountain system |
+
+Agent 8: rendered from the geography model with the classes of the code before and after (a
+scratch harness on the pure-Java models: the Gradle build could not run in Agent 8's session).
+
+| File | What |
+|---|---|
+| `preview8-ice-edge-before-after.jpg` | 3 072 blocks around 38542,67989 (seed 20261018), 3 blocks per pixel, before (left) and after (right): ice white, thick floes light blue, ridges grey, open water dark blue; red line: the edge of the frozen ocean biomes (sea-level temperature -0.45), yellow line: frozen ocean against deep frozen ocean (ice strength 0.3). Before, the whole band between the lines was open water under frozen ocean biomes; now broken floes start at the biome edge and close into the firm field within ~200 blocks |

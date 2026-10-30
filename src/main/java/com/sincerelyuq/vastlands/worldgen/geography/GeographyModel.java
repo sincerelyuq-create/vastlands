@@ -44,6 +44,14 @@ public final class GeographyModel {
     private static final double OCEAN_REGION_AMPLITUDE = 1.3;
     /** Mountain crest envelope of the strongest ranges, in blocks (Agent 2). */
     private static final double MOUNTAIN_ENVELOPE = 380.0;
+    /**
+     * The greatest mountain systems: in a few regions of a 30 000-block field, the cores of major
+     * ranges (stature near 1) rise up to this share higher, so their summits stand above those of
+     * every other range (about Y 475 after the terrain's soft cap, against 460..474 for the
+     * other great ranges, measured over 262 144 blocks of seeds 1 and 20261018).
+     */
+    private static final double EXCEPTIONAL_UPLIFT = 0.16;
+    private static final double EXCEPTIONAL_SCALE = 30000.0;
     /** Depth of the strongest trenches below the abyssal plain, in blocks. */
     private static final double TRENCH_DEPTH = 135.0;
     /** Temperature: gain and offset of the zonal noise, calibrated to vanilla's band shares. */
@@ -60,7 +68,7 @@ public final class GeographyModel {
     private final SimplexNoise continentWarpX, continentWarpZ, continent;
     private final SimplexNoise basinNoise, swellNoise;
     private final SimplexNoise hillMask, hillNoise;
-    private final SimplexNoise beltWarpX, beltWarpZ, belt, beltDetail, beltActivity, uplift;
+    private final SimplexNoise beltWarpX, beltWarpZ, belt, beltDetail, beltActivity, uplift, exceptional;
     private final SimplexNoise crest, peaks, alpineNoise, alpineRidges;
     private final SimplexNoise plateauWarpX, plateauWarpZ, plateauMask, plateauHeight;
     // Geography.
@@ -113,6 +121,7 @@ public final class GeographyModel {
         this.moistureNoise = new SimplexNoise(s + 59);
         this.moistureLocal = new SimplexNoise(s + 60);
         this.wind = new SimplexNoise(s + 61);
+        this.exceptional = new SimplexNoise(s + 63);
         this.frozenSea = new FrozenSea(seed);
     }
 
@@ -237,6 +246,7 @@ public final class GeographyModel {
         double alpine = smoothstep(-0.35, 0.35, fbm(this.alpineNoise, x / (9000.0 * k), z / (9000.0 * k), 2, 0.5));
         if (d < 1.3 && activity > 0.0) {
             double stature = 0.35 + 0.65 * smoothstep(-0.2, 0.7, fbm(this.uplift, x / (16000.0 * k), z / (16000.0 * k), 2, 0.5));
+            stature *= this.exceptional(x, z, k, stature);
             // Massifs and passes along the range.
             double crestLine = 0.3 + 0.7 * smoothstep(-0.55, 0.45, fbm(this.crest, x / 2200.0, z / 2200.0, 2, 0.5));
             // Individual peaks and cols.
@@ -455,8 +465,22 @@ public final class GeographyModel {
             return 0.0;
         }
         double stature = 0.35 + 0.65 * smoothstep(-0.2, 0.7, fbm(this.uplift, x / (16000.0 * k), z / (16000.0 * k), 2, 0.5));
+        stature *= this.exceptional(x, z, k, stature);
         double t = 1.0 - d;
         return MOUNTAIN_ENVELOPE * 0.65 * stature * activity * t * t * (1.6 - 0.6 * t);
+    }
+
+    /**
+     * Uplift of the greatest mountain systems (1 elsewhere): continuous, it rises with the
+     * stature of the range from 0.75 to 1 inside the regions of a 30 000-block field, so a major
+     * range swells into its highest massif over thousands of blocks instead of stepping up.
+     */
+    private double exceptional(double x, double z, double k, double stature) {
+        if (stature <= 0.75) {
+            return 1.0;
+        }
+        double field = smoothstep(0.3, 0.65, fbm(this.exceptional, x / (EXCEPTIONAL_SCALE * k), z / (EXCEPTIONAL_SCALE * k), 2, 0.5));
+        return 1.0 + EXCEPTIONAL_UPLIFT * field * smoothstep(0.75, 1.0, stature);
     }
 
     private Landform classify(Macro m) {
