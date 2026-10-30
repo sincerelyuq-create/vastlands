@@ -7,11 +7,11 @@ Project: Vastlands
 Minecraft: 1.21.8
 Loader: NeoForge 21.8.57
 
-Build status: Agent 8's session could not run Gradle (the network policy refused
-maven.neoforged.net and the Mojang hosts, see "Agent 8" below):
-its changes were compiled and tested with javac and JUnit on the game-free sources (55 of the 104
-test methods, all pass); the game-dependent tests, `./gradlew build` and in-game checks were not
-run and are the first thing to do next. The "Vastlands" world type generates a
+Build status: `./gradlew build` builds the jar (Agent 8 follow-up, after the network was opened);
+`./gradlew test`: 104 tests, 103 passed in the full run, `RiverWaterTest` failed there because its
+test server parameter was null (a harness failure, not an assertion) and passed when rerun alone.
+Agent 8's changes and the follow-up were checked in generated worlds on the dev server (see
+"Agent 8 follow-up" below). The "Vastlands" world type generates a
 continent-scale geography in a world of Y -256..511: open oceans with shelves, continental slopes,
 abyssal plains (Y -22..-30), mid-ocean ridges, seamounts and rare trenches (to Y ~-160); continents
 with vast plains provinces, hill country, mountain systems with branch ranges (peaks up to Y ~450),
@@ -59,6 +59,44 @@ Development Roadmap
 - [x] Agent 6 — Natural Wonders: natural formations at the surface and in the caves, moss by grass colour, procedural mushrooms, deadwood.
 - [x] Agent 7 — Integration: Sincerelyuq's Biomes and Sincerelyuq's Overhaul as optional parts of one world (see ARCHITECTURE.md, Integration).
 - [x] Agent 8 — Final polish: frozen seas and rivers, exceptional mountain systems, lava tubes, expanded bioluminescent depths, audit.
+
+Latest Completed Work (Agent 8 follow-up — In-Game Checks and Fixes)
+
+After the first in-game play of Agent 8's jar (reported: a sharp, chunk-aligned edge between ice
+and open water on a frozen coast, no deep frozen ocean, no high mountains or lava tubes found, the
+amethyst caves' ceiling layer of Sincerelyuq's Biomes gone). Checked with `tools/worldcheck` on the
+dev server, seed 20261018, Sincerelyuq's Biomes 1.0.0 installed (the jar the user sent, in
+`run/mods`, not in the repository):
+
+- Frozen coast (528-block square at 56832,9216, `oceancheck.py` and a comparison of the sea
+  surface with the `FrozenSea` model): ~7 700 columns of open water where the pattern has ice,
+  from two causes: river mouths at sea level that Agent 8 left to vanilla by biome (taiga: open),
+  and the shallowest shore water, which the ice field's ground test (surface <= sea level - 1.5,
+  older than Agent 8) left to vanilla too. Fixed in `OceanSurface`: ~390 left (icebergs, inland
+  lakes). Chunk-border share of surface changes 2.5% against 2.1% inside chunks. The user's exact
+  place was not reproduced (no seed or coordinates given); these two are the causes found.
+- Deep frozen ocean: every iced sea was a frozen ocean (older than Agent 8). Now seas deeper than
+  45 blocks are deep frozen oceans (`BiomeClimate.FROZEN_SHELF_DEPTH`); 500 of its biome cells in
+  the square above.
+- Mountains: Agent 8's summit coordinates (48475,50461 and the others in `TerrainModelTest`) are
+  coordinates of `new TerrainModel(20261018L, ...)`; the game seeds the terrain model with a seed
+  derived from the world seed (`setup.random("terrain")`), so in a world of seed 20261018 that
+  place is hills (ground max Y 137 in game). The world's own highest summits (model through
+  `GenerationSystems`, ±60 000 blocks): 55184,3152 Y 470.2, 57064,2776 Y 469.4, 4568,16300 Y 469.3,
+  6436,17312 Y 464.0, 31920,1464 Y 464.8. Generated at 4568,16300: ground max Y 476 (formations on
+  it included), mean 443; the terrain's steepest step there 1.6 blocks.
+- Lava tubes at 5629,-8594 (192-block square): below Y -206, 12 431 lava and 33 726 air blocks;
+  `integrationcheck.py`: 0 lava sources open to air; the bedrock floor intact.
+- Amethyst ceilings: the mod's `amethyst_caves_ceiling` feature is in
+  `#vastlands:integration/replaced` since Agent 7, but nothing replaced it. `IntegrationSurface`
+  now lays amethyst ceilings (see ARCHITECTURE.md, Integration); measured in game at 384,128.
+- A crash found while searching for test places: `BasinRivers` threw a NullPointerException when
+  a reach's downstream cell belonged to another basin (model, seed 20261018 near 75264,7488;
+  older than Agent 8; not reproduced in game). Fixed; a scan of the model every 640 blocks over
+  ±120 000 for others was still running when this was written (see the commit that follows).
+
+Not verified: the user's own world and place; real GPU rendering; the glowing amethyst share
+after its threshold was lowered.
 
 Latest Completed Work (Agent 8 — Final Polish: Frozen Water, Mountains, Lava Tubes, Bioluminescent Depths)
 
@@ -202,7 +240,8 @@ Instructions for the Next Agent
    above Y 300 (higher summits).
 2. Check in game (seed 20261018, `tools/worldcheck/generate.py`): the ice edge at 38542,67989 and a
    polar river at sea level near -53856,4512 (e.g. -53384,4868, frozen over now) with
-   `oceancheck.py`; the exceptional summit at 48475,50461 (Y ~477) with `heightmap.py`; lava tubes
+   `oceancheck.py`; a summit of the world at 4568,16300 (Y ~469; 48475,50461 is a summit of the
+   terrain model's own seed, not of the world, see the follow-up above) with `heightmap.py`; lava tubes
    at 5629,-8594 (partly flooded, Y -247..-206) and -3584,7680 with `cavecheck.py`; with
    Sincerelyuq's Biomes installed, the luminous caves at -6048,3552 and 672,6432 with
    `naturecheck.py` and `integrationcheck.py`.

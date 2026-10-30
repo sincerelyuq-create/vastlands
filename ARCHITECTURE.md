@@ -642,6 +642,12 @@ Frozen seas (`FrozenSea`, `OceanSurface.placeIceFields`, `ServerLevelMixin`):
   frozen oceans down to -0.53 held 0..8% ice and deep frozen oceans 0..5% (vanilla gives deep
   frozen oceans temperature 0.5, so neither `freeze_top_layer` nor weather freezes them), the
   reported "frozen oceans without surface ice".
+- Biomes: deep frozen ocean below strength 0.3; above it frozen ocean down to 45 blocks of water
+  and deep frozen ocean deeper (`BiomeClimate.FROZEN_SHELF_DEPTH`, follow-up to Agent 8; before,
+  every iced sea was a frozen ocean, so deep frozen oceans only lined the warm edge of the band and
+  were hardly found in game). About two thirds of the iced seas are deeper than that (model,
+  ±120 000 blocks). The ice field covers both alike; deep frozen oceans have rain, not snow, as in
+  vanilla, and weather does not refreeze broken ice there.
 - Pattern: two domain-warped Voronoi networks (warp 40 blocks at 300 plus 5 at 40, so edges curve
   and jag). Large floes (~170 blocks): their edges are, depending on a 650-block noise that varies
   along them, narrow cracks (2–4 blocks), wide open leads (up to ~30 blocks) or closed pressure
@@ -658,8 +664,13 @@ Frozen seas (`FrozenSea`, `OceanSurface.placeIceFields`, `ServerLevelMixin`):
   cracks again), every open-sea column (ground below the surface) with ice strength > 0 gets ice,
   packed ice or water at sea level - 1 by the pattern; only water and ice blocks are touched, so
   vanilla's icebergs stand frozen into the field. River and lake water that Vastlands places at
-  sea level is not sea (`OceanSurface.iceFieldColumn`, Agent 8): it keeps the ice its biome gave
-  it (a frozen river freezes over). Before, the step laid its cracks and leads over the lower
+  sea level is not sea (`OceanSurface.iceFieldColumn`, Agent 8): no cracks or leads open in it;
+  inside the firm field (strength 0.3 and more) it freezes over whole, also where its biome would
+  not freeze it (river mouths in taiga stayed open water in game until the follow-up below). An
+  open-sea column is one whose top block (`ceil(surface) - 1`) lies below sea level - 1; the test
+  was surface <= sea level - 1.5 before, which left the shallowest water along the shores to
+  vanilla (open in taiga and beach biomes). Measured in game (seed 20261018, 528-block square at
+  56832,9216): open water where the pattern has ice ~7 700 columns -> ~390. Before, the step laid its cracks and leads over the lower
   courses of polar rivers (a third of ~1.2 million such columns in a 120 km square were opened, the
   ice of `freeze_top_layer` replaced by water) and the mixin kept them open. `ServerLevelMixin`
   stops weather from freezing water in a crack of a Vastlands ice field (vanilla freezes water at
@@ -889,8 +900,10 @@ Router and integration:
   the water surface rather than on the channel floor.
 - Freezing is vanilla's: rivers and lakes in cold biomes (frozen river, snowy biomes) freeze by
   `freeze_top_layer` and weather. `ServerLevelMixin` only keeps sea ice field cracks open; since
-  Agent 8 the ice field step and the mixin leave river and lake water at sea level alone (before,
-  they laid the sea's cracks over the lower courses of polar rivers, see Geography, Frozen seas).
+  Agent 8 the ice field step lays no cracks over river and lake water at sea level and freezes it
+  whole inside the frozen sea (before, it laid the sea's cracks over the lower courses of polar
+  rivers, see Geography, Frozen seas). River water above sea level freezes by its biome only: a
+  river in taiga stays open even in a polar climate.
   Fall sills in cold biomes still freeze (PROGRESS.md, Known Issues).
 - F3: a "Vastlands hydrology" line (water kind and top, ground, nearest river: width, top, distance).
 
@@ -1717,7 +1730,13 @@ Who owns what:
   climate, hydrology and caves. The `something_biome` and its `something` dimension are untouched.
 - The mod's surface rules are not added to the Vastlands overworld either:
   `compat/IntegrationSurface` builds equivalent rules (with fixes for the taller world) and
-  `NoiseBasedChunkGeneratorMixin` puts them in front of the Vastlands rules.
+  `NoiseBasedChunkGeneratorMixin` puts them in front of the Vastlands rules. Amethyst cave
+  ceilings (follow-up to Agent 8): the mod's ceiling patches are replaced, but until then nothing
+  laid ceilings in their place, so the amethyst caves had bare stone ceilings in Vastlands worlds;
+  the rules now lay amethyst with some glowing amethyst and calcite streaks on them, calcite
+  behind. In game with the mod (seed 20261018, 256-block square at 384,128): amethyst cave
+  ceilings 80% amethyst, 10.5% glowing amethyst, 5% calcite with the first threshold, then the
+  glowing share was lowered (noise threshold 0.45 -> 0.6, not measured again).
 - The mod's features that Vastlands builds better from its own models are not placed
   (`#vastlands:integration/replaced`: giant lumen, depths floor, lumen pond, amethyst floors,
   ceilings, spikes and lake, smoldering forge, sand dune, ash vent); the rest are kept, guarded
